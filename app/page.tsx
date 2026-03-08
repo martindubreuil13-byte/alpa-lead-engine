@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type Lead = {
@@ -20,13 +21,12 @@ export default function Page() {
 
   async function fetchLeads() {
     const { data } = await supabase.from('leads').select('*')
-    if (data) setLeads(data)
+    if (data) setLeads(data as Lead[])
   }
 
   return (
     <div style={layout}>
 
-      {/* SIDEBAR */}
       <aside style={sidebar}>
         <div style={logo}>OutreachDesk</div>
 
@@ -43,10 +43,8 @@ export default function Page() {
         </div>
       </aside>
 
-      {/* MAIN AREA */}
       <main style={main}>
 
-        {/* HEADER */}
         <div style={header}>
           <div>
             <h1 style={title}>Leads</h1>
@@ -59,7 +57,6 @@ export default function Page() {
           </div>
         </div>
 
-        {/* METRICS */}
         <div style={metricsGrid}>
           <Metric label="Total" value={leads.length} />
           <Metric label="New" value={count(leads,'new')} />
@@ -67,7 +64,6 @@ export default function Page() {
           <Metric label="Active" value={count(leads,'active')} />
         </div>
 
-        {/* TABLE */}
         <div style={tableCard}>
           <table style={table}>
             <thead>
@@ -86,9 +82,7 @@ export default function Page() {
                   <Td>{l.industry}</Td>
                   <Td>{l.email}</Td>
                   <Td>{l.phone || '—'}</Td>
-                  <Td>
-                    <Status status={l.status}/>
-                  </Td>
+                  <Td><Status status={l.status}/></Td>
                 </tr>
               ))}
             </tbody>
@@ -152,46 +146,46 @@ function color(s:string){
 
 /* ---------- STYLES ---------- */
 
-const layout={display:'flex',height:'100vh',fontFamily:'Inter, system-ui'}
+const layout: CSSProperties = {display:'flex',height:'100vh',fontFamily:'Inter, system-ui'}
 
-const sidebar={width:240,background:'#0f172a',padding:20,display:'flex',flexDirection:'column'}
+const sidebar: CSSProperties = {width:240,background:'#0f172a',padding:20,display:'flex',flexDirection:'column'}
 
-const logo={color:'white',fontWeight:700,fontSize:18,marginBottom:30}
+const logo: CSSProperties = {color:'white',fontWeight:700,fontSize:18,marginBottom:30}
 
-const nav={display:'flex',flexDirection:'column',gap:6}
+const nav: CSSProperties = {display:'flex',flexDirection:'column',gap:6}
 
-const sidebarFooter={marginTop:'auto',color:'#64748b',fontSize:12}
+const sidebarFooter: CSSProperties = {marginTop:'auto',color:'#64748b',fontSize:12}
 
-const main={flex:1,background:'#f8fafc',padding:32,overflow:'auto'}
+const main: CSSProperties = {flex:1,background:'#f8fafc',padding:32,overflow:'auto'}
 
-const header={display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:28}
+const header: CSSProperties = {display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:28}
 
-const title={margin:0,fontSize:28}
+const title: CSSProperties = {margin:0,fontSize:28}
 
-const subtitle={margin:'4px 0 0',color:'#64748b',fontSize:14}
+const subtitle: CSSProperties = {margin:'4px 0 0',color:'#64748b',fontSize:14}
 
-const headerActions={display:'flex',gap:10}
+const headerActions: CSSProperties = {display:'flex',gap:10}
 
-const primaryBtn={background:'#2563eb',color:'white',border:'none',padding:'10px 16px',borderRadius:8,fontWeight:600,cursor:'pointer'}
+const primaryBtn: CSSProperties = {background:'#2563eb',color:'white',border:'none',padding:'10px 16px',borderRadius:8,fontWeight:600,cursor:'pointer'}
 
-const secondaryBtn={background:'white',border:'1px solid #e2e8f0',padding:'10px 16px',borderRadius:8,fontWeight:600,cursor:'pointer'}
+const secondaryBtn: CSSProperties = {background:'white',border:'1px solid #e2e8f0',padding:'10px 16px',borderRadius:8,fontWeight:600,cursor:'pointer'}
 
-const metricsGrid={display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}
+const metricsGrid: CSSProperties = {display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}
 
-const metricCard={background:'white',padding:18,borderRadius:12,border:'1px solid #e2e8f0'}
+const metricCard: CSSProperties = {background:'white',padding:18,borderRadius:12,border:'1px solid #e2e8f0'}
 
-const metricValue={fontSize:24,fontWeight:700}
+const metricValue: CSSProperties = {fontSize:24,fontWeight:700}
 
-const metricLabel={fontSize:13,color:'#64748b'}
+const metricLabel: CSSProperties = {fontSize:13,color:'#64748b'}
 
-const tableCard={background:'white',borderRadius:12,border:'1px solid #e2e8f0',overflow:'hidden'}
+const tableCard: CSSProperties = {background:'white',borderRadius:12,border:'1px solid #e2e8f0',overflow:'hidden'}
 
-const table={width:'100%',borderCollapse:'collapse'}
+const table: CSSProperties = {width:'100%',borderCollapse:'collapse'}
 
 const Th=(p:any)=><th style={{textAlign:'left',padding:14,fontSize:13,color:'#64748b',borderBottom:'1px solid #e2e8f0'}}>{p.children}</th>
 
 const Td=(p:any)=><td style={{padding:14,fontSize:14,fontWeight:p.strong?600:400}}>{p.children}</td>
 
-const row={borderBottom:'1px solid #f1f5f9'}
+const row: CSSProperties = {borderBottom:'1px solid #f1f5f9'}
 
-const empty={padding:40,textAlign:'center',color:'#64748b'}
+const empty: CSSProperties = {padding:40,textAlign:'center',color:'#64748b'}
