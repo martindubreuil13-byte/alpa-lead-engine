@@ -29,43 +29,45 @@ async function fetchPlaces(
   maxLeads: number,
   send: (msg: string) => void
 ) {
+  let allResults: any[] = []
+  let nextPageToken: string | undefined = undefined
+  let page = 1
+
   send('🌍 Contacting Google Places API...')
 
-  let allResults: any[] = []
-  let nextPageToken: string | null = null
-  let page = 0
-  const maxPages = 5 // 5 pages ≈ 100 results max
+  while (allResults.length < maxLeads && page <= 5) {
+    const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`
+    const params = new URLSearchParams({
+      query,
+      key: GOOGLE_API_KEY
+    })
 
-  do {
-    page++
-
-    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${GOOGLE_API_KEY}`
     if (nextPageToken) {
-      url += `&pagetoken=${nextPageToken}`
-      send(`⏳ Loading page ${page}...`)
-      await new Promise(r => setTimeout(r, 2000)) // Google requires delay
+      params.append('pagetoken', nextPageToken)
+      send(`⏳ Waiting for next page token...`)
+      await new Promise(r => setTimeout(r, 2000))
     }
 
-    const res = await fetch(url)
+    send(`📄 Fetching page ${page}...`)
+
+    const res = await fetch(`${baseUrl}?${params.toString()}`)
     const data = await res.json()
 
-    if (!data.results) break
+    if (data.results) {
+      allResults.push(...data.results)
+    }
 
-    allResults = allResults.concat(data.results)
-    nextPageToken = data.next_page_token || null
+    nextPageToken = data.next_page_token
+    if (!nextPageToken) break
 
-    send(`📄 Page ${page}: ${data.results.length} places found`)
-
-  } while (nextPageToken && page < maxPages && allResults.length < maxLeads)
-
-  if (allResults.length === 0) throw new Error('No results from Google')
+    page++
+  }
 
   send(`📡 Total places collected: ${allResults.length}`)
 
-  // Shuffle results to avoid same order every scrape
   const shuffled = allResults.sort(() => Math.random() - 0.5)
-
   const selectedCount = Math.min(maxLeads, shuffled.length)
+
   send(`🎯 Selecting ${selectedCount} places`)
 
   return shuffled.slice(0, selectedCount)

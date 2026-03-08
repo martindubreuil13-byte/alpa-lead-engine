@@ -17,7 +17,7 @@ const COUNTRY_OPTIONS = [
   'Other',
 ]
 
-const LEAD_OPTIONS = ['10', '25', '50', '100']
+const LEAD_OPTIONS = ['10', '25', '50']
 
 export default function Page() {
   const [loading, setLoading] = useState(false)
