@@ -23,32 +23,53 @@ function streamResponse(stream: ReadableStream) {
   })
 }
 
-/* ---------------- FETCH PLACES ---------------- */
+/* ---------------- FETCH PLACES (PAGINATED) ---------------- */
 async function fetchPlaces(
   query: string,
   maxLeads: number,
   send: (msg: string) => void
 ) {
-  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${GOOGLE_API_KEY}`
-
   send('🌍 Contacting Google Places API...')
-  const res = await fetch(url)
-  const data = await res.json()
 
-  if (!data.results) throw new Error('No results from Google')
+  let allResults: any[] = []
+  let nextPageToken: string | null = null
+  let page = 0
+  const maxPages = 5 // 5 pages ≈ 100 results max
 
-  const totalFound = data.results.length
-  send(`📡 Google returned ${totalFound} places`)
+  do {
+    page++
 
-  // Shuffle so we don't always scrape same businesses
-  const shuffled = data.results.sort(() => Math.random() - 0.5)
+    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${GOOGLE_API_KEY}`
+    if (nextPageToken) {
+      url += `&pagetoken=${nextPageToken}`
+      send(`⏳ Loading page ${page}...`)
+      await new Promise(r => setTimeout(r, 2000)) // Google requires delay
+    }
+
+    const res = await fetch(url)
+    const data = await res.json()
+
+    if (!data.results) break
+
+    allResults = allResults.concat(data.results)
+    nextPageToken = data.next_page_token || null
+
+    send(`📄 Page ${page}: ${data.results.length} places found`)
+
+  } while (nextPageToken && page < maxPages && allResults.length < maxLeads)
+
+  if (allResults.length === 0) throw new Error('No results from Google')
+
+  send(`📡 Total places collected: ${allResults.length}`)
+
+  // Shuffle results to avoid same order every scrape
+  const shuffled = allResults.sort(() => Math.random() - 0.5)
 
   const selectedCount = Math.min(maxLeads, shuffled.length)
   send(`🎯 Selecting ${selectedCount} places`)
 
   return shuffled.slice(0, selectedCount)
 }
-
 /* ---------------- FETCH DETAILS ---------------- */
 async function fetchPlaceDetails(placeId: string) {
   const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_phone_number,website,types,address_components&key=${GOOGLE_API_KEY}`
