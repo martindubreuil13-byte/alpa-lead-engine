@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Premium Tech Theme ===== */
+
+:root {
+  --bg-main: #0b1020;
+  --bg-sidebar: #0f172a;
+  --bg-card: rgba(255,255,255,0.06);
+  --border-subtle: rgba(255,255,255,0.08);
+  --accent-primary: #00ffd1;
+  --accent-secondary: #2563eb;
+  --text-main: #e2e8f0;
+  --text-muted: #94a3b8;
+}
+
+html, body {
+  background: linear-gradient(180deg, #0b1020 0%, #0a0f1d 100%);
+  color: var(--text-main);
+}
+
+/* Glass card */
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  border-radius: 16px;
+}
+
+/* Premium buttons */
+.btn-primary {
+  background: linear-gradient(135deg, #00ffd1, #2563eb);
+  color: #001018;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 10px;
+  transition: all .2s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,255,209,0.25);
+}
+/* ===== Premium Tech Background ===== */
+body {
+  background: radial-gradient(
+      circle at 20% 10%,
+      rgba(56, 189, 248, 0.08),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 80% 0%,
+      rgba(16, 185, 129, 0.07),
+      transparent 40%
+    ),
+    #0b1220;
+}
+
+/* ===== Premium Glass Card ===== */
+.glass {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    inset 0 1px rgba(255,255,255,0.04);
+  transition: all 0.25s ease;
+}
+
+/* ===== Neon Hover Glow ===== */
+.glass:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(56,189,248,0.25),
+    0 0 30px rgba(56,189,248,0.15);
+}
+.input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: white;
+}

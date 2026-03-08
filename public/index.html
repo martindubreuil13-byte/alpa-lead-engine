@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Content Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local Content Studio</p>
+          <h1>Content Planner</h1>
+          <p class="subhead">Guidelines, ideas, and ready-to-post drafts in one place.</p>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </header>
+
+      <nav class="nav">
+        <button class="nav-btn active" data-section="guidelines">Guidelines</button>
+        <button class="nav-btn" data-section="ideas">Ideas</button>
+        <button class="nav-btn" data-section="planner">Planner</button>
+        <button class="nav-btn" data-section="generator">Generator</button>
+      </nav>
+
+      <main class="content">
+        <section id="guidelines" class="panel active">
+          <div class="panel-head">
+            <h2>Channel Guidelines</h2>
+            <p>Edit per-channel rules and tone. Saved locally.</p>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <label class="label">Channel</label>
+              <select id="guidelineChannel"></select>
+              <label class="label">Purpose (short)</label>
+              <input id="guidelinePurpose" type="text" placeholder="Short summary of the channel role" />
+              <label class="label">Full Guidelines</label>
+              <textarea id="guidelineText" rows="16" placeholder="Paste your full guidelines here"></textarea>
+              <button id="saveGuidelines" class="primary">Save Guidelines</button>
+            </div>
+            <div class="card subtle">
+              <h3>Quick Notes</h3>
+              <ul class="note-list">
+                <li>LinkedIn short posts should avoid CTAs.</li>
+                <li>Keep tone calm, confident, grounded, precise.</li>
+                <li>LinkedIn creates curiosity, not completeness.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="ideas" class="panel">
+          <div class="panel-head">
+            <h2>Idea Inbox</h2>
+            <p>Drop ideas the moment they appear. Use them later.</p>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <label class="label">Title</label>
+              <input id="ideaTitle" type="text" placeholder="Short idea title" />
+              <label class="label">Brief</label>
+              <textarea id="ideaBrief" rows="6" placeholder="Quick description or angle"></textarea>
+              <label class="label">Tension (optional)</label>
+              <input id="ideaTension" type="text" placeholder="The contradiction or friction" />
+              <label class="label">Point (optional)</label>
+              <input id="ideaPoint" type="text" placeholder="Your core takeaway" />
+              <label class="label">Soft CTA (optional)</label>
+              <input id="ideaCta" type="text" placeholder="Invitational closing line" />
+              <button id="addIdea" class="primary">Add Idea</button>
+            </div>
+            <div class="card">
+              <div class="idea-head">
+                <h3>Saved Ideas</h3>
+                <input id="ideaSearch" type="text" placeholder="Search ideas" />
+              </div>
+              <div id="ideaList" class="idea-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="planner" class="panel">
+          <div class="panel-head">
+            <h2>Weekly Planner</h2>
+            <p>Select days and channels. Pair with ideas when ready.</p>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <label class="label">Date</label>
+              <input id="planDate" type="date" />
+              <label class="label">Channel</label>
+              <select id="planChannel"></select>
+              <label class="label">Idea IDs (optional)</label>
+              <input id="planIdeas" type="text" placeholder="Comma-separated idea IDs" />
+              <label class="label">Notes</label>
+              <textarea id="planNotes" rows="4" placeholder="Notes for this day"></textarea>
+              <button id="addPlan" class="primary">Add To Planner</button>
+            </div>
+            <div class="card">
+              <h3>Scheduled Posts</h3>
+              <div id="planList" class="plan-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="generator" class="panel">
+          <div class="panel-head">
+            <h2>Generator</h2>
+            <p>Pick a channel and ideas, then generate ready-to-post copy.</p>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <label class="label">Channel</label>
+              <select id="genChannel"></select>
+              <label class="label">LinkedIn Post Type</label>
+              <select id="genType">
+                <option value="short">Short Signal (3-6 lines)</option>
+                <option value="medium">Medium Reflection (6-12 lines)</option>
+                <option value="long">Long Authority (15-25 lines)</option>
+              </select>
+              <label class="label">Select Ideas</label>
+              <div id="genIdeas" class="idea-picker"></div>
+              <label class="checkbox">
+                <input id="genIncludeCta" type="checkbox" checked />
+                Include CTA if provided
+              </label>
+              <button id="generate" class="primary">Generate Draft</button>
+            </div>
+            <div class="card">
+              <label class="label">Ready-to-Post Copy</label>
+              <textarea id="genOutput" rows="18" placeholder="Your output will appear here"></textarea>
+              <button id="copyOutput" class="ghost">Copy to Clipboard</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

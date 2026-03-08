@@ -1,0 +1,7 @@
+{
+  "/dashboard/scraper/page": "app/dashboard/scraper/page.js",
+  "/dashboard/settings/page": "app/dashboard/settings/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/dashboard/templates/page": "app/dashboard/templates/page.js",
+  "/dashboard/leads/page": "app/dashboard/leads/page.js"
+}
