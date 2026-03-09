@@ -12,28 +12,35 @@ export default function DashboardLayout({
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
-    { href: '/dashboard/leads', label: 'Leads' },
+    { href: '/dashboard/leads', label: 'Leads Inbox' },
+{ href: '/dashboard/enrich', label: 'Review Leads' },
     { href: '/dashboard/kanban', label: 'Pipeline' },
     { href: '/dashboard/scraper', label: 'Prospector' },
     { href: '/dashboard/templates', label: 'Templates' },
     { href: '/dashboard/settings', label: 'Settings' },
   ]
 
+  function isActive(href: string) {
+    if (href === '/dashboard') return pathname === href
+    return pathname.startsWith(href)
+  }
+
   return (
     <div className="min-h-screen flex bg-[#0b1220] text-white">
+      {/* SIDEBAR */}
       <aside className="w-64 bg-[#0f172a] border-r border-white/5 p-6 flex flex-col">
-        
-        {/* BRAND BLOCK */}
+
+        {/* BRAND */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-emerald-400 flex items-center justify-center font-bold text-black text-lg shadow-lg shadow-cyan-500/20">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-400 to-emerald-400 flex items-center justify-center font-bold text-black text-lg shadow-lg shadow-cyan-500/20">
             A
           </div>
           <div>
-            <div className="text-lg font-semibold tracking-tight text-white">
+            <div className="text-lg font-semibold tracking-tight">
               ALPA
             </div>
             <div className="text-xs text-slate-500">
-              Autonomous Lead Prospecting Agent
+              Autonomous Lead Engine
             </div>
           </div>
         </div>
@@ -41,40 +48,44 @@ export default function DashboardLayout({
         {/* NAVIGATION */}
         <nav className="mt-12 space-y-2">
           {navItems.map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== '/dashboard' && pathname.startsWith(item.href))
+            const active = isActive(item.href)
 
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`block rounded-xl px-4 py-3 text-sm transition ${
+                className={`group flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-all ${
                   active
                     ? 'bg-white/10 text-white border border-white/10 shadow-inner'
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                {item.label}
+                <span>{item.label}</span>
+
+                {active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                )}
               </Link>
             )
           })}
         </nav>
 
         {/* FOOTER */}
-        <div className="mt-auto pt-6 space-y-2">
+        <div className="mt-auto pt-8 space-y-2">
           <div className="text-xs text-slate-500">
-            ALPA • Intelligence Engine
+            ALPA • Intelligence System
           </div>
           <div className="text-xs text-slate-600">
-            Build v1.0
+            Build v1.1
           </div>
         </div>
-
       </aside>
 
+      {/* MAIN CONTENT */}
       <main className="flex-1 p-10">
-        <div className="max-w-7xl mx-auto">{children}</div>
+        <div className="max-w-7xl mx-auto">
+          {children}
+        </div>
       </main>
     </div>
   )

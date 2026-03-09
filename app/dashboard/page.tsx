@@ -6,13 +6,14 @@ import { supabase } from '@/lib/supabase'
 export default function Page() {
   const [stats, setStats] = useState({
     total: 0,
-    contactable: 0,
-    newLeads: 0,
-    outreach: 0,
+    inbox: 0,
+    review: 0,
+    pipeline: 0,
+    contacted: 0,
     followups: 0,
   })
 
-  const [pipeline, setPipeline] = useState<Record<string, number>>({})
+  const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
 
   useEffect(() => {
     fetchStats()
@@ -20,74 +21,67 @@ export default function Page() {
   }, [])
 
   async function fetchStats() {
-    // TOTAL
-    const { count: total } = await supabase
+    const { data } = await supabase
       .from('leads')
-      .select('*', { count: 'exact', head: true })
+      .select('status')
 
-    // CONTACTABLE (has email OR phone)
-    const { data: contactableData } = await supabase
-      .from('leads')
-      .select('email, phone')
+    if (!data) return
 
-    const contactable =
-      contactableData?.filter(l => l.email || l.phone).length || 0
+    const total = data.length
 
-    // NEW (not yet touched)
-    const { count: newLeads } = await supabase
-      .from('leads')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'new')
+    const inbox = data.filter(l =>
+      !l.status || l.status === '' || l.status === 'new'
+    ).length
 
-    // IN OUTREACH
-    const { count: outreach } = await supabase
-      .from('leads')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['contacted', 'in_discussion'])
+    const review = data.filter(l =>
+      l.status === 'enrich'
+    ).length
 
-    // FOLLOWUPS
-    const { count: followups } = await supabase
-      .from('leads')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'followup_due')
+    const pipeline = data.filter(l =>
+      l.status === 'pipeline'
+    ).length
+
+    const contacted = data.filter(l =>
+      l.status === 'contacted'
+    ).length
+
+    const followups = data.filter(l =>
+      l.status === 'followup_due'
+    ).length
 
     setStats({
-      total: total || 0,
-      contactable,
-      newLeads: newLeads || 0,
-      outreach: outreach || 0,
-      followups: followups || 0,
+      total,
+      inbox,
+      review,
+      pipeline,
+      contacted,
+      followups,
     })
   }
 
   async function fetchPipeline() {
-    const { data } = await supabase.from('leads').select('status')
+    const { data } = await supabase
+      .from('leads')
+      .select('status')
+      .in('status', ['pipeline','contacted','followup_due','not_interested'])
+
     if (!data) return
 
     const counts: Record<string, number> = {}
     data.forEach(l => {
-      const s = l.status || 'new'
+      const s = l.status || 'pipeline'
       counts[s] = (counts[s] || 0) + 1
     })
-    setPipeline(counts)
+    setPipelineBreakdown(counts)
   }
 
-  const outreachRate =
-    stats.total > 0 ? Math.round((stats.outreach / stats.total) * 100) : 0
-
-  const readinessRate =
-    stats.total > 0 ? Math.round((stats.contactable / stats.total) * 100) : 0
+  const contactRate =
+    stats.pipeline > 0 ? Math.round((stats.contacted / stats.pipeline) * 100) : 0
 
   return (
     <div className="relative space-y-16">
 
-      {/* Glow Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/3 w-[600px] h-[600px] bg-cyan-500/10 blur-[160px] rounded-full" />
-        <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-emerald-500/10 blur-[160px] rounded-full" />
-      </div>
-
-      {/* Header */}
+      {/* HEADER */}
       <div className="relative space-y-5">
         <h1 className="text-5xl font-bold tracking-tight leading-tight">
           <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
@@ -103,19 +97,19 @@ export default function Page() {
       {/* METRICS */}
       <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
         <Metric title="Total Leads" value={stats.total} />
-        <Metric title="Contactable Leads" value={stats.contactable} highlight />
-        <Metric title="New Leads" value={stats.newLeads} />
+        <Metric title="Inbox" value={stats.inbox} highlight />
+        <Metric title="Review Leads" value={stats.review} />
 
-        <Metric title="In Outreach" value={stats.outreach} />
+        <Metric title="Active Pipeline" value={stats.pipeline} />
+        <Metric title="Contacted" value={stats.contacted} />
         <Metric title="Follow-ups Due" value={stats.followups} highlight />
-        <Metric title="Outreach Rate" value={`${outreachRate}%`} />
 
-        <Metric title="Lead Readiness" value={`${readinessRate}%`} />
+        <Metric title="Pipeline Contact Rate" value={`${contactRate}%`} />
       </div>
 
       {/* PANELS */}
       <div className="grid gap-8 lg:grid-cols-2">
-        <PipelinePanel pipeline={pipeline} />
+        <PipelinePanel pipeline={pipelineBreakdown} />
         <RecentActivityPanel />
       </div>
 
@@ -127,11 +121,9 @@ export default function Page() {
 
 function Metric({ title, value, highlight }: any) {
   return (
-    <div
-      className={`relative glass p-8 rounded-2xl overflow-hidden group transition-all duration-300 hover:translate-y-[-4px] ${
-        highlight ? 'ring-1 ring-emerald-400/40' : ''
-      }`}
-    >
+    <div className={`relative glass p-8 rounded-2xl overflow-hidden ${
+      highlight ? 'ring-1 ring-emerald-400/40' : ''
+    }`}>
       <div className="text-xs uppercase tracking-wider text-slate-500">
         {title}
       </div>
@@ -161,7 +153,7 @@ function PipelinePanel({ pipeline }: any) {
 
       <div className="space-y-4">
         {entries.length === 0 ? (
-          <div className="text-slate-500 text-sm">No pipeline data yet</div>
+          <div className="text-slate-500 text-sm">No pipeline activity yet</div>
         ) : (
           entries.map(([stage, count]: any) => (
             <div key={stage} className="flex justify-between">
@@ -187,9 +179,9 @@ function RecentActivityPanel() {
       </h2>
 
       <div className="text-slate-400 text-sm space-y-2">
-        <p>• New lead imports will appear here</p>
-        <p>• Outreach actions will be tracked</p>
-        <p>• Pipeline movements will be logged</p>
+        <p>• New leads appear in Inbox</p>
+        <p>• Review Leads are saved for later</p>
+        <p>• Pipeline tracks active outreach</p>
       </div>
     </div>
   )
