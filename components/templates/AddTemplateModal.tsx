@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import RichTextEditor from '@/components/editor/RichTextEditor'
 
 type Template = {
   id: string
@@ -41,8 +42,14 @@ export default function AddTemplateModal({
       setBody(editTemplate.body)
       setDescription(editTemplate.description || '')
       setCategory(editTemplate.category)
+    } else {
+      setName('')
+      setSubject('')
+      setBody('')
+      setDescription('')
+      setCategory('first_outreach')
     }
-  }, [editTemplate])
+  }, [editTemplate, isOpen])
 
   if (!isOpen) return null
 
@@ -79,24 +86,27 @@ export default function AddTemplateModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-2xl p-8 shadow-2xl">
-        <h2 className="text-2xl font-semibold mb-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-2xl border border-white/10 bg-slate-900 p-8 shadow-2xl">
+        <h2 className="mb-6 text-2xl font-semibold text-white">
           {isEditMode ? 'Edit Email Template' : 'Create Email Template'}
         </h2>
 
-        <div className="grid gap-4">
+        <div className="grid gap-5">
+
+          {/* Name */}
           <input
             placeholder="Template name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-3"
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           />
 
+          {/* Category */}
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-3"
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           >
             <option value="first_outreach">First Outreach</option>
             <option value="follow_up">Follow-up</option>
@@ -104,43 +114,52 @@ export default function AddTemplateModal({
             <option value="general">General</option>
           </select>
 
+          {/* Subject */}
           <input
             placeholder="Email subject"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-3"
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           />
 
-          <textarea
-            placeholder="Email body"
-            rows={6}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-3"
-          />
+          {/* Rich Text Body */}
+          <div>
+            <div className="mb-2 text-sm text-slate-400">Email Body</div>
+            <RichTextEditor
+              content={body}
+              onChange={(html) => setBody(html)}
+            />
+          </div>
 
+          {/* Description */}
           <textarea
             placeholder="Internal description (optional)"
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-3"
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           />
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        {/* Actions */}
+        <div className="mt-8 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20"
+            className="rounded-lg bg-white/10 px-4 py-2 text-slate-300 hover:bg-white/20"
           >
             Cancel
           </button>
 
           <button
             onClick={handleSave}
-            className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700"
+            disabled={loading}
+            className="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create'}
+            {loading
+              ? 'Saving...'
+              : isEditMode
+              ? 'Save Changes'
+              : 'Create Template'}
           </button>
         </div>
       </div>

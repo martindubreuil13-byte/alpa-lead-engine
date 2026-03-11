@@ -9,13 +9,34 @@ const admin = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { to, subject, html, leadId } = await req.json()
+    const { leadIds, templateId } = await req.json()
 
-    if (!to || !subject || !html) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 })
+    if (!leadIds || !templateId) {
+      return NextResponse.json({ error: "Missing data" }, { status: 400 })
     }
 
-    // SMTP from .env.local
+    // 1️⃣ Fetch template
+    const { data: template } = await admin
+      .from("email_templates")
+      .select("subject, body")
+      .eq("id", templateId)
+      .single()
+
+    if (!template) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 })
+    }
+
+    // 2️⃣ Fetch leads
+    const { data: leads } = await admin
+      .from("leads")
+      .select("id, company_name, email")
+      .in("id", leadIds)
+
+    if (!leads || leads.length === 0) {
+      return NextResponse.json({ error: "No leads found" }, { status: 404 })
+    }
+
+    // 3️⃣ Setup SMTP
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -26,33 +47,30 @@ export async function POST(req: Request) {
       },
     })
 
-    await transporter.sendMail({
-      from: `"Quebec Outreach" <${process.env.SMTP_USER}>`,
-      to,
-      subject,
-      html,
-    })
+    // 4️⃣ Send emails using template
+    for (const lead of leads) {
+      const personalizedBody = template.body.replace(
+        "{{company}}",
+        lead.company_name || "votre entreprise"
+      )
 
-    // Update lead after send
-    const now = new Date()
-    const followup = new Date()
-    followup.setDate(now.getDate() + 7)
-
-    if (leadId) {
-      await admin
-        .from("leads")
-        .update({
-          status: "first_contact_sent",
-          first_contact_at: now.toISOString(),
-          last_contact_at: now.toISOString(),
-          followup_due_at: followup.toISOString(),
-        })
-        .eq("id", leadId)
+      await transporter.sendMail({
+        from: `"Martin Dubreuil" <${process.env.SMTP_USER}>`,
+        to: lead.email,
+        subject: template.subject,
+        html: personalizedBody,
+      })
     }
+
+    // 5️⃣ Update status
+    await admin
+      .from("leads")
+      .update({ status: "contacted" })
+      .in("id", leadIds)
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("send-email error:", error)
-    return NextResponse.json({ error: "Failed to send email" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to send emails" }, { status: 500 })
   }
 }
