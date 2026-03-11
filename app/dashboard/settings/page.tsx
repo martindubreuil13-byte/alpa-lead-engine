@@ -1,223 +1,260 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import SignaturePreview from '@/components/email/SignaturePreview'
 
-export default function Page() {
-  const [smtpHost, setSmtpHost] = useState('')
-  const [smtpPort, setSmtpPort] = useState('587')
-  const [smtpUser, setSmtpUser] = useState('')
-  const [smtpPass, setSmtpPass] = useState('')
+type SenderSettingsRow = {
+  id: string
+  sender_name: string | null
+  sender_email: string | null
+  company_name: string | null
+  job_title: string | null
+  phone: string | null
+  website: string | null
+  logo_url: string | null
+}
+
+export default function SettingsPage() {
+  const [rowId, setRowId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   const [senderName, setSenderName] = useState('')
-  const [replyToEmail, setReplyToEmail] = useState('')
-  const [dailyLimit, setDailyLimit] = useState('15')
-  const [delaySeconds, setDelaySeconds] = useState('90')
-  const [followupDays, setFollowupDays] = useState('7')
-  const [signature, setSignature] = useState('')
+  const [senderEmail, setSenderEmail] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
+  const [phone, setPhone] = useState('')
+  const [website, setWebsite] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [logoFileName, setLogoFileName] = useState('')
 
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    loadSettings()
+    fetchSettings()
   }, [])
 
-  async function loadSettings() {
-    setLoading(true)
-    setMessage('')
+  async function fetchSettings() {
+    const { data, error } = await supabase
+      .from('sender_settings')
+      .select('id, sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      setMessage('You must be logged in to load settings.')
-      setLoading(false)
+    if (error) {
+      console.error(error)
       return
     }
 
-    const { data, error } = await supabase
-      .from('app_settings')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    if (!error && data) {
-      setSmtpHost(data.smtp_host ?? '')
-      setSmtpPort(data.smtp_port ? String(data.smtp_port) : '587')
-      setSmtpUser(data.smtp_user ?? '')
-      setSmtpPass(data.smtp_pass ?? '')
-      setSenderName(data.sender_name ?? '')
-      setReplyToEmail(data.reply_to_email ?? '')
-      setDailyLimit(data.daily_send_limit ? String(data.daily_send_limit) : '15')
-      setDelaySeconds(data.min_delay_seconds ? String(data.min_delay_seconds) : '90')
-      setFollowupDays(data.followup_delay_days ? String(data.followup_delay_days) : '7')
-      setSignature(data.email_signature ?? '')
+    if (data) {
+      const row = data as SenderSettingsRow
+      setRowId(row.id)
+      setSenderName(row.sender_name || '')
+      setSenderEmail(row.sender_email || '')
+      setCompanyName(row.company_name || '')
+      setJobTitle(row.job_title || '')
+      setPhone(row.phone || '')
+      setWebsite(row.website || '')
+      setLogoUrl(row.logo_url || '')
     }
-
-    setLoading(false)
   }
 
   async function saveSettings() {
-    setSaving(true)
-    setMessage('')
+    setLoading(true)
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+    const payload = {
+      sender_name: senderName || null,
+      sender_email: senderEmail || null,
+      company_name: companyName || null,
+      job_title: jobTitle || null,
+      phone: phone || null,
+      website: website || null,
+      logo_url: logoUrl || null,
+    }
 
-    if (userError || !user) {
-      setMessage('You must be logged in to save settings.')
-      setSaving(false)
+    let error = null
+
+    if (rowId) {
+      const result = await supabase
+        .from('sender_settings')
+        .update(payload)
+        .eq('id', rowId)
+
+      error = result.error
+    } else {
+      const result = await supabase
+        .from('sender_settings')
+        .insert(payload)
+        .select('id')
+        .single()
+
+      error = result.error
+      if (result.data?.id) setRowId(result.data.id)
+    }
+
+    setLoading(false)
+
+    if (error) {
+      console.error(error)
+      alert('Error saving settings')
+    } else {
+      alert('Settings saved successfully')
+    }
+  }
+
+  async function uploadLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLogoFileName(file.name)
+    setUploading(true)
+
+    const ext = file.name.split('.').pop() || 'png'
+    const filePath = `logo-${Date.now()}.${ext}`
+
+    const { data, error } = await supabase.storage
+      .from('logos')
+      .upload(filePath, file, { upsert: true })
+
+    setUploading(false)
+
+    if (error) {
+      console.error(error)
+      alert('Logo upload failed')
       return
     }
 
-    const payload = {
-      user_id: user.id,
-      smtp_host: smtpHost,
-      smtp_port: Number(smtpPort),
-      smtp_user: smtpUser,
-      smtp_pass: smtpPass,
-      sender_name: senderName,
-      reply_to_email: replyToEmail,
-      daily_send_limit: Number(dailyLimit),
-      min_delay_seconds: Number(delaySeconds),
-      followup_delay_days: Number(followupDays),
-      email_signature: signature,
-    }
+    const { data: publicUrlData } = supabase.storage
+      .from('logos')
+      .getPublicUrl(data.path)
 
-    const { error } = await supabase
-      .from('app_settings')
-      .upsert(payload, { onConflict: 'user_id' })
+    setLogoUrl(publicUrlData.publicUrl)
+  }
 
-    if (error) {
-      setMessage(`Save failed: ${error.message}`)
-    } else {
-      setMessage('Settings saved successfully.')
-    }
-
-    setSaving(false)
+  function removeLogo() {
+    setLogoUrl('')
+    setLogoFileName('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   return (
-    <div className="space-y-10">
+    <div className="max-w-4xl space-y-10">
       <div>
-        <h1 className="text-4xl font-bold tracking-tight text-white">
-          Settings
-        </h1>
-        <p className="text-slate-400 mt-2">
-          Configure sending email, outreach safety, and account preferences
+        <h1 className="text-3xl font-semibold text-white">Email Settings</h1>
+        <p className="mt-2 text-slate-400">
+          Configure sender identity and signature
         </p>
       </div>
 
-      {loading && (
-        <div className="glass p-6 text-slate-300">Loading settings...</div>
-      )}
+      <div className="glass space-y-8 p-8">
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-white">Sender Identity</h2>
 
-      {!loading && (
-        <>
-          <Section
-            title="SMTP Email Configuration"
-            desc="Connect your business email provider to send outreach emails manually."
-          >
-            <div className="grid md:grid-cols-2 gap-6">
-              <Input label="SMTP Host" value={smtpHost} onChange={setSmtpHost} placeholder="smtp.yourprovider.com" />
-              <Input label="SMTP Port" value={smtpPort} onChange={setSmtpPort} placeholder="587" />
-              <Input label="SMTP Username" value={smtpUser} onChange={setSmtpUser} placeholder="your@email.com" />
-              <Input label="SMTP Password" value={smtpPass} onChange={setSmtpPass} placeholder="••••••••••" type="password" />
-            </div>
-          </Section>
-
-          <Section title="Sender Identity" desc="Define how recipients see you.">
-            <div className="grid md:grid-cols-2 gap-6">
-              <Input label="Sender Name" value={senderName} onChange={setSenderName} placeholder="Martin L." />
-              <Input label="Reply-To Email" value={replyToEmail} onChange={setReplyToEmail} placeholder="contact@yourdomain.com" />
-            </div>
-          </Section>
-
-          <Section title="Outreach Safety Controls" desc="Protect your email reputation and avoid spam patterns.">
-            <div className="grid md:grid-cols-3 gap-6">
-              <Input label="Daily Send Limit" value={dailyLimit} onChange={setDailyLimit} placeholder="15" />
-              <Input label="Minimum Delay Between Emails (sec)" value={delaySeconds} onChange={setDelaySeconds} placeholder="90" />
-              <Input label="Follow-up Delay (days)" value={followupDays} onChange={setFollowupDays} placeholder="7" />
-            </div>
-          </Section>
-
-          <Section title="Email Signature" desc="This signature will appear under your messages.">
-            <textarea
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder={`Martin L.\nBusiness Growth Consultant\n+1 (514) 000-0000`}
-              className="w-full h-40 bg-slate-900/60 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+          <div className="grid gap-4 md:grid-cols-2">
+            <input
+              placeholder="Full Name"
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+              className="input"
             />
-          </Section>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={saveSettings}
-              disabled={saving}
-              className="btn-primary disabled:opacity-60"
-            >
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
+            <input
+              placeholder="Job Title"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              className="input"
+            />
 
-            {message && (
-              <div className="text-sm text-slate-300">{message}</div>
-            )}
+            <input
+              placeholder="Sender Email"
+              value={senderEmail}
+              onChange={(e) => setSenderEmail(e.target.value)}
+              className="input"
+            />
+
+            <input
+              placeholder="Phone Number"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="input"
+            />
+
+            <input
+              placeholder="Company Name"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="input"
+            />
+
+            <input
+              placeholder="Website"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              className="input"
+            />
           </div>
-        </>
-      )}
-    </div>
-  )
-}
+        </div>
 
-function Section({
-  title,
-  desc,
-  children,
-}: {
-  title: string
-  desc: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="glass p-8 space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-white">{title}</h2>
-        <p className="text-sm text-slate-400 mt-1">{desc}</p>
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-white">Company Logo</h2>
+
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3 transition hover:bg-white/10">
+            <span className="truncate text-sm text-slate-300">
+              {logoFileName || 'Upload logo image'}
+            </span>
+
+            <span className="rounded bg-blue-600 px-3 py-1 text-xs text-white">
+              {uploading ? 'Uploading...' : 'Browse'}
+            </span>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={uploadLogo}
+              className="hidden"
+            />
+          </label>
+
+          {logoUrl && (
+            <div className="flex items-center gap-4">
+              <img
+                src={logoUrl}
+                alt="Logo preview"
+                className="h-16 rounded bg-white p-2 object-contain"
+              />
+              <button
+                type="button"
+                onClick={removeLogo}
+                className="rounded-lg bg-red-500/20 px-3 py-2 text-sm text-red-300 hover:bg-red-500/30"
+              >
+                Remove Logo
+              </button>
+            </div>
+          )}
+        </div>
+
+        <SignaturePreview
+          senderName={senderName}
+          jobTitle={jobTitle}
+          companyName={companyName}
+          phone={phone}
+          website={website}
+          logoUrl={logoUrl}
+          senderEmail={senderEmail}
+        />
+
+        <div>
+          <button
+            onClick={saveSettings}
+            className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700"
+          >
+            {loading ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
       </div>
-      {children}
-    </div>
-  )
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  type?: string
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="text-sm text-slate-400">{label}</div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-slate-900/60 border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
-      />
     </div>
   )
 }
