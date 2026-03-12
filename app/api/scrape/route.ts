@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,48 +13,103 @@ const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY!
 let isScraping = false
 let scrapeConfig: any = null
 
+type LeadInput = {
+  company_name: string
+  phone?: string | null
+  website?: string | null
+  email?: string | null
+  industry?: string | null
+  city?: string | null
+  source?: string | null
+  source_url?: string | null
+}
+
+/* -------------------------------------------------- */
+/* STREAM RESPONSE */
+/* -------------------------------------------------- */
+
 function streamResponse(stream: ReadableStream) {
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   })
 }
 
-/* ---------------- FETCH PLACES (PAGINATED) ---------------- */
-async function fetchPlaces(
-  query: string,
-  maxLeads: number,
-  send: (msg: string) => void
+async function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+/* -------------------------------------------------- */
+/* SEARCH STRING */
+/* -------------------------------------------------- */
+
+function buildSearch(query: string, city: string, region: string) {
+  return [query, city, region].filter(Boolean).join(" ").trim()
+}
+
+/* -------------------------------------------------- */
+/* QUERY VARIANTS */
+/* -------------------------------------------------- */
+
+function buildQueryVariants(
+  business: string,
+  city: string,
+  region: string
 ) {
-  let allResults: any[] = []
-  let nextPageToken: string | undefined = undefined
+  const base = buildSearch(business, city, region)
+
+  const variants = new Set<string>([
+    base,
+    `hair salon ${city} ${region}`,
+    `beauty salon ${city} ${region}`,
+    `coiffure ${city} ${region}`,
+    `hairdresser ${city} ${region}`,
+    `barber ${city} ${region}`
+  ])
+
+  return Array.from(variants)
+}
+
+/* -------------------------------------------------- */
+/* GOOGLE SEARCH */
+/* -------------------------------------------------- */
+
+async function fetchPlaces(query: string, send: any) {
+
+  const results: any[] = []
+  let nextPageToken: string | undefined
   let page = 1
 
-  send('🌍 Contacting Google Places API...')
+  send(`🌍 Google query: ${query}`)
 
-  while (allResults.length < maxLeads && page <= 5) {
-    const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`
+  while (page <= 3) {
+
     const params = new URLSearchParams({
       query,
-      key: GOOGLE_API_KEY
+      key: GOOGLE_API_KEY,
     })
 
     if (nextPageToken) {
-      params.append('pagetoken', nextPageToken)
-      send(`⏳ Waiting for next page token...`)
-      await new Promise(r => setTimeout(r, 2000))
+      params.append("pagetoken", nextPageToken)
+      send("⏳ waiting next page token")
+      await sleep(2000)
     }
 
-    send(`📄 Fetching page ${page}...`)
+    send(`📄 fetching page ${page}`)
 
-    const res = await fetch(`${baseUrl}?${params.toString()}`)
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/place/textsearch/json?${params}`
+    )
+
+    if (!res.ok) break
+
     const data = await res.json()
 
-    if (data.results) {
-      allResults.push(...data.results)
+    if (Array.isArray(data.results)) {
+      results.push(...data.results)
     }
 
     nextPageToken = data.next_page_token
@@ -63,178 +118,254 @@ async function fetchPlaces(
     page++
   }
 
-  send(`📡 Total places collected: ${allResults.length}`)
-
-  const shuffled = allResults.sort(() => Math.random() - 0.5)
-  const selectedCount = Math.min(maxLeads, shuffled.length)
-
-  send(`🎯 Selecting ${selectedCount} places`)
-
-  return shuffled.slice(0, selectedCount)
+  send(`📡 ${results.length} raw results`)
+  return results
 }
-/* ---------------- FETCH DETAILS ---------------- */
+
+/* -------------------------------------------------- */
+/* PLACE DETAILS */
+/* -------------------------------------------------- */
+
 async function fetchPlaceDetails(placeId: string) {
-  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_phone_number,website,types,address_components&key=${GOOGLE_API_KEY}`
+
+  const fields =
+    "name,formatted_phone_number,website,types,address_components,url"
+
+  const url =
+    `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${GOOGLE_API_KEY}`
+
   const res = await fetch(url)
+
+  if (!res.ok) return null
+
   const data = await res.json()
-  return data.result
+
+  return data.result || null
 }
 
-/* ---------------- EMAIL EXTRACTOR ---------------- */
-async function extractEmailFromWebsite(website: string | null, send: (msg: string) => void) {
+/* -------------------------------------------------- */
+/* EMAIL EXTRACTION */
+/* -------------------------------------------------- */
+
+async function enrichEmail(website: string | null, send: any) {
+
   if (!website) return null
 
   try {
-    send(`🌐 Visiting website for email...`)
-    const res = await fetch(website, { redirect: 'follow' })
+
+    send("🌐 scanning website")
+
+    const res = await fetch(website, { redirect: "follow" })
+
     const html = await res.text()
 
-    const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i
-    const match = html.match(emailRegex)
+    const regex =
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+
+    const match = html.match(regex)
 
     if (match) {
-      const email = match[0].toLowerCase()
-
-      if (email.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)) {
-        send('⚠️ Ignored fake image email')
-        return null
-      }
-
-      if (email.includes('example') || email.includes('domain.com')) {
-        send('⚠️ Ignored placeholder email')
-        return null
-      }
-
-      send(`📧 Email found`)
-      return email
+      send("📧 email found")
+      return match[0]
     }
 
-    send('⚠️ No email found on site')
-    return null
-  } catch {
-    send('⚠️ Could not scan website')
-    return null
+  } catch {}
+
+  return null
+}
+
+/* -------------------------------------------------- */
+/* DUPLICATE CHECK */
+/* -------------------------------------------------- */
+
+async function leadExists(name: string, city: string | null) {
+
+  const { data } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("company_name", name)
+    .eq("city", city)
+    .limit(1)
+
+  return data && data.length > 0
+}
+
+/* -------------------------------------------------- */
+/* SAVE LEAD */
+/* -------------------------------------------------- */
+
+async function saveLead(lead: LeadInput, send: any) {
+
+  const payload = {
+    ...lead,
+    status: lead.email ? "ready" : "needs_enrichment"
   }
+
+  const { error } = await supabase.from("leads").insert(payload)
+
+  if (error) {
+    send("❌ db error")
+    return false
+  }
+
+  send("✅ saved")
+
+  return true
 }
 
-/* ---------------- HELPERS ---------------- */
-function extractCity(components: any[]) {
-  const comp = components?.find(c => c.types.includes('locality'))
-  return comp?.long_name || 'Unknown'
+/* -------------------------------------------------- */
+/* CITY */
+/* -------------------------------------------------- */
+
+function extractCity(components: any[] = []) {
+
+  const locality = components.find(
+    (c) => c.types?.includes("locality")
+  )
+
+  return locality?.long_name || null
 }
 
-function cleanIndustry(types: string[] = []) {
-  return types[0]?.replace(/_/g, ' ') || 'business'
-}
+/* -------------------------------------------------- */
+/* MAIN SCRAPER */
+/* -------------------------------------------------- */
 
-/* ---------------- MAIN SCRAPER ---------------- */
-async function runScraper(send: (msg: string) => void) {
+async function runScraper(send: any) {
+
   try {
-    const query = scrapeConfig?.query?.trim() || 'businesses'
-    const city = scrapeConfig?.defaultCity?.trim()
-    const province = scrapeConfig?.region?.trim()
-    const country = 'Canada'
-    const maxLeads = Number(scrapeConfig?.maxLeads || 20)
 
-    let locationParts: string[] = []
-    if (city) locationParts.push(city)
-    if (province) locationParts.push(province)
-    locationParts.push(country)
+    const query = scrapeConfig?.query || "business"
+    const city = scrapeConfig?.defaultCity || ""
+    const region = scrapeConfig?.region || ""
+    const maxLeads = Number(scrapeConfig?.maxLeads || 25)
 
-    const locationString = locationParts.join(', ')
-    const searchString = `${query} in ${locationString}`
+    send("🚀 starting scraper")
 
-    send('🚀 Starting real lead scraping...')
-    send(`🔎 Searching for: ${searchString}`)
-    send(`📊 Max leads requested: ${maxLeads}`)
+    const variants = buildQueryVariants(query, city, region)
 
-    const places = await fetchPlaces(searchString, maxLeads, send)
+    send(`🧠 query variants: ${variants.length}`)
 
-    let savedCount = 0
+    const seen = new Set<string>()
+
+    let collected = 0
     let processed = 0
 
-    for (const place of places) {
-      processed++
-      send(`🔍 (${processed}/${places.length}) Fetching ${place.name}...`)
+    for (const variant of variants) {
 
-      const details = await fetchPlaceDetails(place.place_id)
+      if (collected >= maxLeads) break
 
-      const companyName = details.name
-      const phone = details.formatted_phone_number || null
-      const website = details.website || null
-      const industry = cleanIndustry(details.types)
-      const cityName = extractCity(details.address_components)
+      const places = await fetchPlaces(variant, send)
 
-      const { data: existing } = await supabase
-        .from('leads')
-        .select('id')
-        .eq('company_name', companyName)
-        .maybeSingle()
+      for (const place of places) {
 
-      if (existing) {
-        send(`⚠️ Already exists — skipping`)
-        continue
+        if (collected >= maxLeads) break
+        if (!place.place_id) continue
+        if (seen.has(place.place_id)) continue
+
+        seen.add(place.place_id)
+
+        processed++
+
+        send(`🔍 processing ${place.name}`)
+
+        const details = await fetchPlaceDetails(place.place_id)
+
+        const company =
+          details?.name || place.name || "Unknown"
+
+        const website = details?.website || null
+
+        const cityName =
+          extractCity(details?.address_components || []) || city
+
+        /* -------- DUPLICATE CHECK FIRST -------- */
+
+        const exists = await leadExists(company, cityName)
+
+        if (exists) {
+          send("⚠️ already exists")
+          continue
+        }
+
+        /* -------- EMAIL ENRICHMENT -------- */
+
+        const email = await enrichEmail(website, send)
+
+        /* -------- SAVE -------- */
+
+        const saved = await saveLead({
+          company_name: company,
+          phone: details?.formatted_phone_number || null,
+          website,
+          email,
+          industry: details?.types?.[0] || null,
+          city: cityName,
+          source: "google_places",
+          source_url: details?.url || null,
+        }, send)
+
+        if (saved) collected++
+
       }
 
-      const email = await extractEmailFromWebsite(website, send)
-
-      const { error } = await supabase.from('leads').insert({
-        company_name: companyName,
-        industry,
-        city: cityName,
-        phone,
-        website,
-        email,
-        status: email ? 'ready' : 'needs_enrichment'
-      })
-
-      if (error) {
-        send(`❌ DB Error`)
-      } else {
-        savedCount++
-        send(`✅ Saved`)
-      }
     }
 
-    send(`📦 ${savedCount} enriched leads saved`)
-    send('🎉 Scrape complete')
-  } catch (err: any) {
-    console.error(err)
-    send(`❌ Scrape failed`)
+    send(`📦 ${collected} leads saved`)
+    send("🎉 scrape complete")
+
+  } catch (err) {
+
+    send("❌ scraper error")
+
   } finally {
+
     isScraping = false
   }
 }
 
-/* ---------- POST = trigger scraper ---------- */
+/* -------------------------------------------------- */
+/* POST START */
+/* -------------------------------------------------- */
+
 export async function POST(req: Request) {
+
   if (isScraping) {
-    return NextResponse.json({ message: 'Scraper already running' })
+    return NextResponse.json({ message: "scraper already running" })
   }
 
   scrapeConfig = await req.json()
+
   isScraping = true
 
   return NextResponse.json({ started: true })
 }
 
-/* ---------- GET = live log stream ---------- */
+/* -------------------------------------------------- */
+/* STREAM */
+/* -------------------------------------------------- */
+
 export async function GET() {
+
   const stream = new ReadableStream({
+
     async start(controller) {
+
       const send = (msg: string) => {
         controller.enqueue(`data: ${msg}\n\n`)
       }
 
       if (!isScraping) {
-        send('ℹ️ Scraper idle')
+        send("ℹ️ scraper idle")
         controller.close()
         return
       }
 
       await runScraper(send)
+
+      controller.enqueue(`event: done\ndata: complete\n\n`)
+
       controller.close()
-    }
+    },
   })
 
   return streamResponse(stream)
