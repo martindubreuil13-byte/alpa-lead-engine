@@ -13,9 +13,9 @@ export default function DashboardLayout({
   const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/dashboard/leads', label: 'Leads Inbox' },
-{ href: '/dashboard/enrich', label: 'Review Leads' },
     { href: '/dashboard/kanban', label: 'Pipeline' },
     { href: '/dashboard/scraper', label: 'Prospector' },
+    { href: '/dashboard/library', label: 'Lead Library' },
     { href: '/dashboard/templates', label: 'Templates' },
     { href: '/dashboard/settings', label: 'Settings' },
   ]
