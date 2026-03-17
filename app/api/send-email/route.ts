@@ -24,31 +24,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No leads provided" }, { status: 400 })
     }
 
-    // 1) Resolve subject/body
+    // 1️⃣ Resolve subject/body
     let emailSubject = payload.subject || ""
     let emailBody = payload.body || ""
 
     if ((!emailSubject || !emailBody) && templateId) {
-      const { data: template, error: templateError } = await admin
+      const { data: template } = await admin
         .from("email_templates")
         .select("subject, body")
         .eq("id", templateId)
         .single()
 
-      if (templateError || !template) {
-        console.error("Template fetch error:", templateError)
-        return NextResponse.json(
-          { error: "Template not found" },
-          { status: 404 }
-        )
+      if (!template) {
+        return NextResponse.json({ error: "Template not found" }, { status: 404 })
       }
 
       emailSubject = template.subject || ""
       emailBody = template.body || ""
     }
-
-    console.log("📨 SUBJECT RECEIVED:", emailSubject)
-    console.log("📨 BODY RECEIVED:", emailBody)
 
     if (!emailSubject || !emailBody) {
       return NextResponse.json(
@@ -57,45 +50,47 @@ export async function POST(req: Request) {
       )
     }
 
-    // 2) Fetch sender settings
+    // 2️⃣ Fetch sender
     const { data: settings } = await admin
       .from("sender_settings")
-      .select("sender_name, sender_email, company_name, job_title, phone, website, logo_url")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
 
     const senderName = settings?.sender_name || "Outreach Team"
-    const senderEmail = settings?.sender_email || process.env.SMTP_USER
+    const senderEmail = process.env.SMTP_USER!
 
-    // Safety fallback: many SMTP providers reject mismatched From addresses
-    const safeSenderEmail = process.env.SMTP_USER || senderEmail
+    const signatureBlock = buildSignatureHtml(settings || {})
 
-    const signatureBlock = buildSignatureHtml({
-      senderName: settings?.sender_name,
-      senderEmail: settings?.sender_email,
-      companyName: settings?.company_name,
-      jobTitle: settings?.job_title,
-      phone: settings?.phone,
-      website: settings?.website,
-      logoUrl: settings?.logo_url,
-    })
-
-    // 3) Fetch leads
-    const { data: leads, error: leadsError } = await admin
+    // 3️⃣ Fetch leads
+    const { data: leads } = await admin
       .from("leads")
       .select("id, company_name, email")
       .in("id", leadIds)
 
-    if (leadsError || !leads || leads.length === 0) {
-      console.error("Lead fetch error:", leadsError)
+    if (!leads || leads.length === 0) {
       return NextResponse.json(
-        { error: "Failed to fetch leads" },
-        { status: 500 }
+        { error: "No leads found" },
+        { status: 404 }
       )
     }
 
-    // 4) Transporter
+    // 🔥 KEY FIX — FILTER VALID EMAILS
+    const validLeads = leads.filter(
+      (l) => l.email && l.email.includes("@")
+    )
+
+    const skippedLeads = leads.length - validLeads.length
+
+    if (validLeads.length === 0) {
+      return NextResponse.json(
+        { error: "No valid emails found" },
+        { status: 400 }
+      )
+    }
+
+    // 4️⃣ Transporter
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -106,40 +101,41 @@ export async function POST(req: Request) {
       },
     })
 
-    // 5) Send emails
-    for (const lead of leads) {
-      await transporter.sendMail({
-        from: `"${senderName}" <${safeSenderEmail}>`,
-        to: lead.email,
-        subject: emailSubject,
-        html: `
-          <!DOCTYPE html>
-          <html>
-            <body style="margin:0;padding:0;background:#ffffff;">
-              <div style="
-                font-family: Arial, sans-serif;
-                font-size: 14px;
-                line-height: 1.6;
-                color: #111111;
-                padding: 24px;
-                max-width: 640px;
-              ">
-                ${emailBody}
-                ${signatureBlock}
-              </div>
-            </body>
-          </html>
-        `,
-      })
+    // 5️⃣ Send emails safely
+    let sentCount = 0
+
+    for (const lead of validLeads) {
+      try {
+        await transporter.sendMail({
+          from: `"${senderName}" <${senderEmail}>`,
+          to: lead.email!,
+          subject: emailSubject,
+          html: `
+            <div style="font-family: Arial; padding:20px;">
+              ${emailBody}
+              ${signatureBlock}
+            </div>
+          `,
+        })
+
+        sentCount++
+      } catch (err) {
+        console.error(`Failed for ${lead.email}:`, err)
+      }
     }
 
-    // 6) Update lead status
+    // 6️⃣ Update ONLY sent leads
     await admin
       .from("leads")
       .update({ status: "contacted" })
-      .in("id", leadIds)
+      .in("id", validLeads.map((l) => l.id))
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      sent: sentCount,
+      skipped: skippedLeads,
+    })
+
   } catch (error) {
     console.error("send-email error:", error)
     return NextResponse.json(
