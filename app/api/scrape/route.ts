@@ -49,15 +49,28 @@ function generateSearchQueries(
   country: string
 ) {
   const base = business.trim()
+  const c = city?.trim()
+  const r = region?.trim()
+  const co = country?.trim()
+
+  // If no city → fallback (but honestly, you should always have a city)
+  if (!c) return [`${base}`]
 
   const queries = [
-    `${base} ${city}`,
-    `${base} ${region}`,
-    `${base} ${country}`,
-    `${base} contractor ${city}`,
-    `${base} company ${city}`,
-    `${base} services ${city}`,
-    `${base} near ${city}`,
+    // Core local intent
+    `${base} ${c}`,
+    `${base} in ${c}`,
+    `${base} near ${c}`,
+
+    // Strong geo anchors (stacked context = better results)
+    r ? `${base} ${c} ${r}` : null,
+    co ? `${base} ${c} ${co}` : null,
+    r && co ? `${base} ${c} ${r} ${co}` : null,
+
+    // Intent variations (still LOCAL)
+    `${base} services ${c}`,
+    `${base} company ${c}`,
+    `${base} business ${c}`,
   ]
 
   return [...new Set(queries.filter(Boolean))]
@@ -359,6 +372,10 @@ async function runScraper(send: (msg: string) => void) {
           const company = String(lead.company_name || "").trim()
           const website = sanitizeWebsite(lead.website || null)
           const cityName = (lead.city || city || "").trim() || null
+          if (city && cityName && !cityName.toLowerCase().includes(city.toLowerCase())) {
+  send(`🚫 skipped (wrong city): ${lead.company_name}`)
+  continue
+}
 
           if (!company) continue
 
