@@ -319,7 +319,6 @@ async function runScraper(send: (msg: string) => void) {
       { name: "Google", search: searchGooglePlaces },
     ]
 
-    const disabledSources = new Set<string>()
     const seenThisRun = new Set<string>()
     const enrichmentQueue: LeadInput[] = []
 
@@ -372,8 +371,29 @@ async function runScraper(send: (msg: string) => void) {
           const company = String(lead.company_name || "").trim()
           const website = sanitizeWebsite(lead.website || null)
           const cityName = (lead.city || city || "").trim() || null
-          if (city && cityName && !cityName.toLowerCase().includes(city.toLowerCase())) {
-  send(`🚫 skipped (wrong city): ${lead.company_name}`)
+
+const normalizedCity = city?.toLowerCase() || ""
+const normalizedRegion = region?.toLowerCase() || ""
+const normalizedCountry = country?.toLowerCase() || ""
+const cityValue = cityName?.toLowerCase() || ""
+
+const cityAliases: Record<string, string[]> = {
+  chicoutimi: ["chicoutimi", "saguenay"],
+  laval: ["laval", "montreal", "montréal"],
+  montreal: ["montreal", "montréal", "laval", "longueuil"],
+}
+
+const allowedZones = [
+  ...(cityAliases[normalizedCity] || [normalizedCity]),
+  normalizedRegion,
+  normalizedCountry,
+].filter(Boolean)
+
+if (
+  cityValue &&
+  !allowedZones.some(zone => cityValue.includes(zone))
+) {
+  send(`🚫 skipped (out of zone): ${lead.company_name}`)
   continue
 }
 
