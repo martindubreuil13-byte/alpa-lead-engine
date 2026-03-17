@@ -216,10 +216,12 @@ async function leadExists(name: string, city: string | null) {
 }
 
 async function saveLead(lead: LeadInput, send: (msg: string) => void) {
-  const payload = {
-    ...lead,
-    status: lead.email ? "ready" : "needs_enrichment",
-  }
+  send("🔥 NEW VERSION RUNNING")
+const payload = {
+  ...lead,
+  status: "inbox",
+}
+
 
   const { error } = await supabase
     .from("leads")
