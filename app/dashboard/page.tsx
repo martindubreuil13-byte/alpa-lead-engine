@@ -3,85 +3,168 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+const PIPELINE_STATUSES = [
+  'pipeline',
+  'contacted',
+  'followup_due',
+  'not_interested',
+] as const
+
+const EXCLUDED_STATUSES = [
+  'rejected',
+] as const
+const PAGE_SIZE = 1000
+
+type LeadStatusRow = {
+  status: string | null
+}
+
+type Stats = {
+  total: number
+  inbox: number
+}
+
 export default function Page() {
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<Stats>({
     total: 0,
     inbox: 0,
     review: 0,
-    pipeline: 0,
-    contacted: 0,
-    followups: 0,
   })
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    fetchStats()
-    fetchPipeline()
+    fetchDashboardData()
   }, [])
 
+  async function fetchDashboardData() {
+    await Promise.all([fetchStats(), fetchPipeline()])
+  }
+
+  async function fetchAllLeadStatuses(): Promise<LeadStatusRow[]> {
+    const allRows: LeadStatusRow[] = []
+    let from = 0
+
+    while (true) {
+      const to = from + PAGE_SIZE - 1
+
+      const { data, error } = await supabase
+        .from('leads')
+        .select('status')
+        .range(from, to)
+
+      if (error) {
+        throw error
+      }
+
+      if (!data || data.length === 0) {
+        break
+      }
+
+      allRows.push(...data)
+
+      if (data.length < PAGE_SIZE) {
+        break
+      }
+
+      from += PAGE_SIZE
+    }
+
+    return allRows
+  }
+
   async function fetchStats() {
-    const { data } = await supabase
-      .from('leads')
-      .select('status')
+    try {
+      const [totalRes, allStatuses] = await Promise.all([
+        supabase
+          .from('leads')
+          .select('*', { count: 'exact', head: true }),
+        fetchAllLeadStatuses(),
+      ])
 
-    if (!data) return
+      const total = totalRes.count || 0
 
-    const total = data.length
+      console.log('FETCH STATS RESULT:', {
+        total,
+        rowsFetched: allStatuses.length,
+        statusSample: allStatuses.slice(0, 20),
+      })
 
-    const inbox = data.filter(l =>
-      !l.status || l.status === '' || l.status === 'new'
-    ).length
+      const statusCounts = allStatuses.reduce((acc: Record<string, number>, row) => {
+        const key = row.status ?? 'null'
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
 
-    const review = data.filter(l =>
-      l.status === 'enrich'
-    ).length
+      console.log('STATUS BREAKDOWN:', statusCounts)
 
-    const pipeline = data.filter(l =>
-      l.status === 'pipeline'
-    ).length
+const inbox = allStatuses.filter((l) =>
+  l.status === 'inbox'
+).length
 
-    const contacted = data.filter(l =>
-      l.status === 'contacted'
-    ).length
+const rejected = allStatuses.filter((l) =>
+  l.status === 'rejected'
+).length
 
-    const followups = data.filter(l =>
-      l.status === 'followup_due'
-    ).length
 
-    setStats({
-      total,
-      inbox,
-      review,
-      pipeline,
-      contacted,
-      followups,
-    })
+setStats({
+  total,
+  inbox,
+})
+
+    } catch (err) {
+      console.error('UNEXPECTED ERROR IN fetchStats:', err)
+    }
   }
 
   async function fetchPipeline() {
-    const { data } = await supabase
-      .from('leads')
-      .select('status')
-      .in('status', ['pipeline','contacted','followup_due','not_interested'])
+    try {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('status')
+        .in('status', [...PIPELINE_STATUSES])
 
-    if (!data) return
+      console.log('FETCH PIPELINE RESULT:', { data, error })
 
-    const counts: Record<string, number> = {}
-    data.forEach(l => {
-      const s = l.status || 'pipeline'
-      counts[s] = (counts[s] || 0) + 1
-    })
-    setPipelineBreakdown(counts)
+      if (error) {
+        console.error('SUPABASE ERROR IN fetchPipeline:', error)
+        return
+      }
+
+      if (!data) {
+        console.warn('NO PIPELINE DATA RETURNED')
+        return
+      }
+
+      const counts: Record<string, number> = {}
+
+      data.forEach((row) => {
+        const status = row.status || 'pipeline'
+        counts[status] = (counts[status] || 0) + 1
+      })
+
+      setPipelineBreakdown(counts)
+    } catch (err) {
+      console.error('UNEXPECTED ERROR IN fetchPipeline:', err)
+    }
   }
 
+  const activePipeline =
+    (pipelineBreakdown['pipeline'] || 0) +
+    (pipelineBreakdown['contacted'] || 0) +
+    (pipelineBreakdown['followup_due'] || 0) +
+    (pipelineBreakdown['not_interested'] || 0)
+
+  const contacted = pipelineBreakdown['contacted'] || 0
+  const followups = pipelineBreakdown['followup_due'] || 0
+
   const contactRate =
-    stats.pipeline > 0 ? Math.round((stats.contacted / stats.pipeline) * 100) : 0
+    activePipeline > 0
+      ? Math.round((contacted / activePipeline) * 100)
+      : 0
 
   return (
     <div className="relative space-y-16">
-
-      {/* HEADER */}
       <div className="relative space-y-5">
         <h1 className="text-5xl font-bold tracking-tight leading-tight">
           <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
@@ -94,36 +177,32 @@ export default function Page() {
         </p>
       </div>
 
-      {/* METRICS */}
       <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
         <Metric title="Total Leads" value={stats.total} />
         <Metric title="Inbox" value={stats.inbox} highlight />
-        <Metric title="Review Leads" value={stats.review} />
 
-        <Metric title="Active Pipeline" value={stats.pipeline} />
-        <Metric title="Contacted" value={stats.contacted} />
-        <Metric title="Follow-ups Due" value={stats.followups} highlight />
+        <Metric title="Active Pipeline" value={activePipeline} />
+        <Metric title="Contacted" value={contacted} />
+        <Metric title="Follow-ups Due" value={followups} highlight />
 
         <Metric title="Pipeline Contact Rate" value={`${contactRate}%`} />
       </div>
 
-      {/* PANELS */}
       <div className="grid gap-8 lg:grid-cols-2">
         <PipelinePanel pipeline={pipelineBreakdown} />
         <RecentActivityPanel />
       </div>
-
     </div>
   )
 }
 
-/* ---------- METRIC CARD ---------- */
-
 function Metric({ title, value, highlight }: any) {
   return (
-    <div className={`relative glass p-8 rounded-2xl overflow-hidden ${
-      highlight ? 'ring-1 ring-emerald-400/40' : ''
-    }`}>
+    <div
+      className={`relative glass p-8 rounded-2xl overflow-hidden ${
+        highlight ? 'ring-1 ring-emerald-400/40' : ''
+      }`}
+    >
       <div className="text-xs uppercase tracking-wider text-slate-500">
         {title}
       </div>
@@ -140,10 +219,12 @@ function Metric({ title, value, highlight }: any) {
   )
 }
 
-/* ---------- PIPELINE PANEL ---------- */
-
 function PipelinePanel({ pipeline }: any) {
-  const entries = Object.entries(pipeline)
+  const order = ['pipeline', 'contacted', 'followup_due', 'not_interested']
+
+  const entries = order
+    .filter((key) => pipeline[key] > 0)
+    .map((key) => [key, pipeline[key]])
 
   return (
     <div className="glass p-9 rounded-2xl">
@@ -168,8 +249,6 @@ function PipelinePanel({ pipeline }: any) {
     </div>
   )
 }
-
-/* ---------- RECENT ACTIVITY ---------- */
 
 function RecentActivityPanel() {
   return (

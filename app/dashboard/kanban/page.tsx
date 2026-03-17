@@ -9,17 +9,17 @@ type Lead = {
   company_name: string
   city: string
   industry: string | null
-  status: string | null
+  status: string
+  contacted_at?: string | null
 }
 
 const STAGES = [
   { key: 'pipeline', title: 'Ready to Contact' },
   { key: 'contacted', title: 'Contacted' },
   { key: 'followup_due', title: 'Follow-up Due' },
-  { key: 'not_interested', title: 'Not Interested' },
 ]
 
-export default function KanbanPage() {
+export default function PipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,17 +31,81 @@ export default function KanbanPage() {
 
   async function fetchLeads() {
     setLoading(true)
-    const { data } = await supabase
-      .from('leads')
-      .select('id, company_name, city, industry, status')
 
-    if (data) setLeads(data)
+    const { data, error } = await supabase
+      .from('leads')
+      .select('id, company_name, city, industry, status, contacted_at')
+      .in('status', ['pipeline', 'contacted', 'followup_due'])
+
+    if (error) {
+      console.error('Error fetching leads:', error)
+      setLoading(false)
+      return
+    }
+
+    setLeads(data || [])
     setLoading(false)
   }
 
   async function moveLead(id: string, newStatus: string) {
-    await supabase.from('leads').update({ status: newStatus }).eq('id', id)
-    fetchLeads()
+    const payload: any = {
+      status: newStatus,
+      status_updated_at: new Date().toISOString(),
+    }
+
+    if (newStatus === 'contacted') {
+      payload.contacted_at = new Date().toISOString()
+    }
+
+    if (newStatus === 'followup_sent') {
+      payload.followup_sent_at = new Date().toISOString()
+    }
+
+    const { error } = await supabase
+      .from('leads')
+      .update(payload)
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error updating lead:', error)
+      return
+    }
+
+    // optimistic update
+    setLeads(prev =>
+      prev
+        .map(l => (l.id === id ? { ...l, ...payload } : l))
+        .filter(l => ['pipeline', 'contacted', 'followup_due'].includes(l.status))
+    )
+  }
+
+  async function batchMarkContacted(ids: string[]) {
+    const now = new Date().toISOString()
+
+    const { error } = await supabase
+      .from('leads')
+      .update({
+        status: 'contacted',
+        contacted_at: now,
+        status_updated_at: now,
+      })
+      .in('id', ids)
+
+    if (error) {
+      console.error('Batch update failed:', error)
+      return
+    }
+
+    // optimistic update
+    setLeads(prev =>
+      prev.map(l =>
+        ids.includes(l.id)
+          ? { ...l, status: 'contacted', contacted_at: now }
+          : l
+      )
+    )
+
+    setSelected([])
   }
 
   function toggleSelect(id: string) {
@@ -56,6 +120,7 @@ export default function KanbanPage() {
 
   function toggleColumn(leadsInColumn: Lead[], checked: boolean) {
     const ids = leadsInColumn.map(l => l.id)
+
     if (checked) {
       setSelected(prev => Array.from(new Set([...prev, ...ids])))
     } else {
@@ -69,9 +134,9 @@ export default function KanbanPage() {
 
         {/* Header */}
         <div>
-          <h1 className="text-4xl font-bold text-white">Kanban</h1>
+          <h1 className="text-4xl font-bold text-white">Pipeline</h1>
           <p className="text-slate-400 mt-2">
-            Manage active outreach and deal flow
+            Execute outreach and manage active leads
           </p>
         </div>
 
@@ -115,24 +180,29 @@ export default function KanbanPage() {
 
         {/* Columns */}
         {!loading && (
-          <div className="grid gap-6 xl:grid-cols-4">
+          <div className="grid gap-6 xl:grid-cols-3">
             {STAGES.map(stage => {
-              const stageLeads = leads.filter(l => (l.status || '') === stage.key)
+              const stageLeads = leads.filter(l => l.status === stage.key)
+
               const allSelected =
                 stageLeads.length > 0 &&
                 stageLeads.every(l => selected.includes(l.id))
 
               return (
                 <div key={stage.key} className="glass p-5 space-y-4">
-                  
+
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={allSelected}
-                        onChange={(e) => toggleColumn(stageLeads, e.target.checked)}
+                        onChange={(e) =>
+                          toggleColumn(stageLeads, e.target.checked)
+                        }
                       />
-                      <h2 className="font-semibold text-white">{stage.title}</h2>
+                      <h2 className="font-semibold text-white">
+                        {stage.title}
+                      </h2>
                     </div>
 
                     <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-slate-300">
@@ -142,7 +212,9 @@ export default function KanbanPage() {
 
                   <div className="space-y-4">
                     {stageLeads.length === 0 && (
-                      <div className="text-xs text-slate-500 italic">No leads</div>
+                      <div className="text-xs text-slate-500 italic">
+                        No leads
+                      </div>
                     )}
 
                     {stageLeads.map(lead => (
@@ -162,15 +234,12 @@ export default function KanbanPage() {
         )}
       </div>
 
-      {/* Modal ALWAYS mounted */}
+      {/* Email Modal */}
       <SendCampaignModal
         isOpen={isSendModalOpen}
         onClose={() => setIsSendModalOpen(false)}
         selectedIds={selected}
-        onSent={() => {
-          clearSelection()
-          fetchLeads()
-        }}
+        onSent={() => batchMarkContacted(selected)}
       />
     </>
   )
@@ -188,7 +257,10 @@ function Card({
   toggleSelect: (id: string) => void
 }) {
   return (
-    <div className={`glass p-4 space-y-4 border ${selected ? 'border-blue-400/40' : 'border-white/5'}`}>
+    <div className={`glass p-4 space-y-4 border ${
+      selected ? 'border-blue-400/40' : 'border-white/5'
+    }`}>
+
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
@@ -208,10 +280,8 @@ function Card({
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <MoveBtn label="Ready" onClick={() => moveLead(lead.id, 'pipeline')} color="blue" />
-        <MoveBtn label="Contacted" onClick={() => moveLead(lead.id, 'contacted')} color="emerald" />
         <MoveBtn label="Follow-up" onClick={() => moveLead(lead.id, 'followup_due')} color="cyan" />
-        <MoveBtn label="Not Interested" onClick={() => moveLead(lead.id, 'not_interested')} color="red" />
+        <MoveBtn label="Reject" onClick={() => moveLead(lead.id, 'rejected')} color="red" />
       </div>
     </div>
   )
@@ -224,11 +294,9 @@ function MoveBtn({
 }: {
   label: string
   onClick: () => void
-  color: 'blue' | 'emerald' | 'cyan' | 'red'
+  color: 'cyan' | 'red'
 }) {
   const styles = {
-    blue: 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 ring-1 ring-blue-400/30',
-    emerald: 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 ring-1 ring-emerald-400/30',
     cyan: 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30',
     red: 'bg-red-500/15 text-red-300 hover:bg-red-500/25 ring-1 ring-red-400/30',
   }
@@ -236,7 +304,7 @@ function MoveBtn({
   return (
     <button
       onClick={onClick}
-      className={`w-full h-9 flex items-center justify-center rounded-lg text-xs font-semibold whitespace-nowrap transition ${styles[color]}`}
+      className={`w-full h-9 flex items-center justify-center rounded-lg text-xs font-semibold transition ${styles[color]}`}
     >
       {label}
     </button>
