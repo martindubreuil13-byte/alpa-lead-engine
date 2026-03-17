@@ -7,12 +7,8 @@ const PIPELINE_STATUSES = [
   'pipeline',
   'contacted',
   'followup_due',
-  'not_interested',
 ] as const
 
-const EXCLUDED_STATUSES = [
-  'rejected',
-] as const
 const PAGE_SIZE = 1000
 
 type LeadStatusRow = {
@@ -28,7 +24,6 @@ export default function Page() {
   const [stats, setStats] = useState<Stats>({
     total: 0,
     inbox: 0,
-    review: 0,
   })
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
@@ -53,19 +48,13 @@ export default function Page() {
         .select('status')
         .range(from, to)
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
-      if (!data || data.length === 0) {
-        break
-      }
+      if (!data || data.length === 0) break
 
       allRows.push(...data)
 
-      if (data.length < PAGE_SIZE) {
-        break
-      }
+      if (data.length < PAGE_SIZE) break
 
       from += PAGE_SIZE
     }
@@ -76,44 +65,21 @@ export default function Page() {
   async function fetchStats() {
     try {
       const [totalRes, allStatuses] = await Promise.all([
-        supabase
-          .from('leads')
-          .select('*', { count: 'exact', head: true }),
+        supabase.from('leads').select('*', { count: 'exact', head: true }),
         fetchAllLeadStatuses(),
       ])
 
       const total = totalRes.count || 0
 
-      console.log('FETCH STATS RESULT:', {
+      const inbox = allStatuses.filter(l => l.status === 'inbox').length
+
+      setStats({
         total,
-        rowsFetched: allStatuses.length,
-        statusSample: allStatuses.slice(0, 20),
+        inbox,
       })
 
-      const statusCounts = allStatuses.reduce((acc: Record<string, number>, row) => {
-        const key = row.status ?? 'null'
-        acc[key] = (acc[key] || 0) + 1
-        return acc
-      }, {})
-
-      console.log('STATUS BREAKDOWN:', statusCounts)
-
-const inbox = allStatuses.filter((l) =>
-  l.status === 'inbox'
-).length
-
-const rejected = allStatuses.filter((l) =>
-  l.status === 'rejected'
-).length
-
-
-setStats({
-  total,
-  inbox,
-})
-
     } catch (err) {
-      console.error('UNEXPECTED ERROR IN fetchStats:', err)
+      console.error('fetchStats error:', err)
     }
   }
 
@@ -124,36 +90,29 @@ setStats({
         .select('status')
         .in('status', [...PIPELINE_STATUSES])
 
-      console.log('FETCH PIPELINE RESULT:', { data, error })
-
       if (error) {
-        console.error('SUPABASE ERROR IN fetchPipeline:', error)
-        return
-      }
-
-      if (!data) {
-        console.warn('NO PIPELINE DATA RETURNED')
+        console.error('fetchPipeline error:', error)
         return
       }
 
       const counts: Record<string, number> = {}
 
-      data.forEach((row) => {
+      data?.forEach(row => {
         const status = row.status || 'pipeline'
         counts[status] = (counts[status] || 0) + 1
       })
 
       setPipelineBreakdown(counts)
+
     } catch (err) {
-      console.error('UNEXPECTED ERROR IN fetchPipeline:', err)
+      console.error('fetchPipeline error:', err)
     }
   }
 
   const activePipeline =
     (pipelineBreakdown['pipeline'] || 0) +
     (pipelineBreakdown['contacted'] || 0) +
-    (pipelineBreakdown['followup_due'] || 0) +
-    (pipelineBreakdown['not_interested'] || 0)
+    (pipelineBreakdown['followup_due'] || 0)
 
   const contacted = pipelineBreakdown['contacted'] || 0
   const followups = pipelineBreakdown['followup_due'] || 0
@@ -173,7 +132,7 @@ setStats({
         </h1>
 
         <p className="text-slate-400 text-lg max-w-2xl">
-          Your outreach operations at a glance.
+          Your outreach engine in motion.
         </p>
       </div>
 
@@ -185,7 +144,7 @@ setStats({
         <Metric title="Contacted" value={contacted} />
         <Metric title="Follow-ups Due" value={followups} highlight />
 
-        <Metric title="Pipeline Contact Rate" value={`${contactRate}%`} />
+        <Metric title="Contact Rate" value={`${contactRate}%`} />
       </div>
 
       <div className="grid gap-8 lg:grid-cols-2">
@@ -198,33 +157,19 @@ setStats({
 
 function Metric({ title, value, highlight }: any) {
   return (
-    <div
-      className={`relative glass p-8 rounded-2xl overflow-hidden ${
-        highlight ? 'ring-1 ring-emerald-400/40' : ''
-      }`}
-    >
-      <div className="text-xs uppercase tracking-wider text-slate-500">
-        {title}
-      </div>
-
-      <div className="text-5xl font-bold mt-4 text-white tracking-tight">
-        {value}
-      </div>
-
-      <div className="absolute bottom-4 right-5 flex items-center gap-2 text-xs text-slate-500">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        Live
-      </div>
+    <div className={`glass p-8 rounded-2xl ${highlight ? 'ring-1 ring-emerald-400/40' : ''}`}>
+      <div className="text-xs uppercase text-slate-500">{title}</div>
+      <div className="text-5xl font-bold mt-4 text-white">{value}</div>
     </div>
   )
 }
 
 function PipelinePanel({ pipeline }: any) {
-  const order = ['pipeline', 'contacted', 'followup_due', 'not_interested']
+  const order = ['pipeline', 'contacted', 'followup_due']
 
   const entries = order
-    .filter((key) => pipeline[key] > 0)
-    .map((key) => [key, pipeline[key]])
+    .filter(key => pipeline[key] > 0)
+    .map(key => [key, pipeline[key]])
 
   return (
     <div className="glass p-9 rounded-2xl">
@@ -254,13 +199,14 @@ function RecentActivityPanel() {
   return (
     <div className="glass p-9 rounded-2xl">
       <h2 className="text-xl font-semibold text-white mb-4">
-        Recent Activity
+        System Logic
       </h2>
 
       <div className="text-slate-400 text-sm space-y-2">
-        <p>• New leads appear in Inbox</p>
-        <p>• Review Leads are saved for later</p>
-        <p>• Pipeline tracks active outreach</p>
+        <p>• Leads enter Inbox</p>
+        <p>• Move to Pipeline when ready</p>
+        <p>• Follow-ups are triggered after delay</p>
+        <p>• Non-responses exit pipeline automatically</p>
       </div>
     </div>
   )
