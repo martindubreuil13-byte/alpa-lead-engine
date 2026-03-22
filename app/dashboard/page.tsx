@@ -110,7 +110,7 @@ export default function Page() {
         </h1>
 
         <p className="text-slate-400">
-          Your outreach system at a glance.
+          Your prospecting system at a glance.
         </p>
       </div>
 

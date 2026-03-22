@@ -32,7 +32,7 @@ export default function AddTemplateModal({
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [description, setDescription] = useState('')
-  const [category, setCategory] = useState('first_outreach')
+  const [category, setCategory] = useState('first_prospecting')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function AddTemplateModal({
       setSubject('')
       setBody('')
       setDescription('')
-      setCategory('first_outreach')
+      setCategory('first_prospecting')
     }
   }, [editTemplate, isOpen])
 
@@ -108,7 +108,7 @@ export default function AddTemplateModal({
             onChange={(e) => setCategory(e.target.value)}
             className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           >
-            <option value="first_outreach">First Outreach</option>
+            <option value="first_prospecting">First Prospecting</option>
             <option value="follow_up">Follow-up</option>
             <option value="reactivation">Reactivation</option>
             <option value="general">General</option>

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 
 export default function DashboardLayout({
   children,
@@ -25,6 +26,11 @@ export default function DashboardLayout({
     return pathname.startsWith(href)
   }
 
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
   return (
     <div className="min-h-screen flex bg-[#0b1220] text-white">
       {/* SIDEBAR */}
@@ -46,38 +52,54 @@ export default function DashboardLayout({
         </div>
 
         {/* NAVIGATION */}
-        <nav className="mt-12 space-y-2">
-          {navItems.map((item) => {
-            const active = isActive(item.href)
+   <nav className="mt-12 space-y-2">
+  {navItems.map((item) => {
+    const active = isActive(item.href)
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`group flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-all ${
-                  active
-                    ? 'bg-white/10 text-white border border-white/10 shadow-inner'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <span>{item.label}</span>
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`group flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-all ${
+          active
+            ? 'bg-white/10 text-white border border-white/10 shadow-inner'
+            : 'text-slate-400 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        <span>{item.label}</span>
 
-                {active && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                )}
-              </Link>
-            )
-          })}
-        </nav>
+        {active && (
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        )}
+      </Link>
+    )
+  })}
+
+  {/* DIVIDER */}
+  <div className="my-4 border-t border-white/10" />
+
+  {/* LOGOUT */}
+  <button
+    onClick={handleLogout}
+    className="w-full flex items-center justify-between rounded-xl px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition"
+  >
+    <span>Logout</span>
+  </button>
+</nav>
+
 
         {/* FOOTER */}
-        <div className="mt-auto pt-8 space-y-2">
+        <div className="mt-auto pt-8 space-y-4">
           <div className="text-xs text-slate-500">
             ALPA • Intelligence System
           </div>
           <div className="text-xs text-slate-600">
             Build v1.1
           </div>
+
+        
+
+
         </div>
       </aside>
 

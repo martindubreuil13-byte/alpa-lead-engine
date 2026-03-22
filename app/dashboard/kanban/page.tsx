@@ -136,7 +136,7 @@ export default function PipelinePage() {
         <div>
           <h1 className="text-4xl font-bold text-white">Pipeline</h1>
           <p className="text-slate-400 mt-2">
-            Execute outreach and manage active leads
+            Execute prospecting and manage active leads
           </p>
         </div>
 

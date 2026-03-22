@@ -1,480 +1,286 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 
-import { searchGooglePlaces } from "@/lib/sources/google"
-import { searchSerperMaps } from "@/lib/sources/serper"
-import { SourceLead } from "@/lib/sources/types"
+import { searchGooglePlaces } from '@/lib/sources/google'
+import { searchSerperMaps } from '@/lib/sources/serper'
+import { validateEmail } from '@/lib/validation'
 
-export const runtime = "nodejs"
+export const runtime = 'nodejs'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const ENRICHMENT_WORKERS = 2
+const FETCH_TIMEOUT = 8000
 
-let isScraping = false
-let scrapeConfig: any = null
-
-const ENRICHMENT_WORKERS = 3
-
-type LeadInput = {
-  company_name: string
-  phone?: string | null
-  website?: string | null
-  email?: string | null
-  industry?: string | null
-  city?: string | null
-  source?: string | null
-  source_url?: string | null
-}
-
-function streamResponse(stream: ReadableStream) {
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  })
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function generateSearchQueries(
-  business: string,
-  city: string,
-  region: string,
+type ScrapeConfig = {
+  query: string
+  defaultCity: string
+  region: string
   country: string
-) {
-  const base = business.trim()
-  const c = city?.trim()
-  const r = region?.trim()
-  const co = country?.trim()
-
-  // If no city → fallback (but honestly, you should always have a city)
-  if (!c) return [`${base}`]
-
-  const queries = [
-    // Core local intent
-    `${base} ${c}`,
-    `${base} in ${c}`,
-    `${base} near ${c}`,
-
-    // Strong geo anchors (stacked context = better results)
-    r ? `${base} ${c} ${r}` : null,
-    co ? `${base} ${c} ${co}` : null,
-    r && co ? `${base} ${c} ${r} ${co}` : null,
-
-    // Intent variations (still LOCAL)
-    `${base} services ${c}`,
-    `${base} company ${c}`,
-    `${base} business ${c}`,
-  ]
-
-  return [...new Set(queries.filter(Boolean))]
+  maxLeads: number
+  userId: string
 }
 
 function sanitizeWebsite(url: string | null) {
   if (!url) return null
+  return url.startsWith('http') ? url : `https://${url}`
+}
 
+function extractEmails(html: string) {
+  const regex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+  return [...new Set((html.match(regex) || []).map((email) => email.toLowerCase()))]
+}
+
+async function fetchHtml(url: string) {
   try {
-    const cleaned = url.trim()
-    if (!cleaned) return null
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
 
-    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) {
-      return cleaned
-    }
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: controller.signal,
+    })
 
-    return `https://${cleaned}`
+    clearTimeout(timeout)
+
+    if (!res.ok) return null
+    return await res.text()
   } catch {
     return null
   }
 }
 
-function looksLikeAssetEmail(value: string) {
-  return /\.(png|jpg|jpeg|webp|svg|gif|avif|ico|css|js|woff|woff2|ttf|eot)/i.test(
-    value
-  )
-}
+async function enrichEmail(website: string | null) {
+  const base = sanitizeWebsite(website)
+  if (!base) return null
 
-function isProbablyValidEmail(value: string) {
-  const email = value.toLowerCase().trim()
+  for (const path of ['', '/contact', '/about']) {
+    const html = await fetchHtml(base + path)
+    if (!html) continue
 
-  if (!email.includes("@")) return false
-  if (looksLikeAssetEmail(email)) return false
-  if (email.includes("/")) return false
-  if (email.includes("\\")) return false
-  if (email.length > 120) return false
-
-  const blockedFragments = [
-    "example.com",
-    "domain.com",
-    "your@email",
-    "email@myemail.com",
-  ]
-
-  if (blockedFragments.some((frag) => email.includes(frag))) return false
-
-  return true
-}
-
-function scoreEmail(email: string) {
-  const lower = email.toLowerCase()
-
-  let score = 0
-
-  if (lower.startsWith("info@")) score += 100
-  if (lower.startsWith("contact@")) score += 90
-  if (lower.startsWith("hello@")) score += 80
-  if (lower.startsWith("sales@")) score += 70
-  if (lower.startsWith("office@")) score += 60
-
-  if (lower.startsWith("support@")) score -= 40
-  if (lower.startsWith("privacy@")) score -= 50
-  if (lower.startsWith("admin@")) score -= 50
-  if (lower.includes("noreply")) score -= 100
-
-  return score
-}
-
-function extractEmailsFromHtml(html: string) {
-  const regex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
-  const matches = html.match(regex) || []
-
-  const unique = [...new Set(matches.map((m) => m.toLowerCase().trim()))]
-  const filtered = unique.filter(isProbablyValidEmail)
-
-  return filtered.sort((a, b) => scoreEmail(b) - scoreEmail(a))
-}
-
-async function fetchHtml(url: string) {
-  const res = await fetch(url, {
-    redirect: "follow",
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-    },
-  })
-
-  if (!res.ok) return null
-
-  const contentType = res.headers.get("content-type") || ""
-  if (!contentType.includes("text/html")) return null
-
-  return await res.text()
-}
-
-async function enrichEmail(
-  website: string | null,
-  send: (msg: string) => void
-) {
-  const safeWebsite = sanitizeWebsite(website)
-  if (!safeWebsite) return null
-
-  const base = safeWebsite.replace(/\/$/, "")
-
-  const candidateUrls = [
-    base,
-    `${base}/contact`,
-    `${base}/contact-us`,
-    `${base}/about`,
-    `${base}/about-us`,
-  ]
-
-  for (const url of candidateUrls) {
-    try {
-      send(`🌐 scanning ${url}`)
-
-      const html = await fetchHtml(url)
-      if (!html) continue
-
-      const emails = extractEmailsFromHtml(html)
-
-      if (emails.length > 0) {
-        send(`📧 email found: ${emails[0]}`)
-        return emails[0]
-      }
-
-      const mailtoMatch = html.match(/mailto:([^"'?\s>]+)/i)
-      if (mailtoMatch?.[1]) {
-        const mail = mailtoMatch[1].toLowerCase().trim()
-
-        if (isProbablyValidEmail(mail)) {
-          send(`📧 mailto found: ${mail}`)
-          return mail
-        }
-      }
-    } catch {}
+    const emails = extractEmails(html)
+    if (emails.length > 0) return emails[0]
   }
-
-  try {
-    const domain = new URL(safeWebsite).hostname.replace("www.", "")
-    send("🧠 guessing common email patterns")
-    return `info@${domain}`
-  } catch {}
 
   return null
 }
 
-async function leadExists(name: string, city: string | null) {
-  const { data } = await supabase
-    .from("leads")
-    .select("id")
-    .eq("company_name", name)
-    .eq("city", city)
-    .limit(1)
+async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: any, userId: string) {
+  const { error } = await supabase.from('leads').insert({
+    ...lead,
+    user_id: userId,
+    status: 'inbox',
+  })
 
-  return !!(data && data.length > 0)
+  return !error
 }
 
-async function saveLead(lead: LeadInput, send: (msg: string) => void) {
-  send("🔥 NEW VERSION RUNNING")
-const payload = {
-  ...lead,
-  status: "inbox",
-}
-
-
-  const { error } = await supabase
-    .from("leads")
-    .insert(payload)
-
-  if (error) {
-    send(`❌ db error: ${error.message}`)
-    return false
-  }
-
-  send("✅ saved")
-  return true
-}
-
-async function enrichmentWorker(
-  workerId: number,
-  queue: LeadInput[],
-  state: {
-    discoveryDone: boolean
-    enrichedCount: number
-  },
+async function runScraper(
+  supabase: ReturnType<typeof createServerClient>,
+  config: ScrapeConfig,
   send: (msg: string) => void
 ) {
-  send(`🧵 enrichment worker ${workerId} ready`)
-
-  while (true) {
-    const lead = queue.shift()
-
-    if (!lead) {
-      if (state.discoveryDone) {
-        send(`🧵 enrichment worker ${workerId} done`)
-        return
-      }
-
-      await sleep(250)
-      continue
-    }
-
-    try {
-      send(`🔬 enriching: ${lead.company_name}`)
-
-      const email = await enrichEmail(lead.website || null, send)
-
-      if (!email) {
-        send(`⛔ rejected: no email found for ${lead.company_name}`)
-        continue
-      }
-
-      const saved = await saveLead(
-        {
-          ...lead,
-          email,
-        },
-        send
-      )
-
-      if (saved) {
-        state.enrichedCount += 1
-        send(`✨ enriched lead: ${lead.company_name}`)
-        send(`📊 enriched count: ${state.enrichedCount}`)
-      }
-    } catch {
-      send(`⚠️ enrichment error: ${lead.company_name}`)
-    }
-  }
-}
-
-async function runScraper(send: (msg: string) => void) {
   try {
-    const query = String(scrapeConfig?.query || "business").trim()
-    const city = String(scrapeConfig?.defaultCity || "").trim()
-    const region = String(scrapeConfig?.region || "").trim()
-    const country = String(scrapeConfig?.country || "Canada").trim()
-    const maxLeads = Number(scrapeConfig?.maxLeads || 25)
+    const { query, defaultCity, region, maxLeads, userId } = config
 
-    send("🚀 starting scraper")
+    if (!query || !defaultCity || !userId) {
+      send('❌ invalid input')
+      return
+    }
 
-    const searchQueries = generateSearchQueries(query, city, region, country)
+    let discovered = 0
+    let enriched = 0
 
-    const sources = [
-      { name: "Serper", search: searchSerperMaps },
-      { name: "Google", search: searchGooglePlaces },
+    const seen = new Set<string>()
+    const queue: any[] = []
+
+    send('🚀 starting scraper')
+
+    const queries = [
+      `${query} ${defaultCity}`,
+      `${query} near ${defaultCity}`,
     ]
 
-    const seenThisRun = new Set<string>()
-    const enrichmentQueue: LeadInput[] = []
+    const sources = [
+      { name: 'Google', fn: searchGooglePlaces },
+      { name: 'Serper', fn: searchSerperMaps },
+    ]
 
-    let discoveredCount = 0
+    for (const currentQuery of queries) {
+      if (discovered >= maxLeads) break
 
-    const state = {
-      discoveryDone: false,
-      enrichedCount: 0,
-    }
-
-    const workers = Array.from({ length: ENRICHMENT_WORKERS }, (_, i) =>
-      enrichmentWorker(i + 1, enrichmentQueue, state, send)
-    )
-
-    for (const searchQuery of searchQueries) {
-      if (discoveredCount >= maxLeads) break
-
-      send(`🔎 query: ${searchQuery}`)
+      send(`🔎 ${currentQuery}`)
 
       for (const source of sources) {
-        if (discoveredCount >= maxLeads) break
+        if (discovered >= maxLeads) break
 
-        if (
-          source.name === "Serper" &&
-          !process.env.SERPER_API_KEY
-        ) {
+        if (source.name === 'Serper' && discovered > maxLeads * 0.5) {
           continue
         }
 
-        if (
-          source.name === "Google" &&
-          !process.env.GOOGLE_PLACES_API_KEY
-        ) {
+        send(`🛰️ ${source.name}`)
+
+        let results: any[] = []
+
+        try {
+          results =
+            (await source.fn({
+              query: currentQuery,
+              city: defaultCity,
+              region,
+              maxResults: maxLeads - discovered,
+              send,
+            } as any)) || []
+        } catch {
+          send(`⚠️ ${source.name} failed`)
           continue
         }
 
-        send(`🛰️ source: ${source.name}`)
+        for (const lead of results) {
+          if (discovered >= maxLeads) break
 
-        const leads: SourceLead[] = await source.search({
-          query: searchQuery,
-          city,
-          region,
-          maxResults: maxLeads - discoveredCount,
-          send,
-        } as any)
+          const key = `${lead.company_name}-${lead.website || ''}`
+          if (seen.has(key)) continue
+          seen.add(key)
 
-        for (const lead of leads) {
-          if (discoveredCount >= maxLeads) break
-
-          const company = String(lead.company_name || "").trim()
-          const website = sanitizeWebsite(lead.website || null)
-          const cityName = (lead.city || city || "").trim() || null
-
-const normalizedCity = city?.toLowerCase() || ""
-const normalizedRegion = region?.toLowerCase() || ""
-const normalizedCountry = country?.toLowerCase() || ""
-const cityValue = cityName?.toLowerCase() || ""
-
-const cityAliases: Record<string, string[]> = {
-  chicoutimi: ["chicoutimi", "saguenay"],
-  laval: ["laval", "montreal", "montréal"],
-  montreal: ["montreal", "montréal", "laval", "longueuil"],
-}
-
-const allowedZones = [
-  ...(cityAliases[normalizedCity] || [normalizedCity]),
-  normalizedRegion,
-  normalizedCountry,
-].filter(Boolean)
-
-if (
-  cityValue &&
-  !allowedZones.some(zone => cityValue.includes(zone))
-) {
-  send(`🚫 skipped (out of zone): ${lead.company_name}`)
-  continue
-}
-
-          if (!company) continue
-
-          const runKey =
-            `${company.toLowerCase()}::${website || ""}::${cityName?.toLowerCase() || ""}`
-
-          if (seenThisRun.has(runKey)) continue
-
-          seenThisRun.add(runKey)
-
-          const exists = await leadExists(company, cityName)
-
-          if (exists) continue
-
-          enrichmentQueue.push({
-            company_name: company,
-            phone: lead.phone || null,
-            website,
-            email: null,
-            industry: lead.industry || null,
-            city: cityName,
-            source: lead.source || source.name.toLowerCase(),
-            source_url: lead.source_url || website,
+          queue.push({
+            company_name: lead.company_name,
+            website: lead.website,
+            phone: lead.phone,
+            city: lead.city || defaultCity,
           })
 
-          discoveredCount++
-
-          send(`📥 discovered lead: ${company}`)
+          discovered += 1
+          send(`📥 ${lead.company_name}`)
         }
       }
     }
 
-    state.discoveryDone = true
-    send("🛑 discovery complete")
+    if (discovered === 0) {
+      send('⚠️ no leads found')
+    }
 
-    await Promise.all(workers)
+    send('🛑 discovery complete')
 
-    send(`📦 discovered leads: ${discoveredCount}`)
-    send(`📦 enriched leads: ${state.enrichedCount}`)
-    send("🎉 scrape complete")
+    async function worker(id: number) {
+      while (true) {
+        const lead = queue.shift()
+        if (!lead) break
+
+        send(`🔬 ${lead.company_name}`)
+
+        const email = await enrichEmail(lead.website)
+
+        if (!email) {
+          send(`⛔ no email: ${lead.company_name}`)
+          continue
+        }
+
+        const saved = await saveLead(
+          supabase,
+          {
+            ...lead,
+            email,
+            emailData: validateEmail(email, 'website'),
+          },
+          userId
+        )
+
+        if (saved) {
+          enriched += 1
+          send(`✨ ${lead.company_name}`)
+        } else {
+          send(`❌ db error: ${lead.company_name}`)
+        }
+      }
+
+      send(`🧵 worker ${id} done`)
+    }
+
+    await Promise.all(
+      Array.from({ length: ENRICHMENT_WORKERS }, (_, index) => worker(index + 1))
+    )
+
+    send(`📦 discovered: ${discovered}`)
+    send(`📦 enriched: ${enriched}`)
+    send('🎉 done')
   } catch (err: any) {
-    send(`❌ scraper error: ${err?.message || "unknown error"}`)
-  } finally {
-    isScraping = false
+    send(`❌ fatal: ${err?.message || 'unknown'}`)
   }
 }
 
 export async function POST(req: Request) {
-  if (isScraping) {
-    return NextResponse.json({
-      message: "scraper already running",
+  const cookieStore = await cookies()
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options)
+            })
+          } catch {}
+        },
+      },
+    }
+  )
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return new Response('data: ❌ missing authenticated user\n\n', {
+      status: 401,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
     })
   }
 
-  scrapeConfig = await req.json()
-  isScraping = true
+  const body = await req.json()
 
-  return NextResponse.json({ started: true })
-}
+  const config: ScrapeConfig = {
+    query: String(body.query || '').trim(),
+    defaultCity: String(body.defaultCity || '').trim(),
+    region: String(body.region || '').trim(),
+    country: String(body.country || 'Canada').trim(),
+    maxLeads: Number(body.maxLeads || 10),
+    userId: user.id,
+  }
 
-export async function GET() {
+  const encoder = new TextEncoder()
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (msg: string) => {
-        controller.enqueue(`data: ${msg}\n\n`)
+        controller.enqueue(encoder.encode(`data: ${msg}\n\n`))
       }
 
-      if (!isScraping) {
-        send("ℹ️ scraper idle")
+      if (!config.query || !config.defaultCity) {
+        send('❌ invalid input')
         controller.close()
         return
       }
 
-      await runScraper(send)
-
-      controller.enqueue(`event: done\ndata: complete\n\n`)
+      send('🟢 stream started')
+      await runScraper(supabase, config, send)
       controller.close()
     },
+    cancel() {},
   })
 
-  return streamResponse(stream)
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  })
 }

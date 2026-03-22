@@ -27,15 +27,14 @@ function formatTime(s: number) {
 
 function translateActivity(msg: string) {
   if (msg.includes('starting scraper')) return 'Launching prospecting engines…'
-  if (msg.includes('variant')) return 'Exploring search patterns…'
-  if (msg.includes('Serper query') || msg.includes('Google')) return 'Scanning business directories…'
-  if (msg.includes('processing')) return 'Analyzing discovered businesses…'
-  if (msg.includes('enrich')) return 'Inspecting business websites…'
-  if (msg.includes('scanning')) return 'Searching business websites for contact details…'
-  if (msg.includes('email found')) return 'Contact signal discovered…'
-  if (msg.includes('zero leads')) return 'Expanding search scope…'
-  if (msg.includes('saved')) return 'Lead stored successfully…'
-  if (msg.includes('scrape complete')) return 'Prospecting mission complete.'
+  if (msg.includes('Google') || msg.includes('Serper')) return 'Scanning business sources…'
+  if (msg.includes('🔎')) return 'Exploring search patterns…'
+  if (msg.includes('🔬')) return 'Inspecting business websites…'
+  if (msg.includes('📥')) return 'Business discovered…'
+  if (msg.includes('✨')) return 'Contact signal discovered…'
+  if (msg.includes('🛑 discovery complete')) return 'Discovery complete. Enriching leads…'
+  if (msg.includes('🎉 done')) return 'Prospecting mission complete.'
+  if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
   return null
 }
 
@@ -108,7 +107,7 @@ export default function Page() {
   const [finalElapsed, setFinalElapsed] = useState<number | null>(null)
 
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const streamRef = useRef<EventSource | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const max = Number(maxLeads)
 
@@ -137,18 +136,33 @@ export default function Page() {
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.close()
-        streamRef.current = null
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
       }
     }
   }, [])
 
+  function finish(customActivity?: string) {
+    if (abortRef.current) {
+      abortRef.current = null
+    }
+
+    setLoading(false)
+    if (customActivity) setActivity(customActivity)
+  }
+
   async function runScrape() {
     try {
-      if (streamRef.current) {
-        streamRef.current.close()
-        streamRef.current = null
+      if (!businessType.trim() || !city.trim()) {
+        setLogs(['❌ Please enter both business type and city'])
+        setActivity('Missing required fields.')
+        return
+      }
+
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
       }
 
       setLoading(true)
@@ -159,86 +173,118 @@ export default function Page() {
       setFinalElapsed(null)
       setActivity('Launching prospecting engines…')
 
+      const payload = {
+        query: businessType.trim(),
+        region: region.trim(),
+        defaultCity: city.trim(),
+        country,
+        maxLeads: Number(maxLeads),
+      }
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
       const res = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: businessType,
-          region,
-          defaultCity: city,
-          country,
-          maxLeads,
-        }),
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       })
 
-      if (!res.ok) {
-        setLogs(['❌ Failed to start scraper'])
-        setActivity('Unable to start mission.')
-        setLoading(false)
-        return
+      if (!res.body) {
+        const errorText = await res.text().catch(() => '')
+        throw new Error(errorText || 'Missing scraper response stream')
       }
 
-      const es = new EventSource('/api/scrape')
-      streamRef.current = es
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
 
-      es.onmessage = (event) => {
-        const msg = event.data as string
-        if (!msg || msg === 'ℹ️ scraper idle') return
+      const handleMessage = (msg: string) => {
+        if (!msg || msg === '🟢 stream started') return
 
         setLogs((prev) => [...prev, msg])
 
         const translated = translateActivity(msg)
         if (translated) setActivity(translated)
 
-     // discovery = first time we successfully accept a business
-if (msg.includes('📥 discovered lead')) {
-  setDiscovered((d) => Math.min(d + 1, max))
-}
-
-// enrichment = email found + saved
-if (msg.includes('✨ enriched lead')) {
-  setEnriched((e) => Math.min(e + 1, max))
-}
-
-        if (msg.includes('🎉 scrape complete')) {
-          finish()
+        if (msg.includes('📥')) {
+          setDiscovered((d) => Math.min(d + 1, max))
         }
 
-        if (msg.includes('❌')) {
-          finish()
+        if (msg.includes('✨')) {
+          setEnriched((e) => Math.min(e + 1, max))
+        }
+
+        if (msg.includes('🎉 done')) {
+          finish('Prospecting mission complete.')
+        }
+
+        if (
+          msg.includes('❌ fatal') ||
+          msg.includes('❌ invalid input') ||
+          msg.includes('❌ missing authenticated user')
+        ) {
+          finish('Mission failed.')
         }
       }
 
-      es.addEventListener('done', () => {
-        finish()
-      })
+      while (true) {
+        const { value, done } = await reader.read()
 
-      es.onerror = () => {
-        finish()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+
+        for (const event of events) {
+          const lines = event.split('\n')
+
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue
+            handleMessage(line.slice(5).trimStart())
+          }
+        }
       }
-    } catch {
-      setLogs(['❌ Scrape failed'])
+
+      buffer += decoder.decode()
+
+      if (buffer.trim()) {
+        const lines = buffer.split('\n')
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          handleMessage(line.slice(5).trimStart())
+        }
+      }
+
+      if (abortRef.current === controller) {
+        abortRef.current = null
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+
+      const message =
+        error instanceof Error ? error.message : 'Scrape failed'
+
+      setLogs([`❌ ${message}`])
       setActivity('Mission failed.')
       setLoading(false)
     }
   }
 
   function abortMission() {
-    if (streamRef.current) {
-      streamRef.current.close()
-      streamRef.current = null
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
     }
 
     setLogs((prev) => [...prev, '🛑 Mission aborted'])
     setActivity('Mission aborted')
-    setLoading(false)
-  }
-
-  function finish() {
-    if (streamRef.current) {
-      streamRef.current.close()
-      streamRef.current = null
-    }
     setLoading(false)
   }
 
@@ -306,7 +352,7 @@ if (msg.includes('✨ enriched lead')) {
             disabled={loading}
             className="btn-primary px-8 py-3 disabled:opacity-60"
           >
-            Run Lead Search
+            {loading ? 'Running...' : 'Run Lead Search'}
           </button>
 
           {loading ? (

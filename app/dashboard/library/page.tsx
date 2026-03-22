@@ -8,6 +8,15 @@ type Lead = {
   company_name: string
   city: string | null
   email: string | null
+  emailData?: {
+    type: string
+    confidence: number
+    isValid: boolean
+  } | null
+  filter?: {
+    keep: boolean
+    reason: string
+  } | null
   phone: string | null
   website: string | null
   status: string | null
@@ -151,7 +160,32 @@ export default function LeadLibraryPage() {
                 <div>Phone: {selectedLead.phone || 'N/A'}</div>
                 <div>Website: {selectedLead.website || 'N/A'}</div>
                 <div>Status: {selectedLead.status || 'N/A'}</div>
+                {selectedLead.emailData && (
+                  <>
+                    <div>Email Type: {selectedLead.emailData.type}</div>
+                    <div>
+                      Email Confidence: {selectedLead.emailData.confidence.toFixed(2)}
+                    </div>
+                    <div>Email Valid: {String(selectedLead.emailData.isValid)}</div>
+                    {selectedLead.filter && (
+                      <>
+                        <div>Filter Keep: {String(selectedLead.filter.keep)}</div>
+                        <div>Filter Reason: {selectedLead.filter.reason}</div>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
+
+              {selectedLead.emailData && selectedLead.filter && (
+                <div
+                  className={`mt-3 text-xs ${
+                    selectedLead.filter.keep ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {selectedLead.filter.keep ? 'Valid Lead' : 'Rejected'}
+                </div>
+              )}
 
               {selectedLead.website && (
                 <a
@@ -223,6 +257,23 @@ export default function LeadLibraryPage() {
               <div className="text-xs mt-2 text-slate-300">
                 {lead.email || 'No email'}
               </div>
+
+              {lead.emailData && (
+                <div className="text-xs mt-2 text-slate-400 space-y-1">
+                  <div>Email Type: {lead.emailData.type}</div>
+                  <div>Email Confidence: {lead.emailData.confidence.toFixed(2)}</div>
+                  <div>Email Valid: {String(lead.emailData.isValid)}</div>
+                  {lead.filter && (
+                    <>
+                      <div>Filter Keep: {String(lead.filter.keep)}</div>
+                      <div>Filter Reason: {lead.filter.reason}</div>
+                      <div className={lead.filter.keep ? 'text-emerald-400' : 'text-red-400'}>
+                        {lead.filter.keep ? 'Valid Lead' : 'Rejected'}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <StatusBadge status={lead.status} />

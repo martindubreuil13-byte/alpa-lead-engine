@@ -1,6 +1,6 @@
-# Quebec Outreach Desk
+# Quebec Prospecting Desk
 
-A lightweight lead scraping and outreach manager for Quebec small business prospecting. Scrape only public directory listings, review leads, and send manual outreach emails one by one.
+A lightweight lead scraping and prospecting manager for Quebec small business prospecting. Scrape only public directory listings, review leads, and send manual prospecting emails one by one.
 
 ## Features
 - Supabase Auth + Postgres data storage

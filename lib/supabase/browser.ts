@@ -1,8 +1,10 @@
-// vercel rebuild fix
-// rebuild trigger
-import { createPagesBrowserClient } from "@supabase/auth-helpers-nextjs";
-import type { Database } from "./types";
+import { createBrowserClient } from '@supabase/ssr'
+
+import type { Database } from './types'
 
 export function createBrowserSupabaseClient() {
-  return createPagesBrowserClient<Database>();
+  return createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 }

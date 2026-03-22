@@ -15,7 +15,7 @@ type Template = {
 }
 
 const categoryStyles: Record<string, string> = {
-  first_outreach: 'bg-blue-500/15 text-blue-300 border-blue-400/30',
+  first_prospecting: 'bg-blue-500/15 text-blue-300 border-blue-400/30',
   follow_up: 'bg-amber-500/15 text-amber-300 border-amber-400/30',
   reactivation: 'bg-purple-500/15 text-purple-300 border-purple-400/30',
   general: 'bg-white/10 text-gray-300 border-white/15',
@@ -82,7 +82,7 @@ export default function TemplatesPage() {
                 Email Templates
               </h1>
               <p className="text-sm text-gray-400">
-                Manage outreach messaging and campaign structures
+                Manage prospecting messaging and campaign structures
               </p>
             </div>
 

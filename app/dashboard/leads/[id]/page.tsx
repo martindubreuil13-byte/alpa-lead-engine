@@ -40,7 +40,7 @@ Martin`
     subject: "Potential partnership opportunity",
     body: `Hello {{company}},
 
-We help businesses in {{industry}} grow through strategic outreach and partnerships.
+We help businesses in {{industry}} grow through strategic prospecting and partnerships.
 
 Would you be open to discussing potential collaboration?
 
@@ -142,7 +142,7 @@ export default function Page() {
           Email Composer
         </h1>
         <p className="text-slate-400 mt-2">
-          Prepare and review your outreach email
+          Prepare and review your prospecting email
         </p>
       </div>
 
@@ -172,7 +172,7 @@ export default function Page() {
           className="input"
         >
           <option value="">Select template…</option>
-          <option value="intro">Intro Outreach</option>
+          <option value="intro">Intro Prospecting</option>
           <option value="followup">Follow-up Reminder</option>
           <option value="partnership">Partnership Proposal</option>
         </select>

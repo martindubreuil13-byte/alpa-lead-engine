@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    const senderName = settings?.sender_name || "Outreach Team"
+    const senderName = settings?.sender_name || "Prospecting Team"
     const senderEmail = process.env.SMTP_USER!
 
     const signatureBlock = buildSignatureHtml(settings || {})

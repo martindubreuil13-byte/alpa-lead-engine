@@ -65,7 +65,7 @@ export default function EnrichPage() {
       <div>
         <h1 className="text-4xl font-bold text-white">Enrichment Center</h1>
         <p className="text-slate-400 mt-2">
-          Improve lead data before moving them to outreach
+          Improve lead data before moving them to prospecting
         </p>
       </div>
 
