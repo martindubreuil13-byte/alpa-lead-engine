@@ -6,11 +6,12 @@ import RichTextEditor from '@/components/editor/RichTextEditor'
 
 type Template = {
   id: string
+  user_id: string
   name: string
   subject: string
   body: string
-  description: string | null
-  category: string
+  signature: string | null
+  created_at: string
 }
 
 type Props = {
@@ -31,8 +32,7 @@ export default function AddTemplateModal({
   const [name, setName] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
-  const [description, setDescription] = useState('')
-  const [category, setCategory] = useState('first_prospecting')
+  const [signature, setSignature] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -40,47 +40,69 @@ export default function AddTemplateModal({
       setName(editTemplate.name)
       setSubject(editTemplate.subject)
       setBody(editTemplate.body)
-      setDescription(editTemplate.description || '')
-      setCategory(editTemplate.category)
+      setSignature(editTemplate.signature || '')
     } else {
       setName('')
       setSubject('')
       setBody('')
-      setDescription('')
-      setCategory('first_prospecting')
+      setSignature('')
     }
   }, [editTemplate, isOpen])
 
   if (!isOpen) return null
 
   async function handleSave() {
-    if (!name || !subject || !body) {
+    if (!name.trim() || !subject.trim() || !body.trim()) {
       alert('Name, subject and body are required')
       return
     }
 
     setLoading(true)
 
-    if (isEditMode) {
-      await supabase
-        .from('email_templates')
-        .update({ name, subject, body, description, category })
-        .eq('id', editTemplate!.id)
-    } else {
-      const slug = name.toLowerCase().replace(/\s+/g, '-')
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-      await supabase.from('email_templates').insert({
-        name,
-        subject,
-        body,
-        description,
-        slug,
-        category,
-        is_active: true,
+    if (!user?.id) {
+      setLoading(false)
+      alert('You must be logged in to save templates')
+      return
+    }
+
+    const payload = {
+      name: name.trim(),
+      subject: subject.trim(),
+      body,
+      signature: signature.trim() || null,
+    }
+
+    let error = null
+
+    if (isEditMode) {
+      const result = await supabase
+        .from('templates')
+        .update(payload)
+        .eq('id', editTemplate!.id)
+        .eq('user_id', user.id)
+
+      error = result.error
+    } else {
+      const result = await supabase.from('templates').insert({
+        ...payload,
+        user_id: user.id,
       })
+
+      error = result.error
     }
 
     setLoading(false)
+
+    if (error) {
+      console.error('Template save failed:', error)
+      alert('Error saving template')
+      return
+    }
+
     onCreated()
     onClose()
   }
@@ -93,8 +115,6 @@ export default function AddTemplateModal({
         </h2>
 
         <div className="grid gap-5">
-
-          {/* Name */}
           <input
             placeholder="Template name"
             value={name}
@@ -102,19 +122,6 @@ export default function AddTemplateModal({
             className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           />
 
-          {/* Category */}
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
-          >
-            <option value="first_prospecting">First Prospecting</option>
-            <option value="follow_up">Follow-up</option>
-            <option value="reactivation">Reactivation</option>
-            <option value="general">General</option>
-          </select>
-
-          {/* Subject */}
           <input
             placeholder="Email subject"
             value={subject}
@@ -122,26 +129,23 @@ export default function AddTemplateModal({
             className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
           />
 
-          {/* Rich Text Body */}
           <div>
             <div className="mb-2 text-sm text-slate-400">Email Body</div>
-            <RichTextEditor
-              content={body}
-              onChange={(html) => setBody(html)}
-            />
+            <RichTextEditor content={body} onChange={(html) => setBody(html)} />
           </div>
 
-          {/* Description */}
-          <textarea
-            placeholder="Internal description (optional)"
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white"
-          />
+          <div>
+            <div className="mb-2 text-sm text-slate-400">Signature</div>
+            <textarea
+              rows={5}
+              value={signature}
+              onChange={(e) => setSignature(e.target.value)}
+              placeholder="Best regards,\nMartin"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white outline-none"
+            />
+          </div>
         </div>
 
-        {/* Actions */}
         <div className="mt-8 flex justify-end gap-3">
           <button
             onClick={onClose}

@@ -1,8 +1,18 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+type SidebarTemplate = {
+  id: string
+  name: string
+}
+
+type SidebarSettings = {
+  signature: string | null
+}
 
 export default function DashboardLayout({
   children,
@@ -10,6 +20,13 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const [template, setTemplate] = useState<SidebarTemplate | null>(null)
+  const [signature, setSignature] = useState<string | null>(null)
+  const [statusLoading, setStatusLoading] = useState(true)
+
+  useEffect(() => {
+    fetchSidebarStatus()
+  }, [])
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
@@ -29,6 +46,50 @@ export default function DashboardLayout({
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  async function fetchSidebarStatus() {
+    setStatusLoading(true)
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user?.id) {
+      setTemplate(null)
+      setSignature(null)
+      setStatusLoading(false)
+      return
+    }
+
+    const [{ data: templateData, error: templateError }, { data: settingsData, error: settingsError }] =
+      await Promise.all([
+        supabase
+          .from('templates')
+          .select('id, name')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('sender_settings')
+          .select('signature')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle(),
+      ])
+
+    if (templateError) {
+      console.error('Error fetching template:', templateError)
+    }
+
+    if (settingsError) {
+      console.error('Error fetching signature:', settingsError)
+    }
+
+    setTemplate(templateData as SidebarTemplate | null)
+    setSignature((settingsData as SidebarSettings | null)?.signature || null)
+    setStatusLoading(false)
   }
 
   return (
@@ -90,16 +151,40 @@ export default function DashboardLayout({
 
         {/* FOOTER */}
         <div className="mt-auto pt-8 space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+              Outreach Setup
+            </div>
+
+            {statusLoading ? (
+              <div className="mt-3 text-sm text-slate-400">
+                Loading template and signature...
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Template</span>
+                  <span className="max-w-[9rem] truncate text-right text-white">
+                    {template?.name || 'Not set'}
+                  </span>
+                </div>
+
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Signature</span>
+                  <span className={`text-right ${signature ? 'text-emerald-300' : 'text-slate-500'}`}>
+                    {signature ? 'Saved' : 'Missing'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="text-xs text-slate-500">
             ALPA • Intelligence System
           </div>
           <div className="text-xs text-slate-600">
             Build v1.1
           </div>
-
-        
-
-
         </div>
       </aside>
 

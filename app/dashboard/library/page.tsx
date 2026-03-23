@@ -53,10 +53,22 @@ export default function LeadLibraryPage() {
   }
 
   async function updateStatus(id: string, status: string) {
-    const { error } = await supabase.from('leads').update({ status }).eq('id', id)
+    const ids = [id]
+
+    if (!ids.length) return
+
+    console.log(ids)
+
+    const { data, error } = await supabase
+      .from('leads')
+      .update({ status })
+      .in('id', ids)
+
+    console.log('Move result:', data)
+    console.log('Move error:', error)
 
     if (error) {
-      console.error(error)
+      console.error('Move failed:', error.message)
       return
     }
 
@@ -65,10 +77,17 @@ export default function LeadLibraryPage() {
   }
 
   async function deleteLead(id: string) {
-    const { error } = await supabase.from('leads').delete().eq('id', id)
+    const ids = [id]
+
+    if (!ids.length) return
+
+    const { error } = await supabase
+      .from('leads')
+      .delete()
+      .in('id', ids)
 
     if (error) {
-      console.error(error)
+      console.error('Delete failed:', error.message)
       return
     }
 

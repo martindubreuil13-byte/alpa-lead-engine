@@ -18,6 +18,8 @@ export interface Database {
           source_url: string | null;
           notes: string | null;
           status: string;
+          pipeline_stage: string | null;
+          close_reason: string | null;
           date_added: string;
           first_contact_at: string | null;
           followup_due_at: string | null;
@@ -38,6 +40,8 @@ export interface Database {
           source_url?: string | null;
           notes?: string | null;
           status?: string;
+          pipeline_stage?: string | null;
+          close_reason?: string | null;
           date_added?: string;
           first_contact_at?: string | null;
           followup_due_at?: string | null;
@@ -51,16 +55,20 @@ export interface Database {
           id: string;
           user_id: string;
           name: string;
+          tag: string | null;
           subject: string;
           body: string;
+          signature: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           user_id?: string;
           name: string;
+          tag?: string | null;
           subject: string;
           body: string;
+          signature?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["templates"]["Insert"]>;

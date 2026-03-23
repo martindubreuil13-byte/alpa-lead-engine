@@ -1,5 +1,7 @@
 'use client'
 
+import { buildSignatureHtml } from '@/lib/email/signature'
+
 type Props = {
   senderName?: string
   jobTitle?: string
@@ -21,6 +23,15 @@ export default function SignaturePreview({
 }: Props) {
   const hasContent =
     senderName || jobTitle || companyName || phone || website || senderEmail
+  const signatureHtml = buildSignatureHtml({
+    sender_name: senderName,
+    job_title: jobTitle,
+    company_name: companyName,
+    phone,
+    website,
+    logo_url: logoUrl,
+    sender_email: senderEmail,
+  })
 
   return (
     <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
@@ -33,47 +44,19 @@ export default function SignaturePreview({
         className="mx-auto max-w-md rounded-lg p-6 shadow-2xl"
         style={{
           background: '#ffffff',
-          color: '#1f2937', // hard override dark text
+          color: '#1f2937',
         }}
       >
-        <div style={{ borderTop: '1px solid #e5e7eb', marginBottom: 16 }} />
-
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between">
-          <div style={{ fontSize: 14, lineHeight: 1.6 }}>
-            {senderName && (
-              <div style={{ fontWeight: 600, fontSize: 15 }}>
-                {senderName}
-              </div>
-            )}
-
-            {jobTitle && <div>{jobTitle}</div>}
-            {companyName && <div>{companyName}</div>}
-
-            {(phone || senderEmail || website) && (
-              <div style={{ marginTop: 10, opacity: 0.8 }}>
-                {phone && <div>{phone}</div>}
-                {senderEmail && <div>{senderEmail}</div>}
-                {website && <div>{website}</div>}
-              </div>
-            )}
-
-            {!hasContent && (
-              <div style={{ fontStyle: 'italic', opacity: 0.5 }}>
-                Fill in your details to preview your signature
-              </div>
-            )}
+        {hasContent ? (
+          <div
+            className="text-sm leading-7"
+            dangerouslySetInnerHTML={{ __html: signatureHtml }}
+          />
+        ) : (
+          <div style={{ fontStyle: 'italic', opacity: 0.5 }}>
+            Fill in your details to preview your signature
           </div>
-
-          {logoUrl && (
-            <div>
-              <img
-                src={logoUrl}
-                alt="Logo"
-                style={{ maxHeight: 60, maxWidth: 140, objectFit: 'contain' }}
-              />
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )

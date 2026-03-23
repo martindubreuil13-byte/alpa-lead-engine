@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 
 const COUNTRY_OPTIONS = [
   'Canada',
@@ -44,22 +44,41 @@ type InputProps = {
   value: string
   onChange: (v: string) => void
   disabled?: boolean
+  invalid?: boolean
+  errorText?: string | null
 }
 
-function Input({ label, placeholder, value, onChange, disabled = false }: InputProps) {
+const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  {
+    label,
+    placeholder,
+    value,
+    onChange,
+    disabled = false,
+    invalid = false,
+    errorText = null,
+  },
+  ref
+) {
   return (
     <div className="space-y-2">
       <label className="text-sm text-slate-400">{label}</label>
       <input
+        ref={ref}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-white/10 bg-[#0b1220] px-4 py-2 text-white placeholder:text-slate-500 disabled:opacity-60"
+        className={`w-full rounded-xl border bg-[#0b1220] px-4 py-2 text-white placeholder:text-slate-500 disabled:opacity-60 ${
+          invalid ? 'border-red-500/70 focus:ring-2 focus:ring-red-500/20' : 'border-white/10'
+        }`}
       />
+      {invalid && errorText ? (
+        <div className="text-xs text-red-400">{errorText}</div>
+      ) : null}
     </div>
   )
-}
+})
 
 type SelectProps = {
   label: string
@@ -102,14 +121,21 @@ export default function Page() {
   const [discovered, setDiscovered] = useState(0)
   const [enriched, setEnriched] = useState(0)
   const [activity, setActivity] = useState('Idle')
+  const [validationMessage, setValidationMessage] = useState('')
+  const [showValidation, setShowValidation] = useState(false)
 
   const [elapsed, setElapsed] = useState(0)
   const [finalElapsed, setFinalElapsed] = useState<number | null>(null)
 
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const businessTypeRef = useRef<HTMLInputElement | null>(null)
+  const cityRef = useRef<HTMLInputElement | null>(null)
 
   const max = Number(maxLeads)
+  const missingBusinessType = !businessType.trim()
+  const missingCity = !city.trim()
+  const hasMissingRequiredFields = missingBusinessType || missingCity
 
   useEffect(() => {
     if (loading) {
@@ -154,9 +180,16 @@ export default function Page() {
 
   async function runScrape() {
     try {
-      if (!businessType.trim() || !city.trim()) {
-        setLogs(['❌ Please enter both business type and city'])
+      if (hasMissingRequiredFields) {
+        setShowValidation(true)
+        setValidationMessage('Please enter business type and city')
+        setLogs([])
         setActivity('Missing required fields.')
+        if (missingBusinessType) {
+          businessTypeRef.current?.focus()
+        } else if (missingCity) {
+          cityRef.current?.focus()
+        }
         return
       }
 
@@ -171,6 +204,8 @@ export default function Page() {
       setEnriched(0)
       setElapsed(0)
       setFinalElapsed(null)
+      setValidationMessage('')
+      setShowValidation(false)
       setActivity('Launching prospecting engines…')
 
       const payload = {
@@ -306,11 +341,22 @@ export default function Page() {
       <div className="glass space-y-10 p-10">
         <div className="grid gap-8 md:grid-cols-2">
           <Input
+            ref={businessTypeRef}
             label="Type of business"
             value={businessType}
-            onChange={setBusinessType}
+            onChange={(value) => {
+              setBusinessType(value)
+              if (showValidation) {
+                const nextMissingBusinessType = !value.trim()
+                if (!nextMissingBusinessType && !missingCity) {
+                  setValidationMessage('')
+                }
+              }
+            }}
             placeholder="plumber, florist, dentist..."
             disabled={loading}
+            invalid={showValidation && missingBusinessType}
+            errorText="Required field"
           />
 
           <Select
@@ -338,19 +384,34 @@ export default function Page() {
           />
 
           <Input
+            ref={cityRef}
             label="City"
             value={city}
-            onChange={setCity}
+            onChange={(value) => {
+              setCity(value)
+              if (showValidation) {
+                const nextMissingCity = !value.trim()
+                if (!missingBusinessType && !nextMissingCity) {
+                  setValidationMessage('')
+                }
+              }
+            }}
             placeholder="Montreal, Austin..."
             disabled={loading}
+            invalid={showValidation && missingCity}
+            errorText="Required field"
           />
         </div>
+
+        {validationMessage ? (
+          <div className="text-sm text-red-400">{validationMessage}</div>
+        ) : null}
 
         <div className="flex gap-4">
           <button
             onClick={runScrape}
-            disabled={loading}
-            className="btn-primary px-8 py-3 disabled:opacity-60"
+            disabled={loading || hasMissingRequiredFields}
+            className="btn-primary px-8 py-3 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? 'Running...' : 'Run Lead Search'}
           </button>

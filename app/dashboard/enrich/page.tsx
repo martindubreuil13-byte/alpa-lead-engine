@@ -33,12 +33,43 @@ export default function EnrichPage() {
   }
 
   async function moveToPipeline(id: string) {
-    await supabase.from('leads').update({ status: 'pipeline' }).eq('id', id)
+    const ids = [id]
+
+    if (!ids.length) return
+
+    console.log(ids)
+
+    const { data, error } = await supabase
+      .from('leads')
+      .update({ status: 'pipeline' })
+      .in('id', ids)
+
+    console.log('Move result:', data)
+    console.log('Move error:', error)
+
+    if (error) {
+      console.error('Move failed:', error.message)
+      return
+    }
+
     fetchLeads()
   }
 
   async function deleteLead(id: string) {
-    await supabase.from('leads').delete().eq('id', id)
+    const ids = [id]
+
+    if (!ids.length) return
+
+    const { error } = await supabase
+      .from('leads')
+      .delete()
+      .in('id', ids)
+
+    if (error) {
+      console.error('Delete failed:', error.message)
+      return
+    }
+
     fetchLeads()
   }
 
