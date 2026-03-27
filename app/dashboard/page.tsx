@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getGuestLeads } from '@/lib/guest-session'
+import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 /**
  * Only ACTIVE pipeline stages
@@ -24,13 +26,51 @@ export default function Page() {
   })
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
+  const [isGuest, setIsGuest] = useState(false)
 
   useEffect(() => {
     loadDashboard()
+
+    const refreshGuest = () => {
+      loadGuestStats()
+    }
+
+    window.addEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
+    return () => {
+      window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
+    }
   }, [])
 
   async function loadDashboard() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      setIsGuest(true)
+      loadGuestStats()
+      return
+    }
+
+    setIsGuest(false)
     await Promise.all([loadStats(), loadPipeline()])
+  }
+
+  function loadGuestStats() {
+    const guestLeads = getGuestLeads()
+    const inbox = guestLeads.filter((lead) => lead.status === 'inbox').length
+
+    setStats({
+      total: guestLeads.length,
+      inbox,
+    })
+
+    const counts: Record<string, number> = {}
+    guestLeads.forEach((lead) => {
+      const key = lead.status || 'pipeline'
+      counts[key] = (counts[key] || 0) + 1
+    })
+    setPipelineBreakdown(counts)
   }
 
   /**
@@ -110,7 +150,7 @@ export default function Page() {
         </h1>
 
         <p className="text-slate-400">
-          Your prospecting system at a glance.
+          {isGuest ? 'Your free trial workspace at a glance.' : 'Your prospecting system at a glance.'}
         </p>
       </div>
 

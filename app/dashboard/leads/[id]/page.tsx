@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 
 import { buildFinalEmailHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
+import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
 type Lead = {
   id: string
@@ -106,13 +107,13 @@ export default function Page() {
       console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
     }
 
-    if (senderError) {
+    if (senderError && !isIgnorableEmptyResultError(senderError)) {
       console.error('FULL ERROR:', JSON.stringify(senderError, null, 2))
     }
 
     const nextTemplates = (templateData as Template[]) || []
     setTemplates(nextTemplates)
-    setSenderSettings((senderData as SenderSettings | null) || null)
+    setSenderSettings((senderData as SenderSettings | null) ?? null)
 
     if (nextTemplates.length > 0) {
       setSelectedTemplateId(nextTemplates[0].id)

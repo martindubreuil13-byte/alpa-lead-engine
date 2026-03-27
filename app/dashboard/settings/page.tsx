@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import SignaturePreview from '@/components/email/SignaturePreview'
 import { supabase } from '@/lib/supabase'
+import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
 type SenderSettingsRow = {
   id: string
@@ -57,12 +58,26 @@ export default function SettingsPage() {
       .limit(1)
       .maybeSingle()
 
-    if (error) {
-      console.error('Error fetching sender settings:', error)
+    if (error && !isIgnorableEmptyResultError(error)) {
+      console.error(
+        'Error fetching sender settings:',
+        JSON.stringify(error, null, 2)
+      )
       return
     }
 
-    if (!data) return
+    if (!data) {
+      setRowId(null)
+      setSenderName('')
+      setSenderEmail('')
+      setCompanyName('')
+      setJobTitle('')
+      setPhone('')
+      setWebsite('')
+      setLogoUrl('')
+      setLogoFileName('')
+      return
+    }
 
     const row = data as SenderSettingsRow
     setRowId(row.id)
@@ -118,7 +133,7 @@ export default function SettingsPage() {
           }
         )
         .select('id')
-        .single()
+        .maybeSingle()
 
       if (error) {
         console.error('FULL ERROR:', JSON.stringify(error, null, 2))

@@ -13,7 +13,7 @@ export type CrawlInput = {
   listingUrlIncludes?: string | null
   maxLeads: number
   city?: string | null
-  sourceType?: string | null
+  source?: string | null
 }
 
 export type ScrapedLead = {
@@ -24,7 +24,7 @@ export type ScrapedLead = {
   website?: string | null
   industry?: string | null
   city?: string | null
-  source_type?: string | null
+  source?: string | null
   source_url?: string | null
   notes?: string | null
 }
@@ -169,7 +169,7 @@ async function extractEmailFromWebsite(website: string | null) {
 async function scrapeListing(
   pageUrl: string,
   city?: string | null,
-  sourceType?: string | null
+  source?: string | null
 ): Promise<ScrapedLead> {
 
   const res = await fetch(pageUrl)
@@ -226,7 +226,7 @@ async function scrapeListing(
     phone,
     website,
     city: city ?? null,
-    source_type: sourceType ?? "directory",
+    source: source ?? "directory",
     source_url: pageUrl
 
   }
@@ -300,7 +300,7 @@ export async function crawlDirectory(input: CrawlInput) {
       const lead = await scrapeListing(
         url,
         input.city,
-        input.sourceType
+        input.source
       )
 
       leads.push(lead)

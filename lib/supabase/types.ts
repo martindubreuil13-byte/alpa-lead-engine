@@ -10,11 +10,15 @@ export interface Database {
           company_name: string;
           contact_name: string | null;
           email: string | null;
+          email_source: string | null;
+          email_confidence: Database["public"]["Enums"]["email_confidence"] | null;
+          is_generic_email: boolean;
+          source: string | null;
+          cost_estimate: number | null;
           phone: string | null;
           website: string | null;
           industry: string | null;
           city: string | null;
-          source_type: string | null;
           source_url: string | null;
           notes: string | null;
           status: string;
@@ -32,11 +36,15 @@ export interface Database {
           company_name: string;
           contact_name?: string | null;
           email?: string | null;
+          email_source?: string | null;
+          email_confidence?: Database["public"]["Enums"]["email_confidence"] | null;
+          is_generic_email?: boolean;
+          source?: string | null;
+          cost_estimate?: number | null;
           phone?: string | null;
           website?: string | null;
           industry?: string | null;
           city?: string | null;
-          source_type?: string | null;
           source_url?: string | null;
           notes?: string | null;
           status?: string;
@@ -49,6 +57,31 @@ export interface Database {
           archived_reason?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["leads"]["Insert"]>;
+      };
+      guest_lead_captures: {
+        Row: {
+          id: string;
+          guest_session_id: string;
+          email: string;
+          lead_count: number;
+          preview_count: number;
+          last_trigger: string;
+          last_preview_sent_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          guest_session_id: string;
+          email: string;
+          lead_count?: number;
+          preview_count?: number;
+          last_trigger?: string;
+          last_preview_sent_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["guest_lead_captures"]["Insert"]>;
       };
       templates: {
         Row: {
@@ -139,6 +172,9 @@ export interface Database {
         };
         Returns: number;
       };
+    };
+    Enums: {
+      email_confidence: "high" | "medium" | "low";
     };
   };
 }

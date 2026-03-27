@@ -13,6 +13,7 @@ export type SourceSearchInput = {
   query: string
   city: string
   region: string
+  country?: string
   maxResults: number
   send?: (msg: string) => void
 }

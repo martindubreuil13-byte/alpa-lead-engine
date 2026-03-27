@@ -1,6 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const GUEST_ALLOWED_PATHS = new Set([
+  '/dashboard',
+  '/dashboard/leads',
+  '/dashboard/kanban',
+  '/dashboard/scraper',
+])
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request,
@@ -36,6 +43,10 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   if (user) {
+    return response
+  }
+
+  if (GUEST_ALLOWED_PATHS.has(request.nextUrl.pathname)) {
     return response
   }
 

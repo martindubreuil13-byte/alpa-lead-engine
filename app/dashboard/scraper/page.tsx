@@ -1,6 +1,15 @@
 'use client'
 
 import { forwardRef, useEffect, useRef, useState } from 'react'
+import GuestLeadCaptureModal from '@/components/trial/GuestLeadCaptureModal'
+import {
+  getGuestCaptureEmail,
+  getGuestLeads,
+  getOrCreateGuestSessionId,
+  upsertGuestLead,
+} from '@/lib/guest-session'
+import { supabase } from '@/lib/supabase'
+import { FREE_TRIAL_LEAD_LIMIT, GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 
 const COUNTRY_OPTIONS = [
   'Canada',
@@ -26,6 +35,10 @@ function formatTime(s: number) {
 }
 
 function translateActivity(msg: string) {
+  if (msg === 'Finding businesses') return 'Finding businesses'
+  if (msg === 'Checking websites') return 'Checking websites'
+  if (msg === 'Extracting contacts') return 'Extracting contacts'
+  if (msg === 'Improving results') return 'Improving results'
   if (msg.includes('starting scraper')) return 'Launching prospecting engines…'
   if (msg.includes('Google') || msg.includes('Serper')) return 'Scanning business sources…'
   if (msg.includes('🔎')) return 'Exploring search patterns…'
@@ -36,6 +49,10 @@ function translateActivity(msg: string) {
   if (msg.includes('🎉 done')) return 'Prospecting mission complete.'
   if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
   return null
+}
+
+function isHiddenSystemLog(msg: string) {
+  return msg.includes('api cost estimate') || msg.includes('SCRAPER API COST')
 }
 
 type InputProps = {
@@ -110,6 +127,10 @@ function Select({ label, options, value, onChange, disabled = false }: SelectPro
 
 export default function Page() {
   const [loading, setLoading] = useState(false)
+  const [isGuest, setIsGuest] = useState(false)
+  const [guestLeadCount, setGuestLeadCount] = useState(0)
+  const [showPaywall, setShowPaywall] = useState(false)
+  const [trialMessage, setTrialMessage] = useState('')
 
   const [businessType, setBusinessType] = useState('')
   const [country, setCountry] = useState('Canada')
@@ -131,8 +152,15 @@ export default function Page() {
   const abortRef = useRef<AbortController | null>(null)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
+  const previousGuestLeadCountRef = useRef(0)
 
-  const max = Number(maxLeads)
+  const requestedLeadCount = Number(maxLeads)
+  const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
+  const max = isGuest
+    ? remainingGuestCapacity > 0
+      ? Math.min(requestedLeadCount, remainingGuestCapacity)
+      : requestedLeadCount
+    : requestedLeadCount
   const missingBusinessType = !businessType.trim()
   const missingCity = !city.trim()
   const hasMissingRequiredFields = missingBusinessType || missingCity
@@ -161,6 +189,8 @@ export default function Page() {
   }, [loading, elapsed, finalElapsed])
 
   useEffect(() => {
+    void loadViewerMode()
+
     return () => {
       if (abortRef.current) {
         abortRef.current.abort()
@@ -168,6 +198,49 @@ export default function Page() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!isGuest) return
+
+    const syncGuestLeadCount = () => {
+      setGuestLeadCount(getGuestLeads().length)
+    }
+
+    syncGuestLeadCount()
+    window.addEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeadCount)
+
+    return () => {
+      window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeadCount)
+    }
+  }, [isGuest])
+
+  useEffect(() => {
+    if (!isGuest) {
+      previousGuestLeadCountRef.current = 0
+      return
+    }
+
+    if (
+      previousGuestLeadCountRef.current < FREE_TRIAL_LEAD_LIMIT &&
+      guestLeadCount >= FREE_TRIAL_LEAD_LIMIT &&
+      !getGuestCaptureEmail()
+    ) {
+      setTrialMessage("You've reached your free limit")
+      setShowPaywall(true)
+    }
+
+    previousGuestLeadCountRef.current = guestLeadCount
+  }, [guestLeadCount, isGuest])
+
+  async function loadViewerMode() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const nextIsGuest = !user
+    setIsGuest(nextIsGuest)
+    setGuestLeadCount(nextIsGuest ? getGuestLeads().length : 0)
+  }
 
   function finish(customActivity?: string) {
     if (abortRef.current) {
@@ -180,6 +253,14 @@ export default function Page() {
 
   async function runScrape() {
     try {
+      if (isGuest && guestLeadCount >= FREE_TRIAL_LEAD_LIMIT) {
+        setTrialMessage("You've reached your free limit")
+        if (!getGuestCaptureEmail()) {
+          setShowPaywall(true)
+        }
+        return
+      }
+
       if (hasMissingRequiredFields) {
         setShowValidation(true)
         setValidationMessage('Please enter business type and city')
@@ -198,6 +279,10 @@ export default function Page() {
         abortRef.current = null
       }
 
+      const guestRequestLimit = isGuest
+        ? Math.min(requestedLeadCount, remainingGuestCapacity)
+        : requestedLeadCount
+
       setLoading(true)
       setLogs([])
       setDiscovered(0)
@@ -206,6 +291,7 @@ export default function Page() {
       setFinalElapsed(null)
       setValidationMessage('')
       setShowValidation(false)
+      setTrialMessage('')
       setActivity('Launching prospecting engines…')
 
       const payload = {
@@ -213,7 +299,9 @@ export default function Page() {
         region: region.trim(),
         defaultCity: city.trim(),
         country,
-        maxLeads: Number(maxLeads),
+        maxLeads: guestRequestLimit,
+        existingLeadCount: isGuest ? guestLeadCount : 0,
+        guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
       }
 
       const controller = new AbortController()
@@ -237,6 +325,7 @@ export default function Page() {
 
       const handleMessage = (msg: string) => {
         if (!msg || msg === '🟢 stream started') return
+        if (isHiddenSystemLog(msg)) return
 
         setLogs((prev) => [...prev, msg])
 
@@ -255,6 +344,13 @@ export default function Page() {
           finish('Prospecting mission complete.')
         }
 
+        if (msg.includes("You've reached your free limit")) {
+          setTrialMessage("You've reached your free limit")
+          if (!getGuestCaptureEmail()) {
+            setShowPaywall(true)
+          }
+        }
+
         if (
           msg.includes('❌ fatal') ||
           msg.includes('❌ invalid input') ||
@@ -262,6 +358,10 @@ export default function Page() {
         ) {
           finish('Mission failed.')
         }
+      }
+
+      const handleLead = (lead: TrialLead) => {
+        upsertGuestLead(lead)
       }
 
       while (true) {
@@ -279,7 +379,21 @@ export default function Page() {
 
           for (const line of lines) {
             if (!line.startsWith('data:')) continue
-            handleMessage(line.slice(5).trimStart())
+            const payload = line.slice(5).trimStart()
+
+            try {
+              const parsed = JSON.parse(payload)
+
+              if (parsed?.type === 'log') {
+                handleMessage(String(parsed.message || ''))
+              }
+
+              if (parsed?.type === 'lead' && parsed.payload) {
+                handleLead(parsed.payload as TrialLead)
+              }
+            } catch {
+              handleMessage(payload)
+            }
           }
         }
       }
@@ -291,7 +405,21 @@ export default function Page() {
 
         for (const line of lines) {
           if (!line.startsWith('data:')) continue
-          handleMessage(line.slice(5).trimStart())
+          const payload = line.slice(5).trimStart()
+
+          try {
+            const parsed = JSON.parse(payload)
+
+            if (parsed?.type === 'log') {
+              handleMessage(String(parsed.message || ''))
+            }
+
+            if (parsed?.type === 'lead' && parsed.payload) {
+              handleLead(parsed.payload as TrialLead)
+            }
+          } catch {
+            handleMessage(payload)
+          }
         }
       }
 
@@ -327,16 +455,25 @@ export default function Page() {
   const enrichmentPercent = Math.min((enriched / max) * 100, 100)
 
   return (
-    <div className="space-y-12">
+    <>
+      <div className="space-y-12">
       <div>
         <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
           Prospecting System
         </div>
         <h1 className="mt-2 text-4xl font-bold text-white">Prospector Engine</h1>
         <p className="mt-2 text-slate-400">
-          Discover and enrich businesses by category and location.
+          {isGuest
+            ? 'Discover and enrich businesses instantly. Your free trial stores up to 25 leads.'
+            : 'Discover and enrich businesses by category and location.'}
         </p>
       </div>
+
+      {trialMessage ? (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-5 py-4 text-amber-200">
+          {trialMessage}
+        </div>
+      ) : null}
 
       <div className="glass space-y-10 p-10">
         <div className="grid gap-8 md:grid-cols-2">
@@ -474,6 +611,13 @@ export default function Page() {
           ⏱ {formatTime(finalElapsed ?? elapsed)}
         </div>
       </div>
-    </div>
+      </div>
+
+      <GuestLeadCaptureModal
+        isOpen={showPaywall}
+        trigger="limit"
+        onClose={() => setShowPaywall(false)}
+      />
+    </>
   )
 }

@@ -3,12 +3,19 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
+import EmailConfidenceBadge, { matchesConfidenceFilter } from '@/components/leads/EmailConfidenceBadge'
+import PaywallModal from '@/components/trial/PaywallModal'
+import { getGuestLeads } from '@/lib/guest-session'
+import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 type Lead = {
   id: string
   company_name: string
   city: string
   industry: string | null
+  email: string | null
+  email_confidence: 'high' | 'medium' | 'low' | null
+  is_generic_email: boolean
   status: string
   pipeline_stage?: string | null
   close_reason?: string | null
@@ -91,25 +98,74 @@ export default function PipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [isGuest, setIsGuest] = useState(false)
+  const [showPaywall, setShowPaywall] = useState(false)
+  const [confidenceFilter, setConfidenceFilter] = useState<'recommended' | 'all' | 'high' | 'medium' | 'low'>('recommended')
   const [isSendModalOpen, setIsSendModalOpen] = useState(false)
   const [closeLead, setCloseLead] = useState<Lead | null>(null)
   const [closeReason, setCloseReason] = useState<CloseReason>('no_answer')
   const [closing, setClosing] = useState(false)
+  const visibleLeads = leads.filter((lead) =>
+    matchesConfidenceFilter(lead.email_confidence, confidenceFilter)
+  )
   const sendableSelectedIds = selected.filter((id) => {
-    const lead = leads.find((item) => item.id === id)
+    const lead = visibleLeads.find((item) => item.id === id)
     return lead ? normalizePipelineStage(lead) !== 'closed' : false
   })
 
   useEffect(() => {
     fetchLeads()
+
+    const syncGuestLeads = () => {
+      const guestLeads = getGuestLeads().map((lead) => ({
+        ...lead,
+        status: 'pipeline',
+        pipeline_stage: 'ready',
+      }))
+      setLeads(guestLeads as Lead[])
+      setLoading(false)
+    }
+
+    window.addEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeads)
+    return () => {
+      window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeads)
+    }
   }, [])
+
+  useEffect(() => {
+    const visibleIds = new Set(
+      leads
+        .filter((lead) => matchesConfidenceFilter(lead.email_confidence, confidenceFilter))
+        .map((lead) => lead.id)
+    )
+    setSelected((prev) => prev.filter((id) => visibleIds.has(id)))
+  }, [confidenceFilter, leads])
 
   async function fetchLeads() {
     setLoading(true)
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      setIsGuest(true)
+      setLeads(
+        getGuestLeads().map((lead) => ({
+          ...lead,
+          status: 'pipeline',
+          pipeline_stage: 'ready',
+        })) as Lead[]
+      )
+      setLoading(false)
+      return
+    }
+
+    setIsGuest(false)
+
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, city, industry, status, pipeline_stage, close_reason, contacted_at')
+      .select('id, company_name, city, industry, email, email_confidence, is_generic_email, status, pipeline_stage, close_reason, contacted_at')
       .in('status', PIPELINE_RELEVANT_STATUSES)
 
     if (error) {
@@ -128,6 +184,11 @@ export default function PipelinePage() {
   }
 
   async function moveLeadStage(id: string, newStage: PipelineStage) {
+    if (isGuest) {
+      setShowPaywall(true)
+      return
+    }
+
     const payload: any = {
       pipeline_stage: newStage,
       status_updated_at: new Date().toISOString(),
@@ -154,6 +215,11 @@ export default function PipelinePage() {
   async function batchMarkContacted(ids: string[]) {
     if (ids.length === 0) {
       setSelected([])
+      return
+    }
+
+    if (isGuest) {
+      setShowPaywall(true)
       return
     }
 
@@ -192,6 +258,11 @@ export default function PipelinePage() {
   }
 
   function openCloseModal(lead: Lead) {
+    if (isGuest) {
+      setShowPaywall(true)
+      return
+    }
+
     setCloseLead(lead)
     setCloseReason('no_answer')
   }
@@ -303,13 +374,32 @@ export default function PipelinePage() {
 
         {/* Batch Toolbar */}
         <div className="glass p-4 flex items-center justify-between">
-          <div className="text-sm text-white">
-            {selected.length} selected
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-sm text-white">
+              {selected.length} selected
+            </div>
+            <select
+              value={confidenceFilter}
+              onChange={(event) => setConfidenceFilter(event.target.value as typeof confidenceFilter)}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/40"
+            >
+              <option value="recommended">High + Medium</option>
+              <option value="all">All Confidence</option>
+              <option value="high">High Only</option>
+              <option value="medium">Medium Only</option>
+              <option value="low">Low Only</option>
+            </select>
           </div>
 
           <div className="flex gap-3">
             <button
-              onClick={() => setIsSendModalOpen(true)}
+              onClick={() => {
+                if (isGuest) {
+                  setShowPaywall(true)
+                  return
+                }
+                setIsSendModalOpen(true)
+              }}
               disabled={sendableSelectedIds.length === 0}
               className={`px-4 py-2 rounded-lg transition ${
                 sendableSelectedIds.length === 0
@@ -343,7 +433,7 @@ export default function PipelinePage() {
         {!loading && (
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {STAGES.map(stage => {
-              const stageLeads = leads.filter(
+              const stageLeads = visibleLeads.filter(
                 (lead) => normalizePipelineStage(lead) === stage.key
               )
 
@@ -388,6 +478,7 @@ export default function PipelinePage() {
                         openCloseModal={openCloseModal}
                         selected={selected.includes(lead.id)}
                         toggleSelect={toggleSelect}
+                        isGuest={isGuest}
                       />
                     ))}
                   </div>
@@ -456,6 +547,8 @@ export default function PipelinePage() {
           </div>
         </div>
       )}
+
+      <PaywallModal isOpen={showPaywall} onClose={() => setShowPaywall(false)} />
     </>
   )
 }
@@ -466,12 +559,14 @@ function Card({
   openCloseModal,
   selected,
   toggleSelect,
+  isGuest,
 }: {
   lead: Lead
   moveLeadStage: (id: string, stage: PipelineStage) => void
   openCloseModal: (lead: Lead) => void
   selected: boolean
   toggleSelect: (id: string) => void
+  isGuest: boolean
 }) {
   return (
     <div className={`glass p-4 space-y-4 border ${
@@ -492,6 +587,17 @@ function Card({
           </div>
           <div className="text-xs text-slate-400 mt-1">
             {lead.industry || 'Business'} • {lead.city}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <EmailConfidenceBadge confidence={lead.email_confidence} />
+            {lead.is_generic_email && (
+              <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                Generic
+              </span>
+            )}
+          </div>
+          <div className="mt-2 text-xs text-slate-300">
+            {lead.email || 'No Email'}
           </div>
           <div className="mt-3">
             <span
@@ -515,7 +621,7 @@ function Card({
         <select
           value={normalizePipelineStage(lead)}
           onChange={(event) => moveLeadStage(lead.id, event.target.value as PipelineStage)}
-          disabled={normalizePipelineStage(lead) === 'closed'}
+          disabled={isGuest || normalizePipelineStage(lead) === 'closed'}
           className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/40"
         >
           {normalizePipelineStage(lead) === 'closed' && (
@@ -531,7 +637,7 @@ function Card({
           onClick={() => openCloseModal(lead)}
           className="w-full rounded-lg bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/25"
         >
-          Close
+          {isGuest ? 'Unlock to Close' : 'Close'}
         </button>
       </div>
     </div>

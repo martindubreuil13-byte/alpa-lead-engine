@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
 import { buildFinalEmailHtml, buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
+import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
 export const runtime = 'nodejs'
 
@@ -108,8 +109,11 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    if (senderError || !senderData) {
+    if (senderError && !isIgnorableEmptyResultError(senderError)) {
       console.error('FULL ERROR:', JSON.stringify(senderError, null, 2))
+    }
+
+    if (!senderData) {
       return NextResponse.json({ error: 'No sender settings found' }, { status: 400 })
     }
 

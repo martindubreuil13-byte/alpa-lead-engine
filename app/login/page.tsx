@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
 
 function EyeIcon() {
   return (
@@ -62,15 +64,54 @@ export default function LoginPage() {
 
   const router = useRouter()
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mode = new URLSearchParams(window.location.search).get('mode')
+    setIsSignup(mode === 'signup')
+  }, [])
+
+  async function claimGuestTrialIfNeeded() {
+    const guestLeads = getGuestLeads()
+    if (guestLeads.length === 0) return
+
+    const res = await fetch('/api/guest/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leads: guestLeads }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error || 'Failed to import guest leads')
+    }
+
+    clearGuestTrial()
+  }
+
   async function handleAuth() {
     if (isSignup) {
-      const { error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) return alert(error.message)
-      alert('Account created. You can log in.')
-      setIsSignup(false)
+
+      if (data.session) {
+        await claimGuestTrialIfNeeded()
+        router.push('/dashboard')
+        return
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+      if (signInError) {
+        alert('Account created. Confirm your email and then log in to import your guest leads.')
+        setIsSignup(false)
+        return
+      }
+
+      await claimGuestTrialIfNeeded()
+      router.push('/dashboard')
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) return alert(error.message)
+      await claimGuestTrialIfNeeded()
       router.push('/dashboard')
     }
   }
@@ -219,6 +260,15 @@ export default function LoginPage() {
                       {isSignup ? 'Back to login' : 'Create account'}
                     </button>
                   </div>
+
+                  {!isSignup && (
+                    <div className="mt-4 text-center text-sm text-slate-400">
+                      Want to try it first?{' '}
+                      <Link href="/dashboard" className="font-medium text-cyan-200 transition hover:text-white">
+                        Continue without signup
+                      </Link>
+                    </div>
+                  )}
                 </div>
               </section>
             </div>

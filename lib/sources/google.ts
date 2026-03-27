@@ -1,14 +1,59 @@
 import { SourceLead, SourceSearchInput } from "./types"
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY!
+const GOOGLE_TEXT_SEARCH_URL =
+  "https://maps.googleapis.com/maps/api/place/textsearch/json"
+const GOOGLE_PLACE_DETAILS_URL =
+  "https://maps.googleapis.com/maps/api/place/details/json"
 
 async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+function normalizeGoogleRegion(country?: string) {
+  const value = String(country || "").trim().toLowerCase()
+
+  if (!value) return undefined
+  if (value === "us" || value.includes("united states")) return "us"
+  if (value === "ca" || value.includes("canada")) return "ca"
+  if (
+    value === "uk" ||
+    value === "gb" ||
+    value.includes("united kingdom") ||
+    value.includes("great britain")
+  ) {
+    return "uk"
+  }
+  if (value === "au" || value.includes("australia")) return "au"
+  if (value === "ae" || value.includes("united arab emirates") || value.includes("uae")) {
+    return "ae"
+  }
+
+  return undefined
+}
+
+function buildGoogleQueries(
+  query: string,
+  city: string,
+  region?: string,
+  country?: string
+) {
+  const suffix = [city, region, country].filter(Boolean).join(", ")
+
+  return Array.from(
+    new Set(
+      [
+        [query, suffix].filter(Boolean).join(" ").trim(),
+        [query, city].filter(Boolean).join(" near ").trim(),
+      ].filter(Boolean)
+    )
+  ).slice(0, 2)
+}
+
 async function fetchPlaces(
   query: string,
   maxResults: number,
+  country?: string,
   send?: (msg: string) => void
 ) {
   const results: any[] = []
@@ -22,6 +67,11 @@ async function fetchPlaces(
       query,
       key: GOOGLE_API_KEY,
     })
+    const regionBias = normalizeGoogleRegion(country)
+
+    if (regionBias) {
+      params.append("region", regionBias)
+    }
 
     if (nextPageToken) {
       params.append("pagetoken", nextPageToken)
@@ -31,13 +81,25 @@ async function fetchPlaces(
 
     send?.(`📄 fetching page ${page}`)
 
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`
-    )
+    const res = await fetch(`${GOOGLE_TEXT_SEARCH_URL}?${params.toString()}`)
 
-    if (!res.ok) break
+    if (!res.ok) {
+      send?.(`❌ Google API error: ${res.status}`)
+      break
+    }
 
     const data = await res.json()
+    const status = String(data?.status || "")
+
+    if (status && status !== "OK" && status !== "ZERO_RESULTS") {
+      send?.(`❌ Google API error: ${status}`)
+      break
+    }
+
+    if (status === "ZERO_RESULTS") {
+      send?.('⚠️ No additional results found')
+      break
+    }
 
     if (Array.isArray(data.results)) {
       results.push(...data.results)
@@ -60,14 +122,21 @@ async function fetchPlaceDetails(placeId: string) {
   const fields =
     "name,formatted_phone_number,website,types,address_components,url"
 
-  const url =
-    `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${GOOGLE_API_KEY}`
+  const params = new URLSearchParams({
+    place_id: placeId,
+    fields,
+    key: GOOGLE_API_KEY,
+  })
 
-  const res = await fetch(url)
+  const res = await fetch(`${GOOGLE_PLACE_DETAILS_URL}?${params.toString()}`)
 
   if (!res.ok) return null
 
   const data = await res.json()
+
+  if (data?.status && data.status !== "OK") {
+    return null
+  }
 
   return data.result || null
 }
@@ -83,25 +152,49 @@ function extractCity(components: any[] = []) {
 export async function searchGooglePlaces(
   input: SourceSearchInput
 ): Promise<SourceLead[]> {
-  const { query, city, maxResults, send } = input
+  const { query, city, region, country, maxResults, send } = input
 
   const leads: SourceLead[] = []
   const seen = new Set<string>()
 
-  const searchQuery = query.trim()
+  if (!GOOGLE_API_KEY) {
+    send?.("⚠️ Google Places API key missing")
+    return []
+  }
 
-  const places = await fetchPlaces(searchQuery, maxResults, send)
+  let places: any[] = []
 
-  for (const place of places) {
-    if (leads.length >= maxResults) break
-    if (!place.place_id) continue
-    if (seen.has(place.place_id)) continue
+  for (const searchQuery of buildGoogleQueries(query.trim(), city, region, country)) {
+    send?.(`🌍 Google query: ${searchQuery}`)
 
+    places = await fetchPlaces(searchQuery, maxResults, country, send)
+
+    if (places.length > 0) {
+      break
+    }
+  }
+
+  const placeBatch = places
+    .filter((place) => place?.place_id && !seen.has(place.place_id))
+    .slice(0, maxResults)
+
+  placeBatch.forEach((place) => {
     seen.add(place.place_id)
+  })
 
+  const detailsBatch = await Promise.all(
+    placeBatch.map(async (place) => ({
+      place,
+      details: await fetchPlaceDetails(place.place_id),
+    }))
+  )
+
+  if (detailsBatch.length === 0) {
+    send?.('⚠️ No additional results found')
+  }
+
+  for (const { place, details } of detailsBatch) {
     send?.(`🔍 processing ${place.name}`)
-
-    const details = await fetchPlaceDetails(place.place_id)
 
     const company = details?.name || place.name || "Unknown"
     const website = details?.website || null
