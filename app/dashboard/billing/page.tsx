@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { isFree, isStarter } from '@/lib/auth/access'
@@ -7,6 +8,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function BillingPage() {
   const user = await getUserProfile()
+  if (!user) {
+    redirect('/login')
+  }
+
   const userIsFree = isFree(user) || !user
   const userIsStarter = isStarter(user)
 
@@ -39,7 +44,7 @@ export default async function BillingPage() {
 
           <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-slate-400">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-              {user?.email || 'dev@local'}
+              {user.email}
             </span>
             <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
               {userIsStarter ? 'Starter access' : 'Free access'}

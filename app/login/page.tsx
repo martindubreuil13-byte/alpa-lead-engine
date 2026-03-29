@@ -1,60 +1,10 @@
 'use client'
 
-import Link from 'next/link'
+import { Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
-
-function EyeIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      className="h-4 w-4"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
-      />
-      <circle cx="12" cy="12" r="3.25" />
-    </svg>
-  )
-}
-
-function EyeOffIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      className="h-4 w-4"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M10.6 5.7A10.7 10.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16.7 16.7 0 0 1-3 3.8"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M6.6 6.7A16 16 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.5 4.5-1.2"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M9.9 9.9A3 3 0 0 0 12 15a3 3 0 0 0 2.1-.9"
-      />
-    </svg>
-  )
-}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -124,153 +74,111 @@ export default function LoginPage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050816] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.12),_transparent_26%),linear-gradient(180deg,_#030712_0%,_#08111f_45%,_#0b1220_100%)]" />
+      <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[6px]" />
       <div className="absolute left-1/2 top-12 h-56 w-56 -translate-x-1/2 rounded-full bg-cyan-300/10 blur-3xl" />
       <div className="absolute -left-8 top-1/3 h-64 w-64 rounded-full bg-sky-400/[0.05] blur-3xl" />
       <div className="absolute -right-12 bottom-0 h-72 w-72 rounded-full bg-blue-500/[0.08] blur-3xl" />
 
       <div className="relative flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
-        <div className="w-full max-w-[980px]">
-          <div className="overflow-hidden rounded-[30px] border border-white/[0.12] bg-white/[0.07] shadow-[0_30px_80px_rgba(2,8,23,0.62)] backdrop-blur-2xl">
-            <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
-              <section className="border-b border-white/[0.08] px-5 py-6 sm:px-8 sm:py-8 lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
-                <div className="inline-flex items-center rounded-full border border-white/[0.12] bg-white/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-200">
-                  ALPA
-                </div>
+        <div className="w-full max-w-[420px]">
+          <div className="overflow-hidden rounded-[28px] border border-white/[0.12] bg-[linear-gradient(180deg,rgba(15,23,42,0.88),rgba(8,15,30,0.92))] p-6 shadow-[0_30px_90px_rgba(2,8,23,0.68)] backdrop-blur-2xl sm:p-8">
+            <div className="mx-auto mb-8 flex w-fit items-center rounded-full border border-white/[0.10] bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-200">
+              ALPA
+            </div>
 
-                <div className="mt-6 max-w-md">
-                  <h1 className="text-[2rem] font-semibold tracking-[-0.04em] text-white sm:text-[2.6rem]">
-                    {isSignup ? 'Create your ALPA access' : 'Access your lead engine'}
-                  </h1>
-                  <p className="mt-3 text-sm leading-6 text-slate-300 sm:text-[15px]">
-                    {isSignup
-                      ? 'Set up your workspace access and start building pipeline faster.'
-                      : 'Pick up where your pipeline left off.'}
-                  </p>
-                </div>
+            <div className="space-y-2 text-center">
+              <h1 className="text-[2rem] font-semibold tracking-[-0.04em] text-white sm:text-[2.2rem]">
+                {isSignup ? 'Create your account' : 'Back to building'}
+              </h1>
+              <p className="text-sm leading-6 text-slate-400 sm:text-[15px]">
+                {isSignup
+                  ? 'Create your workspace and start finding real opportunities.'
+                  : 'Access your leads and continue building your pipeline'}
+              </p>
+            </div>
 
-                <div className="mt-8 hidden gap-4 rounded-[24px] border border-white/[0.08] bg-black/[0.18] p-5 lg:grid">
-                  <div className="text-sm font-medium text-slate-200">Built for focused outbound teams</div>
-                  <div className="grid gap-3 text-sm text-slate-400">
-                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-                      Find, qualify, and move through leads without losing context.
-                    </div>
-                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-                      Keep research, notes, and momentum inside one workflow.
-                    </div>
-                  </div>
-                </div>
-              </section>
+            <form
+              className="mt-8 space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void handleAuth()
+              }}
+            >
+              <div>
+                <label htmlFor="email" className="sr-only">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  className="h-14 w-full rounded-2xl border border-white/[0.10] bg-white/[0.06] px-4 text-[15px] text-white placeholder:text-slate-500 transition-all duration-200 focus:border-cyan-300/45 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+                  placeholder="Email address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
 
-              <section className="bg-black/[0.16] px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-12">
-                <div className="mx-auto w-full max-w-[440px]">
-                  <div className="mb-6">
-                    <h2 className="text-xl font-semibold tracking-tight text-white">
-                      {isSignup ? 'Create account' : 'Log in'}
-                    </h2>
-                    <p className="mt-2 text-sm text-slate-400">
-                      {isSignup
-                        ? 'Use your work email to get started.'
-                        : 'Use the email attached to your ALPA workspace.'}
-                    </p>
-                  </div>
-
-                  <form
-                    className="space-y-4"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void handleAuth()
-                    }}
-                  >
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="email"
-                        className="block text-sm font-medium text-slate-200"
-                      >
-                        Email
-                      </label>
-                      <input
-                        id="email"
-                        type="email"
-                        autoComplete="email"
-                        className="h-12 w-full rounded-2xl border border-white/[0.12] bg-white/[0.08] px-4 text-[15px] text-white placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none focus:ring-2 focus:ring-cyan-300/20 sm:h-14"
-                        placeholder="name@company.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <label
-                          htmlFor="password"
-                          className="block text-sm font-medium text-slate-200"
-                        >
-                          Password
-                        </label>
-                        {!isSignup && (
-                          <button
-                            type="button"
-                            onClick={() => alert('Forgot password flow later')}
-                            className="shrink-0 text-sm font-medium text-slate-300 transition hover:text-white"
-                          >
-                            Forgot password?
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="relative">
-                        <input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          autoComplete={isSignup ? 'new-password' : 'current-password'}
-                          className="h-12 w-full rounded-2xl border border-white/[0.12] bg-white/[0.08] px-4 pr-28 text-[15px] text-white placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none focus:ring-2 focus:ring-cyan-300/20 sm:h-14"
-                          placeholder={isSignup ? 'Create a strong password' : 'Enter your password'}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((current) => !current)}
-                          className="absolute right-1 top-1 flex h-10 min-w-[96px] items-center justify-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.10] px-3 text-sm font-medium text-slate-200 transition hover:bg-white/[0.15] hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300/30"
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                          aria-pressed={showPassword}
-                        >
-                          {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                          <span>{showPassword ? 'Hide' : 'Show'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="flex min-h-[54px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.92),rgba(37,99,235,0.95))] px-4 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.28)] transition hover:scale-[0.995] hover:shadow-[0_22px_45px_rgba(14,165,233,0.34)] focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
-                    >
-                      {isSignup ? 'Create account' : 'Enter ALPA'}
-                    </button>
-                  </form>
-
-                  <div className="mt-5 text-center text-sm text-slate-400">
-                    {isSignup ? 'Already have an account?' : 'New to ALPA?'}{' '}
+              <div>
+                <div className="mb-2 flex items-center justify-end">
+                  {!isSignup && (
                     <button
                       type="button"
-                      onClick={() => switchMode(!isSignup)}
-                      className="font-medium text-cyan-200 transition hover:text-white"
+                      onClick={() => alert('Forgot password flow later')}
+                      className="text-sm font-medium text-slate-400 transition hover:text-white"
                     >
-                      {isSignup ? 'Back to login' : 'Create account'}
+                      Forgot password?
                     </button>
-                  </div>
-
-                  {!isSignup && (
-                    <div className="mt-4 text-center text-sm text-slate-400">
-                      Want to try it first?{' '}
-                      <Link href="/dashboard" className="font-medium text-cyan-200 transition hover:text-white">
-                        Continue without signup
-                      </Link>
-                    </div>
                   )}
                 </div>
-              </section>
+
+                <label htmlFor="password" className="sr-only">
+                  Password
+                </label>
+                <div className="relative isolate">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete={isSignup ? 'new-password' : 'current-password'}
+                    className="h-14 w-full rounded-2xl border border-white/[0.10] bg-slate-900/60 px-4 pr-12 text-[15px] text-white placeholder:text-slate-500 transition-all duration-200 focus:border-cyan-300/45 focus:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+                    placeholder={isSignup ? 'Create a password' : 'Password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    className="absolute right-3 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center cursor-pointer text-slate-300 transition-all duration-150 hover:text-white hover:drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] focus:outline-none focus:ring-2 focus:ring-cyan-300/30 pointer-events-auto"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5 text-current" />
+                    ) : (
+                      <Eye className="h-5 w-5 text-current" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="mt-2 flex min-h-[58px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(37,99,235,0.95))] px-4 text-base font-semibold text-slate-950 shadow-[0_20px_50px_rgba(14,165,233,0.28)] transition-all duration-200 hover:scale-[1.02] hover:shadow-[0_28px_64px_rgba(14,165,233,0.38)] focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              >
+                {isSignup ? 'Create account' : 'Continue'}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center text-sm text-slate-400">
+              {isSignup ? 'Already have an account?' : 'New here?'}{' '}
+              <button
+                type="button"
+                onClick={() => switchMode(!isSignup)}
+                className="font-medium text-cyan-200 transition hover:text-white"
+              >
+                {isSignup ? 'Log in' : 'Create account'}
+              </button>
             </div>
           </div>
         </div>
