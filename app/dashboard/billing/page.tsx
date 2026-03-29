@@ -9,8 +9,15 @@ export const dynamic = 'force-dynamic'
 export default async function BillingPage() {
   const user = await getUserProfile()
   if (!user) {
+    console.warn('[billing] no user resolved, redirecting to /login')
     redirect('/login')
   }
+
+  console.info('[billing] user resolved', {
+    userId: user.id,
+    plan: user.plan,
+    role: user.role,
+  })
 
   const userIsFree = isFree(user) || !user
   const userIsStarter = isStarter(user)

@@ -135,12 +135,12 @@ export default function LoginPage() {
                 <label htmlFor="password" className="sr-only">
                   Password
                 </label>
-                <div className="relative isolate">
+                <div className="relative isolate z-[50]">
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={isSignup ? 'new-password' : 'current-password'}
-                    className="w-full rounded-lg border border-white/10 bg-[#0B1120] px-4 py-3 pr-12 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40 transition"
+                    className="w-full rounded-xl border border-white/10 bg-[#0B1120] px-4 py-3 pr-12 text-white placeholder:text-gray-500 focus:border-cyan-400/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/40 transition-all duration-150"
                     placeholder={isSignup ? 'Create a password' : 'Password'}
                     style={{ color: '#ffffff' }}
                     value={password}
@@ -150,7 +150,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((current) => !current)}
-                    className="absolute right-3 top-1/2 z-[999] -translate-y-1/2 cursor-pointer bg-red-500 text-white focus:outline-none"
+                    className="absolute right-3 top-1/2 z-[60] -translate-y-1/2 cursor-pointer text-gray-400 transition-all duration-150 hover:text-white hover:drop-shadow-[0_0_6px_rgba(56,189,248,0.5)] focus:outline-none"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
                   >

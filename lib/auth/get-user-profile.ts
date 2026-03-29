@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import type { UserProfile } from '@/lib/supabase/types'
 
-export async function getUserProfile() {
+export async function getUserProfile(): Promise<UserProfile | null> {
   const supabase = await createSupabaseServerClient()
 
   const {
@@ -16,7 +17,13 @@ export async function getUserProfile() {
     .from('users')
     .select('*')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
-  return profile
+  return {
+    id: user.id,
+    email: user.email ?? '',
+    role: profile?.role ?? 'user',
+    plan: profile?.plan ?? 'free',
+    created_at: profile?.created_at ?? user.created_at ?? new Date().toISOString(),
+  }
 }
