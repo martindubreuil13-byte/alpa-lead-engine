@@ -140,8 +140,9 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={isSignup ? 'new-password' : 'current-password'}
-                    className="h-14 w-full rounded-2xl border border-white/[0.10] bg-slate-900/60 px-4 pr-12 text-[15px] text-white placeholder:text-slate-500 transition-all duration-200 focus:border-cyan-300/45 focus:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+                    className="w-full rounded-lg border border-white/10 bg-[#0B1120] px-4 py-3 pr-12 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40 transition"
                     placeholder={isSignup ? 'Create a password' : 'Password'}
+                    style={{ color: '#ffffff' }}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
@@ -149,14 +150,14 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((current) => !current)}
-                    className="absolute right-3 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center cursor-pointer text-slate-300 transition-all duration-150 hover:text-white hover:drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] focus:outline-none focus:ring-2 focus:ring-cyan-300/30 pointer-events-auto"
+                    className="absolute right-3 top-1/2 z-[999] -translate-y-1/2 cursor-pointer bg-red-500 text-white focus:outline-none"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
                   >
                     {showPassword ? (
-                      <EyeOff className="h-5 w-5 text-current" />
+                      <EyeOff className="h-5 w-5 text-white" />
                     ) : (
-                      <Eye className="h-5 w-5 text-current" />
+                      <Eye className="h-5 w-5 text-white" />
                     )}
                   </button>
                 </div>
