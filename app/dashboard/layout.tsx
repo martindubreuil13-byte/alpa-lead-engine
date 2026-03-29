@@ -33,13 +33,14 @@ export default function DashboardLayout({
   }, [])
 
   const navItems = isAuthenticated
-    ? [
+      ? [
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/dashboard/leads', label: 'Leads Inbox' },
         { href: '/dashboard/kanban', label: 'Pipeline' },
         { href: '/dashboard/scraper', label: 'Prospector' },
         { href: '/dashboard/library', label: 'Lead Library' },
         { href: '/dashboard/templates', label: 'Templates' },
+        { href: '/dashboard/billing', label: 'Plan & Billing' },
         { href: '/dashboard/settings', label: 'Settings' },
       ]
     : [
@@ -47,6 +48,7 @@ export default function DashboardLayout({
         { href: '/dashboard/leads', label: 'Leads Inbox' },
         { href: '/dashboard/kanban', label: 'Pipeline' },
         { href: '/dashboard/scraper', label: 'Prospector' },
+        { href: '/dashboard/billing', label: 'Plan & Billing' },
       ]
 
   function isActive(href: string) {

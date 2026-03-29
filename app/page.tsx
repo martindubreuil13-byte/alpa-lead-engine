@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import FloatingLeadShowcase from '@/components/landing/FloatingLeadShowcase'
 import LiveLogPanel from '@/components/landing/LiveLogPanel'
+import PublicHeader from '@/components/site/PublicHeader'
 
 const comparisonPain = [
   'Search everywhere',
@@ -39,28 +40,7 @@ export default function HomePage() {
       <div className="pointer-events-none absolute left-[-7rem] top-[10rem] h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="pointer-events-none absolute right-[-6rem] top-[34rem] h-80 w-80 rounded-full bg-teal-400/10 blur-3xl" />
 
-      <header className="relative z-10 px-4 pt-5 sm:px-6 lg:px-10">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between rounded-full border border-white/10 bg-white/[0.03] px-4 py-3 backdrop-blur-xl sm:px-5">
-          <Link href="/" className="text-sm font-semibold tracking-[0.18em] text-white sm:text-[15px]">
-            ALPA by MINDRA
-          </Link>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Link
-              href="/login"
-              className="inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-sm font-medium text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/login?mode=signup"
-              className="inline-flex min-h-[42px] items-center justify-center rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
-            >
-              Sign up
-            </Link>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       <section className="relative px-4 pb-16 pt-10 sm:px-6 lg:px-10 lg:pb-20 lg:pt-12">
         <div className="mx-auto grid w-full max-w-7xl gap-14 lg:grid-cols-[minmax(0,1.02fr)_minmax(380px,0.98fr)] lg:items-center">
