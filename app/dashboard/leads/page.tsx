@@ -1,14 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
-import EmailConfidenceBadge, { matchesConfidenceFilter } from '@/components/leads/EmailConfidenceBadge'
 import { getGuestLeads, removeGuestLead } from '@/lib/guest-session'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import {
+  consumeInboxFocusRequest,
+  readStoredScrapeResult,
+} from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
 import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 
@@ -34,15 +37,33 @@ export default function LeadsPage() {
   const [selected, setSelected] = useState<string[]>([])
   const [isGuest, setIsGuest] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
+  const [latestSessionLeads, setLatestSessionLeads] = useState<TrialLead[]>([])
+  const [actionMessage, setActionMessage] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [highlightActions, setHighlightActions] = useState(false)
 
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
-  const [confidenceFilter, setConfidenceFilter] = useState<'recommended' | 'all' | 'high' | 'medium' | 'low'>('recommended')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
   const limitedMode = isGuest || (!profileLoading && (profile?.plan ?? 'free') === 'free')
+  const actionBarRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     fetchLeads()
+    const storedScrapeResult = readStoredScrapeResult()
+    setLatestSessionLeads(storedScrapeResult?.latestSavedLeads ?? [])
+
+    if (consumeInboxFocusRequest()) {
+      window.setTimeout(() => {
+        actionBarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        setHighlightActions(true)
+      }, 120)
+
+      window.setTimeout(() => {
+        setHighlightActions(false)
+      }, 2200)
+    }
 
     const syncGuestLeads = () => {
       if (!isGuest) return
@@ -59,7 +80,20 @@ export default function LeadsPage() {
 
   useEffect(() => {
     applyFilters()
-  }, [search, cityFilter, confidenceFilter, leads])
+  }, [search, cityFilter, leads])
+
+  useEffect(() => {
+    if (!actionMessage && !actionError) return
+
+    const timeout = window.setTimeout(() => {
+      setActionMessage('')
+      setActionError('')
+    }, 3200)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [actionError, actionMessage])
 
   useEffect(() => {
     const visibleIds = new Set(filtered.map((lead) => lead.id))
@@ -102,12 +136,6 @@ export default function LeadsPage() {
 
     if (!limitedMode && cityFilter !== 'all') {
       result = result.filter((lead) => lead.city === cityFilter)
-    }
-
-    if (!limitedMode) {
-      result = result.filter((lead) =>
-        matchesConfidenceFilter(lead.email_confidence, confidenceFilter)
-      )
     }
 
     setFiltered(result)
@@ -159,6 +187,71 @@ export default function LeadsPage() {
 
   function openRestrictedAction() {
     setShowFeatureLock(true)
+  }
+
+  function exportLatestSessionCsv() {
+    if (latestSessionLeads.length === 0) {
+      setActionError('No saved leads from your latest session yet.')
+      return
+    }
+
+    setActionError('')
+    setActionMessage('CSV download started.')
+    const csv = buildLeadCsv(latestSessionLeads)
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'alpa-latest-session-leads.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function emailLatestSessionLeads() {
+    if (latestSessionLeads.length === 0) {
+      setActionError('No saved leads from your latest session yet.')
+      return
+    }
+
+    const targetEmail =
+      profile?.email?.trim() ||
+      window.prompt('Enter your email to receive your latest saved leads:')?.trim() ||
+      ''
+
+    if (!targetEmail) {
+      return
+    }
+
+    setSendingEmail(true)
+    setActionError('')
+    setActionMessage('')
+
+    try {
+      const res = await fetch('/api/results-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: targetEmail,
+          leads: latestSessionLeads,
+          summaryLine: `${latestSessionLeads.length} leads ready from your latest ALPA session`,
+          detailLine: null,
+          limitMessage: null,
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+
+      if (res.status !== 200) {
+        setActionError(data?.error || 'Something went wrong. Please try again.')
+        return
+      }
+
+      setActionMessage("Email sent successfully. If you don't see it, check your spam folder.")
+    } catch {
+      setActionError('Something went wrong. Please try again.')
+    } finally {
+      setSendingEmail(false)
+    }
   }
 
   function exportCsv() {
@@ -255,6 +348,60 @@ export default function LeadsPage() {
           </div>
         ) : null}
 
+        <div
+          ref={actionBarRef}
+          className={`rounded-xl border px-5 py-4 transition-all duration-500 ${
+            highlightActions
+              ? 'border-cyan-300/40 bg-cyan-400/12 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]'
+              : 'border-white/8 bg-white/[0.03]'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-white">Latest saved leads from this session</div>
+              <div className="mt-1 text-sm text-slate-400">
+                {latestSessionLeads.length > 0
+                  ? `${latestSessionLeads.length} leads ready whenever you want to save or share them.`
+                  : 'Run Prospector to unlock download and email actions for this session.'}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={exportLatestSessionCsv}
+                disabled={latestSessionLeads.length === 0}
+                className={`rounded-lg px-4 py-2 text-sm transition ${
+                  latestSessionLeads.length === 0
+                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                    : 'border border-white/10 bg-white/5 text-slate-100 hover:bg-white/[0.08]'
+                }`}
+              >
+                Download CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => void emailLatestSessionLeads()}
+                disabled={latestSessionLeads.length === 0 || sendingEmail}
+                className={`rounded-lg px-4 py-2 text-sm transition ${
+                  latestSessionLeads.length === 0 || sendingEmail
+                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                    : 'border border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
+                }`}
+              >
+                {sendingEmail ? 'Sending...' : 'Send to my email'}
+              </button>
+            </div>
+          </div>
+
+          {actionMessage ? (
+            <div className="mt-3 text-sm text-emerald-300">{actionMessage}</div>
+          ) : null}
+          {actionError ? (
+            <div className="mt-3 text-sm text-rose-300">{actionError}</div>
+          ) : null}
+        </div>
+
         <div className="glass flex flex-wrap items-center gap-4 rounded-xl p-5">
           {!limitedMode ? (
             <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -283,20 +430,8 @@ export default function LeadsPage() {
               >
                 <option value="all">All Cities</option>
                 {cities.map((city) => (
-                  <option key={city}>{formatLocation(city)}</option>
+                  <option key={city} value={city}>{formatLocation(city)}</option>
                 ))}
-              </select>
-
-              <select
-                value={confidenceFilter}
-                onChange={(event) => setConfidenceFilter(event.target.value as typeof confidenceFilter)}
-                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 focus:outline-none"
-              >
-                <option value="recommended">High + Medium</option>
-                <option value="all">All Confidence</option>
-                <option value="high">High Only</option>
-                <option value="medium">Medium Only</option>
-                <option value="low">Low Only</option>
               </select>
             </>
           ) : null}
@@ -383,26 +518,6 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {!limitedMode ? (
-          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-5 py-4">
-            <div className="text-sm font-medium text-slate-200">Understanding lead quality</div>
-            <div className="mt-2 grid gap-2 text-xs text-slate-400 md:grid-cols-3">
-              <div>
-                <span className="font-medium text-emerald-300">High</span>
-                {' '}→ Email matches business domain and verified on site
-              </div>
-              <div>
-                <span className="font-medium text-amber-300">Medium</span>
-                {' '}→ Email found but may be generic (`info@`, `contact@`)
-              </div>
-              <div>
-                <span className="font-medium text-rose-300">Low</span>
-                {' '}→ Weak signal or indirect source
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         <div className="space-y-4">
           {filtered.map((lead) => (
             <div key={lead.id} className="glass rounded-xl p-5">
@@ -419,27 +534,50 @@ export default function LeadsPage() {
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-semibold text-white">{lead.company_name}</div>
-                    <EmailConfidenceBadge confidence={lead.email_confidence} />
-                    {lead.is_generic_email && (
-                      <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-                        Generic
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    {lead.email ? (
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-slate-200">
+                        Email available
                       </span>
-                    )}
+                    ) : null}
+                    {lead.phone ? (
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-slate-200">
+                        Phone available
+                      </span>
+                    ) : null}
+                    {!lead.email && !lead.phone ? (
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-slate-400">
+                        Contact details pending
+                      </span>
+                    ) : null}
                   </div>
 
-                  <div className="mt-1 text-xs text-slate-400">
-                    {formatLocation(lead.city)}
-                    {' • '}
-                    {lead.email ? lead.email : 'No Email'}
-                    {' • '}
-                    {lead.phone ? lead.phone : 'No Phone'}
+                  <div className="mt-4 grid gap-2 text-sm">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="min-w-20 text-slate-500">Location</span>
+                      <span className="text-slate-200">{formatLocation(lead.city)}</span>
+                    </div>
+                    {lead.email ? (
+                      <div className="flex flex-wrap gap-2">
+                        <span className="min-w-20 text-slate-500">Email</span>
+                        <span className="break-all text-slate-200">{lead.email}</span>
+                      </div>
+                    ) : null}
+                    {lead.phone ? (
+                      <div className="flex flex-wrap gap-2">
+                        <span className="min-w-20 text-slate-500">Phone</span>
+                        <span className="text-slate-200">{lead.phone}</span>
+                      </div>
+                    ) : null}
                   </div>
 
-                  {!limitedMode && lead.email_source && (
-                    <div className="mt-2 text-[11px] text-slate-500">
+                  {!limitedMode && lead.email_source ? (
+                    <div className="mt-3 text-[11px] text-slate-500">
                       Source: {lead.email_source}
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="mt-4 flex flex-wrap gap-3">
                     <Link

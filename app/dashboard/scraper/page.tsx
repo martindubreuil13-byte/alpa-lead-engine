@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import {
@@ -14,7 +15,10 @@ import {
   isGuestTrialModeForced,
 } from '@/lib/session/guest-trial-mode'
 import { resetGuestSession } from '@/lib/session/resetGuestSession'
-import { writeStoredScrapeResult } from '@/lib/session/scrape-result'
+import {
+  requestInboxFocus,
+  writeStoredScrapeResult,
+} from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
 import { FREE_TRIAL_LEAD_LIMIT, GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 import {
@@ -187,6 +191,7 @@ function Select({ label, options, value, onChange, disabled = false }: SelectPro
 }
 
 export default function Page() {
+  const router = useRouter()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
   const [viewerMode, setViewerMode] = useState<ViewerMode>(() =>
@@ -631,6 +636,7 @@ export default function Page() {
         writeStoredScrapeResult({
           totalFoundLeads: result.enrichedCount,
           savedLeads: result.addedCount,
+          latestSavedLeads: result.addedLeads,
         })
         setDiscovered(result.discoveredCount)
         setEnriched(result.enrichedCount)
@@ -950,7 +956,11 @@ export default function Page() {
 
       <ScrapeCompletionModal
         isOpen={showCompletionModal && Boolean(completionResult)}
-        onClose={() => setShowCompletionModal(false)}
+        onClose={() => {
+          requestInboxFocus()
+          setShowCompletionModal(false)
+          router.push('/dashboard/leads')
+        }}
         summaryLine={completionResult?.summaryLine || ''}
         detailLine={completionResult?.detailLine || ''}
         addedLeads={completionResult?.addedLeads || []}

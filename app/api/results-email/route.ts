@@ -82,7 +82,7 @@ async function sendWithResend(payload: ResultsEmailPayload & { toEmail: string; 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'ALPA <onboarding@resend.dev>',
+      from: 'ALPA <info@mindrasolutions.com>',
       to: [payload.toEmail],
       subject: 'Your ALPA lead results',
       html: buildResultsEmailHtml(payload),
