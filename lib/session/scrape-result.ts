@@ -35,3 +35,8 @@ export function writeStoredScrapeResult(result: StoredScrapeResult) {
   if (!canUseStorage()) return
   window.sessionStorage.setItem(SCRAPE_RESULT_STORAGE_KEY, JSON.stringify(result))
 }
+
+export function clearStoredScrapeResult() {
+  if (!canUseStorage()) return
+  window.sessionStorage.removeItem(SCRAPE_RESULT_STORAGE_KEY)
+}

@@ -4,6 +4,7 @@ import {
   GUEST_LEADS_UPDATED_EVENT,
   GUEST_SESSION_STORAGE_KEY,
 } from '@/lib/trial'
+import { clearStoredScrapeResult } from '@/lib/session/scrape-result'
 
 const USAGE_STORAGE_PREFIX = 'alpa_usage'
 
@@ -14,9 +15,12 @@ function canUseStorage() {
 export function resetGuestSession(options?: { regenerateSessionId?: boolean }) {
   if (!canUseStorage()) return null
 
+  console.log('SESSION RESET TRIGGERED')
+
   window.localStorage.removeItem(GUEST_LEADS_STORAGE_KEY)
   window.localStorage.removeItem(GUEST_SESSION_STORAGE_KEY)
   window.localStorage.removeItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY)
+  clearStoredScrapeResult()
 
   for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
     const key = window.localStorage.key(index)

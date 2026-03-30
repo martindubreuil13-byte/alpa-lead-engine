@@ -9,6 +9,7 @@ import {
   getOrCreateGuestSessionId,
   upsertGuestLead,
 } from '@/lib/guest-session'
+import { resetGuestSession } from '@/lib/session/resetGuestSession'
 import { writeStoredScrapeResult } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
 import { FREE_TRIAL_LEAD_LIMIT, GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
@@ -210,6 +211,7 @@ export default function Page() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const completionModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const guestSafetyResetCheckedRef = useRef(false)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
   const requestedLeadCount = Number(maxLeads)
@@ -304,6 +306,24 @@ export default function Page() {
       window.clearTimeout(timeout)
     }
   }, [toastMessage])
+
+  useEffect(() => {
+    if (!isGuest || guestSafetyResetCheckedRef.current) return
+
+    guestSafetyResetCheckedRef.current = true
+
+    if (guestLeadCount < FREE_TRIAL_LEAD_LIMIT) return
+
+    resetGuestSession({ regenerateSessionId: true })
+    setGuestLeadCount(0)
+    setLogs([])
+    setDiscovered(0)
+    setDisplayedDiscovered(0)
+    setEnriched(0)
+    setActivity('Idle')
+    setCompletionResult(null)
+    setShowCompletionModal(false)
+  }, [guestLeadCount, isGuest])
 
   useEffect(() => {
     if (displayedDiscovered === discovered) return
