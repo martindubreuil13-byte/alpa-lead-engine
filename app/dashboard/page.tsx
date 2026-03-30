@@ -1,8 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 import { getGuestLeads } from '@/lib/guest-session'
+import { readStoredScrapeResult } from '@/lib/session/scrape-result'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 /**
@@ -15,14 +18,17 @@ type LeadStatusRow = {
 }
 
 type Stats = {
-  total: number
+  saved: number
   inbox: number
+  found: number
 }
 
 export default function Page() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [stats, setStats] = useState<Stats>({
-    total: 0,
+    saved: 0,
     inbox: 0,
+    found: 0,
   })
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
@@ -53,16 +59,18 @@ export default function Page() {
     }
 
     setIsGuest(false)
-    await Promise.all([loadStats(), loadPipeline()])
+    await Promise.all([loadStats(user.id), loadPipeline(user.id)])
   }
 
   function loadGuestStats() {
     const guestLeads = getGuestLeads()
     const inbox = guestLeads.filter((lead) => lead.status === 'inbox').length
+    const storedScrapeResult = readStoredScrapeResult()
 
     setStats({
-      total: guestLeads.length,
+      saved: guestLeads.length,
       inbox,
+      found: storedScrapeResult?.totalFoundLeads ?? guestLeads.length,
     })
 
     const counts: Record<string, number> = {}
@@ -76,21 +84,25 @@ export default function Page() {
   /**
    * STATS
    */
-  async function loadStats() {
+  async function loadStats(currentUserId: string) {
     try {
+      const storedScrapeResult = readStoredScrapeResult()
       const { count } = await supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })
+        .eq('user_id', currentUserId)
 
       const { data } = await supabase
         .from('leads')
         .select('status')
+        .eq('user_id', currentUserId)
 
-      const inbox = data?.filter(l => l.status === 'inbox').length || 0
+      const inbox = data?.filter((l) => l.status === 'inbox').length || 0
 
       setStats({
-        total: count || 0,
+        saved: count || 0,
         inbox,
+        found: storedScrapeResult?.totalFoundLeads ?? (count || 0),
       })
 
     } catch (err) {
@@ -101,18 +113,19 @@ export default function Page() {
   /**
    * PIPELINE
    */
-  async function loadPipeline() {
+  async function loadPipeline(currentUserId: string) {
     try {
       const { data, error } = await supabase
         .from('leads')
         .select('status')
+        .eq('user_id', currentUserId)
         .in('status', [...PIPELINE_STATUSES])
 
       if (error) throw error
 
       const counts: Record<string, number> = {}
 
-      data?.forEach(row => {
+      data?.forEach((row) => {
         const key = row.status || 'pipeline'
         counts[key] = (counts[key] || 0) + 1
       })
@@ -137,6 +150,110 @@ export default function Page() {
     activePipeline > 0
       ? Math.round((contacted / activePipeline) * 100)
       : 0
+  const isFreeViewer = isGuest || (!profileLoading && (profile?.plan ?? 'free') === 'free')
+
+  if (stats.saved === 0) {
+    return (
+      <div className="space-y-10">
+        <div className="space-y-4">
+          <h1 className="text-5xl font-bold">
+            <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
+              ALPA Command Center
+            </span>
+          </h1>
+          <p className="text-slate-400">
+            {isGuest ? 'A fresh session is ready for your first search.' : 'Your workspace is ready for its first run.'}
+          </p>
+        </div>
+
+        <div className="glass rounded-[28px] p-10">
+          <h2 className="text-3xl font-semibold text-white">Start finding your first leads</h2>
+          <div className="mt-6 space-y-3 text-slate-300">
+            <p>1. Use Prospector</p>
+            <p>2. Review in Inbox</p>
+            <p>3. Upgrade to unlock pipeline</p>
+          </div>
+          <div className="mt-8">
+            <Link
+              href="/dashboard/scraper"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
+            >
+              Start Prospecting
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isGuest && profileLoading) {
+    return <div className="text-slate-400">Loading dashboard...</div>
+  }
+
+  if (isFreeViewer) {
+    return (
+      <div className="space-y-10">
+        <div className="space-y-4">
+          <h1 className="text-5xl font-bold">
+            <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
+              ALPA Command Center
+            </span>
+          </h1>
+          <p className="text-slate-400">
+            {isGuest ? 'Your free workspace is focused on finding and reviewing leads.' : 'Your free workspace keeps the next step clear.'}
+          </p>
+        </div>
+
+        <div className="glass rounded-[28px] p-10">
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
+            Free Workspace
+          </div>
+          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white">
+            You found {stats.found} {stats.found === 1 ? 'lead' : 'leads'} — {stats.saved} saved in your workspace
+          </h2>
+          <p className="mt-4 text-lg text-slate-300">Your next step is turning them into clients.</p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/plans"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
+            >
+              Unlock pipeline to manage and convert leads
+            </Link>
+            <Link
+              href="/dashboard/leads"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-6 text-base font-semibold text-slate-100 transition hover:bg-white/[0.08]"
+            >
+              Review your leads
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="glass rounded-3xl p-6">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Prospector</div>
+            <div className="mt-3 text-lg font-semibold text-white">Your main entry point</div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Keep running new searches to discover the next pockets of demand.
+            </p>
+          </div>
+          <div className="glass rounded-3xl p-6">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Inbox</div>
+            <div className="mt-3 text-lg font-semibold text-white">{stats.saved} saved leads ready to review</div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Open individual leads, review quality, and see what ALPA is finding for you.
+            </p>
+          </div>
+          <div className="glass rounded-3xl p-6">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Next Unlock</div>
+            <div className="mt-3 text-lg font-semibold text-white">Pipeline turns this into a system</div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Track stages, manage follow-ups, and convert more of the leads you already found.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-16">
@@ -156,7 +273,8 @@ export default function Page() {
 
       {/* METRICS */}
       <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-        <Metric title="Total Leads" value={stats.total} />
+        <Metric title="Found Leads" value={stats.found} />
+        <Metric title="Saved Leads" value={stats.saved} />
         <Metric title="Inbox" value={stats.inbox} highlight />
 
         <Metric title="Active Pipeline" value={activePipeline} />

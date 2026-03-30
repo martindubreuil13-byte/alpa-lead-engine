@@ -1,15 +1,27 @@
 'use client'
 
 import { forwardRef, useEffect, useRef, useState } from 'react'
-import GuestLeadCaptureModal from '@/components/trial/GuestLeadCaptureModal'
+import Link from 'next/link'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import {
-  getGuestCaptureEmail,
   getGuestLeads,
   getOrCreateGuestSessionId,
   upsertGuestLead,
 } from '@/lib/guest-session'
+import { writeStoredScrapeResult } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
 import { FREE_TRIAL_LEAD_LIMIT, GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
+import {
+  countCountableLeads,
+  getClampedLeadUsage,
+  getLeadLimit,
+  getRemainingLeadCapacity,
+  getUsageState,
+  getUsageWarningMessage,
+  readStoredUsage,
+  writeStoredUsage,
+} from '@/lib/usage/usage'
 
 const COUNTRY_OPTIONS = [
   'Canada',
@@ -46,13 +58,55 @@ function translateActivity(msg: string) {
   if (msg.includes('📥')) return 'Business discovered…'
   if (msg.includes('✨')) return 'Contact signal discovered…'
   if (msg.includes('🛑 discovery complete')) return 'Discovery complete. Enriching leads…'
-  if (msg.includes('🎉 done')) return 'Prospecting mission complete.'
+  if (msg.includes('🎉 Prospecting complete')) return 'Prospecting mission complete.'
   if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
   return null
 }
 
+function formatLocationSegment(segment: string) {
+  const trimmed = segment.trim()
+  if (!trimmed) return trimmed
+
+  if (/^[a-z]{2,3}$/i.test(trimmed)) {
+    return trimmed.toUpperCase()
+  }
+
+  return trimmed
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function normalizeSummaryLine(summaryLine: string) {
+  const marker = ' found in '
+  const markerIndex = summaryLine.toLowerCase().indexOf(marker)
+
+  if (markerIndex === -1) return summaryLine
+
+  const prefix = summaryLine.slice(0, markerIndex + marker.length)
+  const rawLocation = summaryLine.slice(markerIndex + marker.length)
+  const formattedLocation = rawLocation
+    .split(',')
+    .map((segment) => formatLocationSegment(segment))
+    .join(', ')
+
+  return `${prefix}${formattedLocation}`
+}
+
 function isHiddenSystemLog(msg: string) {
   return msg.includes('api cost estimate') || msg.includes('SCRAPER API COST')
+}
+
+type ScrapeResultPayload = {
+  summaryLine: string
+  detailLine: string | null
+  limitMessage: string | null
+  locationLabel: string
+  highQualityContactCount: number | null
+  discoveredCount: number
+  enrichedCount: number
+  addedCount: number
+  addedLeads: TrialLead[]
 }
 
 type InputProps = {
@@ -126,11 +180,12 @@ function Select({ label, options, value, onChange, disabled = false }: SelectPro
 }
 
 export default function Page() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
   const [isGuest, setIsGuest] = useState(false)
   const [guestLeadCount, setGuestLeadCount] = useState(0)
-  const [showPaywall, setShowPaywall] = useState(false)
-  const [trialMessage, setTrialMessage] = useState('')
+  const [authenticatedLeadCount, setAuthenticatedLeadCount] = useState(0)
+  const [viewerEmail, setViewerEmail] = useState('')
 
   const [businessType, setBusinessType] = useState('')
   const [country, setCountry] = useState('Canada')
@@ -140,8 +195,12 @@ export default function Page() {
 
   const [logs, setLogs] = useState<string[]>([])
   const [discovered, setDiscovered] = useState(0)
+  const [displayedDiscovered, setDisplayedDiscovered] = useState(0)
   const [enriched, setEnriched] = useState(0)
   const [activity, setActivity] = useState('Idle')
+  const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
+  const [showCompletionModal, setShowCompletionModal] = useState(false)
+  const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [showValidation, setShowValidation] = useState(false)
 
@@ -150,17 +209,21 @@ export default function Page() {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const completionModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
-  const previousGuestLeadCountRef = useRef(0)
-
   const requestedLeadCount = Number(maxLeads)
   const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
-  const max = isGuest
-    ? remainingGuestCapacity > 0
-      ? Math.min(requestedLeadCount, remainingGuestCapacity)
-      : requestedLeadCount
-    : requestedLeadCount
+  const leadPlan = profile?.plan ?? 'free'
+  const leadLimit = getLeadLimit(leadPlan)
+  const leadsUsed = isGuest ? guestLeadCount : getClampedLeadUsage(authenticatedLeadCount, leadPlan)
+  const remainingLeadCapacity = isGuest
+    ? remainingGuestCapacity
+    : getRemainingLeadCapacity(authenticatedLeadCount, leadPlan)
+  const usageState = !isGuest ? getUsageState(leadsUsed, leadLimit) : 'normal'
+  const usageBlocked = !isGuest && usageState === 'blocked'
+  const usageWarning = !isGuest && usageState === 'warning'
+  const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
   const missingCity = !city.trim()
   const hasMissingRequiredFields = missingBusinessType || missingCity
@@ -191,7 +254,18 @@ export default function Page() {
   useEffect(() => {
     void loadViewerMode()
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void loadViewerMode()
+    })
+
     return () => {
+      if (completionModalTimeoutRef.current) {
+        clearTimeout(completionModalTimeoutRef.current)
+        completionModalTimeoutRef.current = null
+      }
+      subscription.unsubscribe()
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
@@ -200,10 +274,15 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
+    if (isGuest || !profile?.id) return
+    void refreshAuthenticatedUsage(profile.id, profile.plan)
+  }, [isGuest, profile?.id, profile?.plan])
+
+  useEffect(() => {
     if (!isGuest) return
 
     const syncGuestLeadCount = () => {
-      setGuestLeadCount(getGuestLeads().length)
+      setGuestLeadCount(countCountableLeads(getGuestLeads()))
     }
 
     syncGuestLeadCount()
@@ -215,22 +294,43 @@ export default function Page() {
   }, [isGuest])
 
   useEffect(() => {
-    if (!isGuest) {
-      previousGuestLeadCountRef.current = 0
-      return
-    }
+    if (!toastMessage) return
 
-    if (
-      previousGuestLeadCountRef.current < FREE_TRIAL_LEAD_LIMIT &&
-      guestLeadCount >= FREE_TRIAL_LEAD_LIMIT &&
-      !getGuestCaptureEmail()
-    ) {
-      setTrialMessage("You've reached your free limit")
-      setShowPaywall(true)
-    }
+    const timeout = window.setTimeout(() => {
+      setToastMessage('')
+    }, 2600)
 
-    previousGuestLeadCountRef.current = guestLeadCount
-  }, [guestLeadCount, isGuest])
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [toastMessage])
+
+  useEffect(() => {
+    if (displayedDiscovered === discovered) return
+
+    const interval = window.setInterval(() => {
+      setDisplayedDiscovered((current) => {
+        if (current >= discovered) {
+          window.clearInterval(interval)
+          return current
+        }
+
+        const gap = discovered - current
+        const step = gap > 12 ? 2 : 1
+        const nextValue = Math.min(current + step, discovered)
+
+        if (nextValue >= discovered) {
+          window.clearInterval(interval)
+        }
+
+        return nextValue
+      })
+    }, 140)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [discovered, displayedDiscovered])
 
   async function loadViewerMode() {
     const {
@@ -239,7 +339,38 @@ export default function Page() {
 
     const nextIsGuest = !user
     setIsGuest(nextIsGuest)
-    setGuestLeadCount(nextIsGuest ? getGuestLeads().length : 0)
+    setViewerEmail(user?.email || '')
+    setGuestLeadCount(nextIsGuest ? countCountableLeads(getGuestLeads()) : 0)
+    setAuthenticatedLeadCount(0)
+
+    if (!nextIsGuest && user?.id) {
+      if (profileLoading) {
+        return
+      }
+
+      const effectivePlan = profile?.plan ?? 'free'
+      const cachedUsage = getClampedLeadUsage(readStoredUsage(user.id), effectivePlan)
+      setAuthenticatedLeadCount(cachedUsage)
+      await refreshAuthenticatedUsage(user.id, effectivePlan)
+    }
+  }
+
+  async function refreshAuthenticatedUsage(userId: string, planOverride?: string) {
+    const { count, error } = await supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .or('email.not.is.null,phone.not.is.null')
+
+    if (error) {
+      console.error('Usage count failed:', error.message)
+      return
+    }
+
+    const effectivePlan = planOverride ?? profile?.plan ?? 'free'
+    const nextCount = getClampedLeadUsage(count || 0, effectivePlan)
+    setAuthenticatedLeadCount(nextCount)
+    writeStoredUsage(userId, nextCount, effectivePlan)
   }
 
   function finish(customActivity?: string) {
@@ -253,14 +384,6 @@ export default function Page() {
 
   async function runScrape() {
     try {
-      if (isGuest && guestLeadCount >= FREE_TRIAL_LEAD_LIMIT) {
-        setTrialMessage("You've reached your free limit")
-        if (!getGuestCaptureEmail()) {
-          setShowPaywall(true)
-        }
-        return
-      }
-
       if (hasMissingRequiredFields) {
         setShowValidation(true)
         setValidationMessage('Please enter business type and city')
@@ -279,19 +402,23 @@ export default function Page() {
         abortRef.current = null
       }
 
-      const guestRequestLimit = isGuest
-        ? Math.min(requestedLeadCount, remainingGuestCapacity)
-        : requestedLeadCount
+      if (completionModalTimeoutRef.current) {
+        clearTimeout(completionModalTimeoutRef.current)
+        completionModalTimeoutRef.current = null
+      }
 
       setLoading(true)
       setLogs([])
       setDiscovered(0)
+      setDisplayedDiscovered(0)
       setEnriched(0)
       setElapsed(0)
       setFinalElapsed(null)
       setValidationMessage('')
       setShowValidation(false)
-      setTrialMessage('')
+      setCompletionResult(null)
+      setShowCompletionModal(false)
+      setToastMessage('')
       setActivity('Launching prospecting engines…')
 
       const payload = {
@@ -299,8 +426,8 @@ export default function Page() {
         region: region.trim(),
         defaultCity: city.trim(),
         country,
-        maxLeads: guestRequestLimit,
-        existingLeadCount: isGuest ? guestLeadCount : 0,
+        maxLeads: requestedLeadCount,
+        existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
       }
 
@@ -322,6 +449,7 @@ export default function Page() {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let latestResult: ScrapeResultPayload | null = null
 
       const handleMessage = (msg: string) => {
         if (!msg || msg === '🟢 stream started') return
@@ -332,23 +460,26 @@ export default function Page() {
         const translated = translateActivity(msg)
         if (translated) setActivity(translated)
 
+        const discoveredMatch = msg.match(/^📦 discovered: (\d+)/)
+        if (discoveredMatch) {
+          setDiscovered(Number(discoveredMatch[1]) || 0)
+        }
+
+        const enrichedMatch = msg.match(/^📦 enriched: (\d+)/)
+        if (enrichedMatch) {
+          setEnriched(Number(enrichedMatch[1]) || 0)
+        }
+
         if (msg.includes('📥')) {
-          setDiscovered((d) => Math.min(d + 1, max))
+          setDiscovered((d) => d + 1)
         }
 
         if (msg.includes('✨')) {
-          setEnriched((e) => Math.min(e + 1, max))
+          setEnriched((e) => e + 1)
         }
 
-        if (msg.includes('🎉 done')) {
+        if (msg.includes('🎉 Prospecting complete')) {
           finish('Prospecting mission complete.')
-        }
-
-        if (msg.includes("You've reached your free limit")) {
-          setTrialMessage("You've reached your free limit")
-          if (!getGuestCaptureEmail()) {
-            setShowPaywall(true)
-          }
         }
 
         if (
@@ -358,6 +489,17 @@ export default function Page() {
         ) {
           finish('Mission failed.')
         }
+      }
+
+      const handleResult = (result: ScrapeResultPayload) => {
+        latestResult = result
+        writeStoredScrapeResult({
+          totalFoundLeads: result.enrichedCount,
+          savedLeads: result.addedCount,
+        })
+        setDiscovered(result.discoveredCount)
+        setEnriched(result.enrichedCount)
+        setCompletionResult(result)
       }
 
       const handleLead = (lead: TrialLead) => {
@@ -391,6 +533,10 @@ export default function Page() {
               if (parsed?.type === 'lead' && parsed.payload) {
                 handleLead(parsed.payload as TrialLead)
               }
+
+              if (parsed?.type === 'result' && parsed.payload) {
+                handleResult(parsed.payload as ScrapeResultPayload)
+              }
             } catch {
               handleMessage(payload)
             }
@@ -417,10 +563,25 @@ export default function Page() {
             if (parsed?.type === 'lead' && parsed.payload) {
               handleLead(parsed.payload as TrialLead)
             }
+
+            if (parsed?.type === 'result' && parsed.payload) {
+              handleResult(parsed.payload as ScrapeResultPayload)
+            }
           } catch {
             handleMessage(payload)
           }
         }
+      }
+
+      if (!isGuest && profile?.id) {
+        await refreshAuthenticatedUsage(profile.id, profile.plan)
+      }
+
+      if (latestResult) {
+        completionModalTimeoutRef.current = setTimeout(() => {
+          setShowCompletionModal(true)
+          completionModalTimeoutRef.current = null
+        }, 3500)
       }
 
       if (abortRef.current === controller) {
@@ -451,8 +612,8 @@ export default function Page() {
     setLoading(false)
   }
 
-  const discoveryPercent = Math.min((discovered / max) * 100, 100)
-  const enrichmentPercent = Math.min((enriched / max) * 100, 100)
+  const discoveryPercent = Math.min((displayedDiscovered / progressTarget) * 100, 100)
+  const enrichmentPercent = Math.min((enriched / progressTarget) * 100, 100)
 
   return (
     <>
@@ -469,9 +630,25 @@ export default function Page() {
         </p>
       </div>
 
-      {trialMessage ? (
-        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-5 py-4 text-amber-200">
-          {trialMessage}
+      {usageBlocked ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-5 py-4 text-amber-200">
+          <span>Lead storage limit reached. Searches still run, but no new leads can be added until you upgrade.</span>
+          <Link
+            href="/plans"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-4 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5"
+          >
+            Upgrade to Starter
+          </Link>
+        </div>
+      ) : usageWarning ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-cyan-100">
+          <span>{getUsageWarningMessage(leadsUsed, leadLimit)}</span>
+          <Link
+            href="/plans"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-cyan-300/30 bg-white/[0.05] px-4 text-sm font-semibold text-cyan-100 transition hover:bg-white/[0.08]"
+          >
+            Upgrade to Starter
+          </Link>
         </div>
       ) : null}
 
@@ -540,6 +717,17 @@ export default function Page() {
           />
         </div>
 
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+          <span>
+            Usage: {leadsUsed} / {leadLimit} enriched leads
+          </span>
+          {usageBlocked ? (
+            <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+              Upgrade to Starter
+            </Link>
+          ) : null}
+        </div>
+
         {validationMessage ? (
           <div className="text-sm text-red-400">{validationMessage}</div>
         ) : null}
@@ -566,8 +754,8 @@ export default function Page() {
         <div className="space-y-6">
           <div>
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Business Discovery</span>
-              <span>{discovered}/{max}</span>
+              <span>Businesses found</span>
+              <span>{displayedDiscovered} found</span>
             </div>
 
             <div className="h-2 w-full overflow-hidden rounded bg-white/10">
@@ -580,8 +768,8 @@ export default function Page() {
 
           <div>
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Contact Intelligence</span>
-              <span>{enriched}/{max}</span>
+              <span>Contacts found</span>
+              <span>{enriched} found</span>
             </div>
 
             <div className="h-2 w-full overflow-hidden rounded bg-white/10">
@@ -592,6 +780,18 @@ export default function Page() {
             </div>
           </div>
         </div>
+
+        {completionResult ? (
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-5 py-4">
+            <div className="text-lg font-semibold text-white">{normalizeSummaryLine(completionResult.summaryLine)}</div>
+            {completionResult.detailLine ? (
+              <div className="mt-1 text-sm text-emerald-100/80">{completionResult.detailLine}</div>
+            ) : null}
+            {completionResult.limitMessage ? (
+              <div className="mt-3 text-sm text-amber-200">{completionResult.limitMessage}</div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="relative flex h-10 items-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
           <div className="animate-marquee whitespace-nowrap px-4 font-mono text-sm text-emerald-300">
@@ -613,11 +813,22 @@ export default function Page() {
       </div>
       </div>
 
-      <GuestLeadCaptureModal
-        isOpen={showPaywall}
-        trigger="limit"
-        onClose={() => setShowPaywall(false)}
+      <ScrapeCompletionModal
+        isOpen={showCompletionModal && Boolean(completionResult)}
+        onClose={() => setShowCompletionModal(false)}
+        summaryLine={completionResult?.summaryLine || ''}
+        detailLine={completionResult?.detailLine || ''}
+        addedLeads={completionResult?.addedLeads || []}
+        viewerEmail={viewerEmail}
+        onDownload={() => setToastMessage('Want a copy in your inbox?')}
+        onEmailSent={(message) => setToastMessage(message)}
       />
+
+      {toastMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-white/10 bg-[#0b1220]/95 px-4 py-3 text-sm text-white shadow-[0_20px_50px_rgba(2,8,23,0.45)] backdrop-blur">
+          {toastMessage}
+        </div>
+      ) : null}
     </>
   )
 }

@@ -30,16 +30,6 @@ export function getGuestSessionId() {
   return window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY)
 }
 
-export function getGuestCaptureEmail() {
-  if (!canUseStorage()) return ''
-  return window.localStorage.getItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY) || ''
-}
-
-export function saveGuestCaptureEmail(email: string) {
-  if (!canUseStorage()) return
-  window.localStorage.setItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY, email.trim())
-}
-
 export function getOrCreateGuestSessionId() {
   if (!canUseStorage()) return null
 

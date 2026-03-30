@@ -3,6 +3,14 @@ import { redirect } from 'next/navigation'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { isFree, isStarter } from '@/lib/auth/access'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import {
+  getClampedLeadUsage,
+  getLeadLimit,
+  getUsageBlockedMessage,
+  getUsageState,
+  getUsageWarningMessage,
+} from '@/lib/usage/usage'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,10 +29,17 @@ export default async function BillingPage() {
 
   const userIsFree = isFree(user) || !user
   const userIsStarter = isStarter(user)
+  const supabase = await createSupabaseServerClient()
+  const { count } = await supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .or('email.not.is.null,phone.not.is.null')
 
-  const leadsUsed = userIsStarter ? 120 : 12
-  const leadsLimit = userIsStarter ? 500 : 25
+  const leadsUsed = getClampedLeadUsage(count || 0, user.plan)
+  const leadsLimit = getLeadLimit(user.plan)
   const usagePercent = Math.min(100, Math.round((leadsUsed / leadsLimit) * 100))
+  const usageState = getUsageState(leadsUsed, leadsLimit)
 
   return (
     <div className="space-y-10">
@@ -67,7 +82,7 @@ export default async function BillingPage() {
             Leads used: {leadsUsed} / {leadsLimit}
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Placeholder usage until real tracking is wired in the next phase.
+            Usage is based on enriched leads that include an email or phone number.
           </p>
 
           <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/[0.06]">
@@ -77,6 +92,21 @@ export default async function BillingPage() {
             />
           </div>
           <div className="mt-3 text-sm text-slate-500">{usagePercent}% of current allowance used</div>
+          {usageState === 'warning' ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-100">
+              <span>{getUsageWarningMessage(leadsUsed, leadsLimit)}</span>
+              <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+                Upgrade to Starter
+              </Link>
+            </div>
+          ) : usageState === 'blocked' ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              <span>{getUsageBlockedMessage(user.plan, leadsLimit)}</span>
+              <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+                Upgrade to Starter
+              </Link>
+            </div>
+          ) : null}
         </section>
       </div>
 

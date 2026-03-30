@@ -1,10 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import FeatureLockNotice from '@/components/access/FeatureLockNotice'
+import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { supabase } from '@/lib/supabase'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
 import EmailConfidenceBadge, { matchesConfidenceFilter } from '@/components/leads/EmailConfidenceBadge'
-import PaywallModal from '@/components/trial/PaywallModal'
 import { getGuestLeads } from '@/lib/guest-session'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
@@ -95,16 +98,18 @@ function normalizePipelineStage(lead: Lead): PipelineStage {
 }
 
 export default function PipelinePage() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [isGuest, setIsGuest] = useState(false)
-  const [showPaywall, setShowPaywall] = useState(false)
+  const [showFeatureLock, setShowFeatureLock] = useState(false)
   const [confidenceFilter, setConfidenceFilter] = useState<'recommended' | 'all' | 'high' | 'medium' | 'low'>('recommended')
   const [isSendModalOpen, setIsSendModalOpen] = useState(false)
   const [closeLead, setCloseLead] = useState<Lead | null>(null)
   const [closeReason, setCloseReason] = useState<CloseReason>('no_answer')
   const [closing, setClosing] = useState(false)
+  const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
   const visibleLeads = leads.filter((lead) =>
     matchesConfidenceFilter(lead.email_confidence, confidenceFilter)
   )
@@ -185,7 +190,7 @@ export default function PipelinePage() {
 
   async function moveLeadStage(id: string, newStage: PipelineStage) {
     if (isGuest) {
-      setShowPaywall(true)
+      setShowFeatureLock(true)
       return
     }
 
@@ -219,7 +224,7 @@ export default function PipelinePage() {
     }
 
     if (isGuest) {
-      setShowPaywall(true)
+      setShowFeatureLock(true)
       return
     }
 
@@ -259,7 +264,7 @@ export default function PipelinePage() {
 
   function openCloseModal(lead: Lead) {
     if (isGuest) {
-      setShowPaywall(true)
+      setShowFeatureLock(true)
       return
     }
 
@@ -360,6 +365,19 @@ export default function PipelinePage() {
     closeModal()
   }
 
+  if (profileLoading) {
+    return <div className="text-slate-400">Loading pipeline...</div>
+  }
+
+  if (pipelineLocked) {
+    return (
+      <FeatureLockNotice
+        title="Pipeline is available on Starter"
+        description="Manage stages, follow-ups, and outreach actions once you upgrade to the Starter plan."
+      />
+    )
+  }
+
   return (
     <>
       <div className="space-y-10">
@@ -395,7 +413,7 @@ export default function PipelinePage() {
             <button
               onClick={() => {
                 if (isGuest) {
-                  setShowPaywall(true)
+                  setShowFeatureLock(true)
                   return
                 }
                 setIsSendModalOpen(true)
@@ -548,7 +566,13 @@ export default function PipelinePage() {
         </div>
       )}
 
-      <PaywallModal isOpen={showPaywall} onClose={() => setShowPaywall(false)} />
+      <FeatureLockModal
+        isOpen={showFeatureLock}
+        onClose={() => setShowFeatureLock(false)}
+        title="Pipeline"
+        description="Track follow-ups, manage outreach stages, and keep active leads moving after discovery."
+        benefit="Pipeline turns one good search into a real operating system for outbound work."
+      />
     </>
   )
 }

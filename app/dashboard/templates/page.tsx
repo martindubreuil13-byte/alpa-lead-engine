@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 
+import FeatureLockNotice from '@/components/access/FeatureLockNotice'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 
 type TemplateRow = {
@@ -24,6 +27,7 @@ function emptyForm() {
 }
 
 export default function TemplatesPage() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [form, setForm] = useState(emptyForm())
@@ -31,6 +35,7 @@ export default function TemplatesPage() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
+  const templatesLocked = !profileLoading && !canAccessFeature('templates', profile)
 
   useEffect(() => {
     fetchTemplates()
@@ -195,6 +200,19 @@ export default function TemplatesPage() {
 
     setStatusMessage('Template deleted successfully.')
     await fetchTemplates()
+  }
+
+  if (profileLoading) {
+    return <div className="text-slate-400">Loading templates...</div>
+  }
+
+  if (templatesLocked) {
+    return (
+      <FeatureLockNotice
+        title="Templates are available on Starter"
+        description="Save reusable outreach templates and unlock faster sending when you upgrade to Starter."
+      />
+    )
   }
 
   return (

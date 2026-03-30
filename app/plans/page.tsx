@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
+import BackToLeadsButton from '@/components/plans/BackToLeadsButton'
 import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
 
@@ -86,6 +87,9 @@ export default function PlansPage() {
 
       <section className="relative px-4 pb-10 pt-10 sm:px-6 lg:px-10 lg:pb-14 lg:pt-14">
         <div className="mx-auto max-w-7xl">
+          <div className="mb-8">
+            <BackToLeadsButton />
+          </div>
           <div className="max-w-4xl">
             <h1 className="max-w-5xl text-[3rem] font-semibold leading-[1] tracking-[-0.06em] text-white sm:text-[4.4rem] lg:text-[5.4rem]">
               Unlock Your Pipeline

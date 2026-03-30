@@ -1,6 +1,9 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 
 type Lead = {
@@ -14,8 +17,10 @@ type Lead = {
 }
 
 export default function EnrichPage() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
+  const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
 
   useEffect(() => {
     fetchLeads()
@@ -33,6 +38,10 @@ export default function EnrichPage() {
   }
 
   async function moveToPipeline(id: string) {
+    if (pipelineLocked) {
+      return
+    }
+
     const ids = [id]
 
     if (!ids.length) return
@@ -100,6 +109,15 @@ export default function EnrichPage() {
         </p>
       </div>
 
+      {pipelineLocked && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+          <span>Available on Starter plan</span>
+          <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+            Upgrade
+          </Link>
+        </div>
+      )}
+
       {/* STATS */}
       <div className="grid gap-6 md:grid-cols-3">
         <Stat title="Waiting for Enrichment" value={total} />
@@ -148,7 +166,12 @@ export default function EnrichPage() {
 
               <button
                 onClick={() => moveToPipeline(lead.id)}
-                className="px-3 py-1.5 text-xs rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                disabled={pipelineLocked}
+                className={`px-3 py-1.5 text-xs rounded ${
+                  pipelineLocked
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500'
+                    : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                }`}
               >
                 ✅ Pipeline
               </button>

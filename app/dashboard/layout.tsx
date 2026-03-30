@@ -3,10 +3,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Lock } from 'lucide-react'
 
+import FeatureLockModal from '@/components/modals/FeatureLockModal'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
-import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
-import { getGuestLeads, getOrCreateGuestSessionId } from '@/lib/guest-session'
+import { getOrCreateGuestSessionId } from '@/lib/guest-session'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 export default function DashboardLayout({
@@ -16,6 +19,12 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [lockedFeature, setLockedFeature] = useState<{
+    title: string
+    description: string
+    benefit: string
+  } | null>(null)
+  const { profile, loading: profileLoading } = useClientUserProfile()
 
   useEffect(() => {
     loadViewerMode()
@@ -32,24 +41,47 @@ export default function DashboardLayout({
     }
   }, [])
 
-  const navItems = isAuthenticated
-      ? [
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/dashboard/leads', label: 'Leads Inbox' },
-        { href: '/dashboard/kanban', label: 'Pipeline' },
-        { href: '/dashboard/scraper', label: 'Prospector' },
-        { href: '/dashboard/library', label: 'Lead Library' },
-        { href: '/dashboard/templates', label: 'Templates' },
-        { href: '/dashboard/billing', label: 'Plan & Billing' },
-        { href: '/dashboard/settings', label: 'Settings' },
-      ]
-    : [
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/dashboard/leads', label: 'Leads Inbox' },
-        { href: '/dashboard/kanban', label: 'Pipeline' },
-        { href: '/dashboard/scraper', label: 'Prospector' },
-        { href: '/dashboard/billing', label: 'Plan & Billing' },
-      ]
+  const navItems: Array<{
+    href: string
+    label: string
+    feature?: string
+    lockedOnFree?: boolean
+    description?: string
+    benefit?: string
+  }> = [
+    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/dashboard/leads', label: 'Leads Inbox' },
+    {
+      href: '/dashboard/kanban',
+      label: 'Pipeline',
+      feature: 'pipeline',
+      description: 'Track every lead through outreach stages, follow-ups, and outcomes.',
+      benefit: 'Pipeline turns lead generation into a repeatable sales system instead of a list that goes stale.',
+    },
+    { href: '/dashboard/scraper', label: 'Prospector' },
+    {
+      href: '/dashboard/library',
+      label: 'Lead Library',
+      lockedOnFree: true,
+      description: 'Search and revisit your full lead history from one organized workspace.',
+      benefit: 'A lead library keeps great prospects reusable long after the first scrape ends.',
+    },
+    {
+      href: '/dashboard/templates',
+      label: 'Templates',
+      feature: 'templates',
+      description: 'Save proven outreach messages so your follow-up stays fast and consistent.',
+      benefit: 'Templates shorten response time and help your team scale without rewriting from scratch.',
+    },
+    { href: '/dashboard/billing', label: 'Plan & Billing' },
+    {
+      href: '/dashboard/settings',
+      label: 'Settings',
+      lockedOnFree: true,
+      description: 'Configure sender identity, workspace defaults, and the advanced controls behind your system.',
+      benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
+    },
+  ]
 
   function isActive(href: string) {
     if (href === '/dashboard') return pathname === href
@@ -74,6 +106,19 @@ export default function DashboardLayout({
     setIsAuthenticated(true)
   }
 
+  function isLocked(item: (typeof navItems)[number]) {
+    if (item.feature) {
+      return !profileLoading && !canAccessFeature(item.feature, profile)
+    }
+
+    if (item.lockedOnFree) {
+      if (!isAuthenticated) return true
+      return !profileLoading && profile?.plan === 'free'
+    }
+
+    return false
+  }
+
   return (
     <div className="flex min-h-screen bg-[#0b1220] text-white">
       <aside className="flex w-64 flex-col border-r border-white/5 bg-[#0f172a] p-6">
@@ -90,6 +135,29 @@ export default function DashboardLayout({
         <nav className="mt-12 space-y-2">
           {navItems.map((item) => {
             const active = isActive(item.href)
+            const locked = isLocked(item)
+
+            if (locked) {
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() =>
+                    setLockedFeature({
+                      title: item.label,
+                      description: item.description || 'This feature unlocks more control inside ALPA.',
+                      benefit: item.benefit || 'Upgrade to unlock the full product workflow.',
+                    })
+                  }
+                  className="group flex w-full items-center justify-between rounded-xl border border-white/6 px-4 py-3 text-sm text-slate-400 transition hover:border-white/12 hover:bg-white/[0.03] hover:text-white"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>{item.label}</span>
+                  </div>
+                  <Lock className="h-4 w-4 text-amber-200" />
+                </button>
+              )
+            }
 
             return (
               <Link
@@ -135,6 +203,14 @@ export default function DashboardLayout({
       <main className="flex-1 p-10">
         <div className="mx-auto max-w-7xl">{children}</div>
       </main>
+
+      <FeatureLockModal
+        isOpen={Boolean(lockedFeature)}
+        onClose={() => setLockedFeature(null)}
+        title={lockedFeature?.title || 'Locked feature'}
+        description={lockedFeature?.description || ''}
+        benefit={lockedFeature?.benefit || ''}
+      />
     </div>
   )
 }

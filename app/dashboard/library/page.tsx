@@ -1,6 +1,9 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 import EmailConfidenceBadge from '@/components/leads/EmailConfidenceBadge'
 
@@ -19,11 +22,13 @@ type Lead = {
 }
 
 export default function LeadLibraryPage() {
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'inbox' | 'pipeline' | 'contacted'>('all')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [search, setSearch] = useState('')
+  const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
 
   useEffect(() => {
     fetchLeads()
@@ -48,6 +53,10 @@ export default function LeadLibraryPage() {
   }
 
   async function updateStatus(id: string, status: string) {
+    if (status === 'pipeline' && pipelineLocked) {
+      return
+    }
+
     const ids = [id]
 
     if (!ids.length) return
@@ -129,6 +138,15 @@ export default function LeadLibraryPage() {
         </p>
       </div>
 
+      {pipelineLocked && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+          <span>Available on Starter plan</span>
+          <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+            Upgrade
+          </Link>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex gap-3 flex-wrap">
           {['all', 'inbox', 'pipeline', 'contacted'].map((f) => (
@@ -203,7 +221,12 @@ export default function LeadLibraryPage() {
 
               <button
                 onClick={() => updateStatus(selectedLead.id, 'pipeline')}
-                className="px-3 py-1.5 text-xs rounded bg-blue-500/20 text-blue-300"
+                disabled={pipelineLocked}
+                className={`px-3 py-1.5 text-xs rounded ${
+                  pipelineLocked
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500'
+                    : 'bg-blue-500/20 text-blue-300'
+                }`}
               >
                 ➜ Move to Pipeline
               </button>

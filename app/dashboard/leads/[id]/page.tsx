@@ -4,16 +4,24 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 
+import FeatureLockNotice from '@/components/access/FeatureLockNotice'
+import FeatureLockModal from '@/components/modals/FeatureLockModal'
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { buildFinalEmailHtml } from '@/lib/email/signature'
+import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
 type Lead = {
   id: string
   company_name: string
-  email: string
-  industry: string
-  city: string
+  email: string | null
+  phone: string | null
+  website: string | null
+  email_confidence: 'high' | 'medium' | 'low' | null
+  industry: string | null
+  city: string | null
   status: string
 }
 
@@ -40,6 +48,7 @@ type SenderSettings = {
 export default function Page() {
   const params = useParams()
   const leadId = params.id as string
+  const { profile, loading: profileLoading } = useClientUserProfile()
 
   const [lead, setLead] = useState<Lead | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
@@ -48,6 +57,8 @@ export default function Page() {
   const [loading, setLoading] = useState(true)
   const [setupLoading, setSetupLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [showFeatureLock, setShowFeatureLock] = useState(false)
+  const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   useEffect(() => {
     fetchLead()
@@ -58,9 +69,32 @@ export default function Page() {
     templates.find((template) => template.id === selectedTemplateId) || null
 
   async function fetchLead() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      const guestLead = getGuestLeads().find((item) => item.id === leadId)
+      if (guestLead) {
+        setLead({
+          id: guestLead.id,
+          company_name: guestLead.company_name,
+          email: guestLead.email,
+          phone: guestLead.phone,
+          website: guestLead.website,
+          email_confidence: guestLead.email_confidence,
+          industry: guestLead.industry,
+          city: guestLead.city,
+          status: guestLead.status,
+        })
+      }
+      setLoading(false)
+      return
+    }
+
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, email, industry, city, status')
+      .select('id, company_name, email, phone, website, email_confidence, industry, city, status')
       .eq('id', leadId)
       .single()
 
@@ -125,6 +159,11 @@ export default function Page() {
   async function sendEmail() {
     if (!lead || !selectedTemplateId || !senderSettings) return
 
+    if (emailLocked) {
+      setShowFeatureLock(true)
+      return
+    }
+
     try {
       setSending(true)
 
@@ -157,6 +196,10 @@ export default function Page() {
     return <div className="text-slate-400">Loading lead...</div>
   }
 
+  if (profileLoading) {
+    return <div className="text-slate-400">Loading email composer...</div>
+  }
+
   if (!lead) {
     return <div className="text-red-400">Lead not found.</div>
   }
@@ -183,9 +226,22 @@ export default function Page() {
             {lead.company_name}
           </div>
           <div className="mt-1 text-sm text-slate-400">
-            {lead.industry} • {lead.city}
+            {[lead.industry, lead.city].filter(Boolean).join(' • ') || 'Lead details'}
           </div>
-          <div className="mt-2 text-sm text-cyan-300">{lead.email}</div>
+          <div className="mt-2 space-y-1 text-sm">
+            <div className="text-cyan-300">{lead.email || 'No email found'}</div>
+            <div className="text-slate-400">{lead.phone || 'No phone found'}</div>
+            {lead.website ? (
+              <a
+                href={lead.website}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex text-cyan-200 transition hover:text-white"
+              >
+                {lead.website}
+              </a>
+            ) : null}
+          </div>
         </div>
 
         <div className="rounded-full bg-slate-400/10 px-4 py-2 text-xs font-medium text-slate-300">
@@ -197,6 +253,11 @@ export default function Page() {
         <div className="glass p-6 text-slate-400">
           Loading your saved templates and sender settings...
         </div>
+      ) : emailLocked ? (
+        <FeatureLockNotice
+          title="Email sending is available on Starter"
+          description="You can review this lead now. Upgrade when you want ALPA to handle templates, sender settings, and outreach from inside the workspace."
+        />
       ) : templates.length === 0 || !senderSettings ? (
         <div className="glass space-y-4 p-6 text-slate-300">
           <div>
@@ -269,12 +330,20 @@ export default function Page() {
       <div className="flex justify-end">
         <button
           onClick={sendEmail}
-          disabled={sending || !selectedTemplateId || !senderSettings}
+          disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
           className="btn-primary px-8 py-3 text-lg disabled:opacity-50"
         >
-          {sending ? 'Sending…' : 'Send Email'}
+          {emailLocked ? 'Email Sending Locked' : sending ? 'Sending…' : 'Send Email'}
         </button>
       </div>
+
+      <FeatureLockModal
+        isOpen={showFeatureLock}
+        onClose={() => setShowFeatureLock(false)}
+        title="Email Sending"
+        description="Reviewing lead details stays available on free access, but sending outreach from inside ALPA unlocks on Starter."
+        benefit="Templates and built-in sending help you turn a good lead into a live conversation much faster."
+      />
     </div>
   )
 }

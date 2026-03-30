@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
+import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { canAccessFeature } from '@/lib/auth/access'
 import { buildFinalEmailHtml, buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
@@ -73,6 +75,11 @@ export async function POST(req: Request) {
 
     if (userError || !user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const userProfile = await getUserProfile()
+    if (!canAccessFeature('email', userProfile)) {
+      return NextResponse.json({ error: 'Available on Starter plan' }, { status: 403 })
     }
 
     const payload: RequestBody = await req.json()

@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
+import { canAccessFeature } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { buildFinalEmailHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
 
@@ -38,6 +41,7 @@ export default function SendCampaignModal({
   onSent: (sentIds: string[]) => void
 }) {
   const router = useRouter()
+  const { profile, loading: profileLoading } = useClientUserProfile()
   const [templates, setTemplates] = useState<Template[]>([])
   const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
@@ -66,6 +70,7 @@ export default function SendCampaignModal({
 
   const selectedTemplate =
     templates.find((template) => template.id === selectedTemplateId) || null
+  const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -192,6 +197,37 @@ export default function SendCampaignModal({
   }
 
   if (!isOpen) return null
+
+  if (emailLocked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="glass w-full max-w-xl space-y-5 p-8">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+            Available on Starter plan
+          </div>
+          <h2 className="text-2xl font-semibold text-white">Email sending is locked on Free</h2>
+          <p className="text-sm leading-6 text-slate-300">
+            Upgrade to Starter to open templates, send test emails, and launch outreach directly from ALPA.
+          </p>
+          <div className="flex gap-3">
+            <Link
+              href="/plans"
+              onClick={onClose}
+              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-5 text-sm font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5"
+            >
+              Upgrade
+            </Link>
+            <button
+              onClick={onClose}
+              className="rounded-2xl bg-white/10 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/20"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const previewHtml =
     selectedTemplate && senderSettings

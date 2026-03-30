@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import FloatingLeadShowcase from '@/components/landing/FloatingLeadShowcase'
+import FreshStartCta from '@/components/landing/FreshStartCta'
 import LiveLogPanel from '@/components/landing/LiveLogPanel'
 import PublicHeader from '@/components/site/PublicHeader'
 
@@ -64,12 +65,11 @@ export default function HomePage() {
             </p>
 
             <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                href="/dashboard"
+              <FreshStartCta
                 className="inline-flex min-h-[58px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-7 text-base font-semibold text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(34,211,238,0.34)]"
               >
-                Try 25 leads free
-              </Link>
+                Get 25 leads
+              </FreshStartCta>
               <div className="text-sm text-slate-500">No signup. No setup.</div>
             </div>
           </div>
@@ -216,12 +216,11 @@ export default function HomePage() {
             </div>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                href="/dashboard"
+              <FreshStartCta
                 className="inline-flex min-h-[58px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-7 text-base font-semibold text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(34,211,238,0.34)]"
               >
-                Try 25 leads free
-              </Link>
+                Get 25 leads
+              </FreshStartCta>
               <Link
                 href="/login"
                 className="text-sm font-medium text-cyan-100 underline-offset-4 transition hover:text-white hover:underline"

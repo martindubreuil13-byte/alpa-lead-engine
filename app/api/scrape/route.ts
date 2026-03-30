@@ -15,6 +15,7 @@ import {
   sanitizeWebsite,
 } from '@/lib/validation'
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
+import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 
 export const runtime = 'nodejs'
 
@@ -44,7 +45,7 @@ type ScrapeConfig = {
   region: string
   country: string
   maxLeads: number
-  existingLeadCount: number
+  outputLeadLimit: number
   userId: string | null
 }
 
@@ -103,6 +104,18 @@ type SaveLeadResult =
       }
     }
 
+type ScrapeResultPayload = {
+  summaryLine: string
+  detailLine: string | null
+  limitMessage: string | null
+  locationLabel: string
+  highQualityContactCount: number | null
+  discoveredCount: number
+  enrichedCount: number
+  addedCount: number
+  addedLeads: TrialLead[]
+}
+
 type LeadInsertPayload = {
   user_id: string
   company_name: string
@@ -134,6 +147,27 @@ function normalizeLocation(value: string | null | undefined) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
+}
+
+function formatLocationLabel(city: string, region: string, country: string) {
+  const parts = [city, region].map((part) => String(part || '').trim()).filter(Boolean)
+  if (parts.length > 0) {
+    return parts.join(', ')
+  }
+
+  return String(country || '').trim() || 'your target market'
+}
+
+function formatLeadSummary(count: number, locationLabel: string) {
+  return `${count} enriched ${count === 1 ? 'lead' : 'leads'} found in ${locationLabel}`
+}
+
+function formatHighQualitySummary(count: number) {
+  return `${count} high-quality ${count === 1 ? 'contact identified' : 'contacts identified'}`
+}
+
+function formatOutputLimitMessage(count: number) {
+  return `Only ${count} ${count === 1 ? 'lead' : 'leads'} added — limit reached`
 }
 
 function normalizePhoneKey(phone: string | null | undefined) {
@@ -767,10 +801,11 @@ async function runScraper(
   options?: {
     guestMode?: boolean
     onGuestLead?: (lead: TrialLead) => void
+    onResult?: (result: ScrapeResultPayload) => void
   }
 ) {
   try {
-    const { query, defaultCity, region, country, maxLeads, existingLeadCount, userId } = config
+    const { query, defaultCity, region, country, maxLeads, outputLeadLimit, userId } = config
 
     if (!query || !defaultCity) {
       send('❌ invalid input')
@@ -801,7 +836,7 @@ async function runScraper(
 
     for (const currentQuery of serperQueries) {
       if (discoveredLeads.length >= serperLeadTarget) {
-        send(`✅ Serper early stop at ${discoveredLeads.length} leads`)
+        send('Processing results...')
         break
       }
 
@@ -852,7 +887,7 @@ async function runScraper(
       }
 
       if (discoveredLeads.length >= serperLeadTarget) {
-        send(`✅ Serper early stop at ${discoveredLeads.length} leads`)
+        send('Processing results...')
         break
       }
     }
@@ -987,22 +1022,40 @@ async function runScraper(
       send('✅ Serper satisfied quality targets')
     }
 
-    const finalLeads = validDiscoveredLeads
-      .filter((lead) => Boolean(lead.email))
-      .slice(0, maxLeads)
+    const finalEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
+    const allowedOutputCount = Math.max(0, outputLeadLimit)
+    const locationLabel = formatLocationLabel(defaultCity, region, country)
+    const summaryLine = formatLeadSummary(finalEnrichedLeads.length, locationLabel)
+    const detailLine =
+      metrics.highConfidenceLeads > 0
+        ? formatHighQualitySummary(metrics.highConfidenceLeads)
+        : null
 
-    let enriched = 0
+    send(`📦 enriched: ${finalEnrichedLeads.length}`)
+
+    let addedCount = 0
     let duplicateCount = 0
     let invalidCount = 0
     let dbErrorCount = 0
+    const addedLeads: TrialLead[] = []
 
     if (options?.guestMode) {
-      for (const lead of finalLeads) {
-        options.onGuestLead?.(createGuestLead(lead))
-        enriched += 1
+      for (const lead of finalEnrichedLeads) {
+        if (addedCount >= allowedOutputCount) {
+          break
+        }
+
+        const guestLead = createGuestLead(lead)
+        addedLeads.push(guestLead)
+        options.onGuestLead?.(guestLead)
+        addedCount += 1
       }
     } else {
-      for (const lead of finalLeads) {
+      for (const lead of finalEnrichedLeads) {
+        if (addedCount >= allowedOutputCount) {
+          break
+        }
+
         if (!userId) {
           send('❌ missing authenticated user')
           break
@@ -1011,7 +1064,11 @@ async function runScraper(
         const saved = await saveLead(supabase, lead, userId)
 
         if (saved.ok) {
-          enriched += 1
+          addedLeads.push({
+            ...createGuestLead(lead),
+            id: saved.id,
+          })
+          addedCount += 1
           continue
         }
 
@@ -1037,7 +1094,6 @@ async function runScraper(
       }
     }
 
-    send(`📦 enriched: ${enriched}`)
     if (!options?.guestMode) {
       if (userId) {
         const { data: testRows } = await supabase
@@ -1050,22 +1106,39 @@ async function runScraper(
       }
 
       send(
-        `💾 saved: ${enriched}, duplicates: ${duplicateCount}, invalid: ${invalidCount}, db errors: ${dbErrorCount}`
+        `💾 saved: ${addedCount}, duplicates: ${duplicateCount}, invalid: ${invalidCount}, db errors: ${dbErrorCount}`
       )
     }
     console.log(
       `SCRAPER API COST: ${roundCostEstimate(totalApiCost)}/${SCRAPE_COST_BUDGET}`
     )
 
-    if (options?.guestMode && existingLeadCount + enriched >= FREE_TRIAL_LEAD_LIMIT) {
-      send("You've reached your free limit")
+    const limitMessage =
+      finalEnrichedLeads.length > allowedOutputCount
+        ? formatOutputLimitMessage(addedCount)
+        : null
+
+    options?.onResult?.({
+      summaryLine,
+      detailLine,
+      limitMessage,
+      locationLabel,
+      highQualityContactCount: metrics.highConfidenceLeads > 0 ? metrics.highConfidenceLeads : null,
+      discoveredCount: validDiscoveredLeads.length,
+      enrichedCount: finalEnrichedLeads.length,
+      addedCount,
+      addedLeads,
+    })
+
+    if (limitMessage) {
+      send(limitMessage)
     }
 
     if (validDiscoveredLeads.length === 0) {
       send('⚠️ no leads found')
     }
 
-    send('🎉 done')
+    send('🎉 Prospecting complete')
   } catch (err: any) {
     send(`❌ fatal: ${err?.message || 'unknown'}`)
   }
@@ -1129,16 +1202,40 @@ export async function POST(req: Request) {
     ? Math.max(0, Math.min(Number(body.existingLeadCount || 0), FREE_TRIAL_LEAD_LIMIT))
     : 0
   const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
+  const requestedLeadCount = Number(body.maxLeads || 10)
+
+  let authenticatedLeadCount = 0
+  let authenticatedPlan = 'free'
+
+  if (user?.id) {
+    const [{ data: profile }, { count }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('plan')
+        .eq('id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .or('email.not.is.null,phone.not.is.null'),
+    ])
+
+    authenticatedPlan = profile?.plan ?? 'free'
+    authenticatedLeadCount = count ?? 0
+  }
+
+  const authenticatedRemainingCapacity = user?.id
+    ? Math.max(getLeadLimit(authenticatedPlan) - authenticatedLeadCount, 0)
+    : 0
 
   const config: ScrapeConfig = {
     query: String(body.query || '').trim(),
     defaultCity: String(body.defaultCity || '').trim(),
     region: String(body.region || '').trim(),
     country: String(body.country || 'Canada').trim(),
-    maxLeads: isGuestMode
-      ? Math.min(Number(body.maxLeads || 10), remainingGuestCapacity)
-      : Number(body.maxLeads || 10),
-    existingLeadCount: guestLeadCount,
+    maxLeads: requestedLeadCount,
+    outputLeadLimit: isGuestMode ? remainingGuestCapacity : authenticatedRemainingCapacity,
     userId: user?.id || null,
   }
 
@@ -1160,8 +1257,8 @@ export async function POST(req: Request) {
         return
       }
 
-      if (isGuestMode && config.maxLeads <= 0) {
-        send("You've reached your free limit")
+      if (config.maxLeads <= 0) {
+        send('❌ invalid input')
         send('🎉 done')
         controller.close()
         return
@@ -1172,6 +1269,9 @@ export async function POST(req: Request) {
         guestMode: isGuestMode,
         onGuestLead(lead) {
           emit({ type: 'lead', payload: lead })
+        },
+        onResult(result) {
+          emit({ type: 'result', payload: result })
         },
       })
       controller.close()
