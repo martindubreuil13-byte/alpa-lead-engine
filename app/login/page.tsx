@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
+import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -45,6 +46,7 @@ export default function LoginPage() {
 
       if (data.session) {
         await claimGuestTrialIfNeeded()
+        clearGuestTrialMode()
         router.push('/dashboard')
         return
       }
@@ -57,11 +59,13 @@ export default function LoginPage() {
       }
 
       await claimGuestTrialIfNeeded()
+      clearGuestTrialMode()
       router.push('/dashboard')
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) return alert(error.message)
       await claimGuestTrialIfNeeded()
+      clearGuestTrialMode()
       router.push('/dashboard')
     }
   }

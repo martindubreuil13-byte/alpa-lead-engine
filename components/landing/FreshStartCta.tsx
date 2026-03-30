@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation'
 
+import { supabase } from '@/lib/supabase'
+import { enableGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { resetGuestSession } from '@/lib/session/resetGuestSession'
 
 export default function FreshStartCta({
@@ -13,13 +15,16 @@ export default function FreshStartCta({
 }) {
   const router = useRouter()
 
-  function handleClick() {
+  async function handleClick() {
+    console.log('LANDING CTA: forcing guest trial mode')
+    enableGuestTrialMode()
     resetGuestSession({ regenerateSessionId: true })
+    await supabase.auth.signOut()
     router.push('/dashboard/scraper')
   }
 
   return (
-    <button type="button" onClick={handleClick} className={className}>
+    <button type="button" onClick={() => void handleClick()} className={className}>
       {children}
     </button>
   )

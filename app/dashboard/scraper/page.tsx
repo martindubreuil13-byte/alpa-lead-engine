@@ -9,6 +9,10 @@ import {
   getOrCreateGuestSessionId,
   upsertGuestLead,
 } from '@/lib/guest-session'
+import {
+  clearGuestTrialMode,
+  isGuestTrialModeForced,
+} from '@/lib/session/guest-trial-mode'
 import { resetGuestSession } from '@/lib/session/resetGuestSession'
 import { writeStoredScrapeResult } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
@@ -110,6 +114,8 @@ type ScrapeResultPayload = {
   addedLeads: TrialLead[]
 }
 
+type ViewerMode = 'resolving' | 'guest_trial' | 'authenticated_free' | 'authenticated_paid'
+
 type InputProps = {
   label: string
   placeholder: string
@@ -183,7 +189,9 @@ function Select({ label, options, value, onChange, disabled = false }: SelectPro
 export default function Page() {
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
-  const [isGuest, setIsGuest] = useState(false)
+  const [viewerMode, setViewerMode] = useState<ViewerMode>(() =>
+    isGuestTrialModeForced() ? 'guest_trial' : 'resolving'
+  )
   const [guestLeadCount, setGuestLeadCount] = useState(0)
   const [authenticatedLeadCount, setAuthenticatedLeadCount] = useState(0)
   const [viewerEmail, setViewerEmail] = useState('')
@@ -214,17 +222,19 @@ export default function Page() {
   const guestSafetyResetCheckedRef = useRef(false)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
+  const isGuest = viewerMode === 'guest_trial'
+  const isAuthenticated = viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid'
   const requestedLeadCount = Number(maxLeads)
   const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
-  const leadPlan = profile?.plan ?? 'free'
+  const leadPlan = viewerMode === 'authenticated_paid' ? 'starter' : 'free'
   const leadLimit = getLeadLimit(leadPlan)
   const leadsUsed = isGuest ? guestLeadCount : getClampedLeadUsage(authenticatedLeadCount, leadPlan)
   const remainingLeadCapacity = isGuest
     ? remainingGuestCapacity
     : getRemainingLeadCapacity(authenticatedLeadCount, leadPlan)
-  const usageState = !isGuest ? getUsageState(leadsUsed, leadLimit) : 'normal'
-  const usageBlocked = !isGuest && usageState === 'blocked'
-  const usageWarning = !isGuest && usageState === 'warning'
+  const usageState = isAuthenticated ? getUsageState(leadsUsed, leadLimit) : 'normal'
+  const usageBlocked = isAuthenticated && usageState === 'blocked'
+  const usageWarning = isAuthenticated && usageState === 'warning'
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
   const missingCity = !city.trim()
@@ -276,9 +286,14 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
-    if (isGuest || !profile?.id) return
+    if (!isAuthenticated || !profile?.id) return
     void refreshAuthenticatedUsage(profile.id, profile.plan)
-  }, [isGuest, profile?.id, profile?.plan])
+  }, [isAuthenticated, profile?.id, profile?.plan])
+
+  useEffect(() => {
+    if (profileLoading) return
+    void loadViewerMode()
+  }, [profile?.id, profile?.plan, profileLoading])
 
   useEffect(() => {
     if (!isGuest) return
@@ -306,6 +321,17 @@ export default function Page() {
       window.clearTimeout(timeout)
     }
   }, [toastMessage])
+
+  useEffect(() => {
+    console.log('SCRAPER MODE UPDATED', {
+      viewerMode,
+      guestLeadCount,
+      authenticatedLeadCount,
+      leadLimit,
+      leadsUsed,
+      usageBlocked,
+    })
+  }, [authenticatedLeadCount, guestLeadCount, leadLimit, leadsUsed, usageBlocked, viewerMode])
 
   useEffect(() => {
     if (displayedDiscovered === discovered) return
@@ -359,45 +385,103 @@ export default function Page() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
+    const forcedGuestTrial = isGuestTrialModeForced()
+    console.log('SCRAPER INIT', {
+      forcedGuestTrial,
+      authenticated: Boolean(user?.id),
+      userId: user?.id ?? null,
+    })
 
-    const nextIsGuest = !user
-    const nextGuestLeadCount = nextIsGuest ? countCountableLeads(getGuestLeads()) : 0
+    if (forcedGuestTrial) {
+      if (user?.id) {
+        console.log('AUTH RESOLVED: authenticated session found during guest trial, signing out', {
+          userId: user.id,
+        })
+        await supabase.auth.signOut()
+      }
 
-    if (
-      nextIsGuest &&
-      !guestSafetyResetCheckedRef.current &&
-      nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
-    ) {
+      const nextGuestLeadCount = countCountableLeads(getGuestLeads())
+      console.log('USAGE SOURCE: guest localStorage', { count: nextGuestLeadCount })
+
+      if (
+        !guestSafetyResetCheckedRef.current &&
+        nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
+      ) {
+        guestSafetyResetCheckedRef.current = true
+        console.log('AUTO RESET TRIGGERED ON LOAD')
+        resetGuestSession({ regenerateSessionId: true })
+        resetProspectorUiState()
+        setViewerMode('guest_trial')
+        setViewerEmail('')
+        setGuestLeadCount(0)
+        setAuthenticatedLeadCount(0)
+        return
+      }
+
       guestSafetyResetCheckedRef.current = true
-      console.log('AUTO RESET TRIGGERED ON LOAD')
-      resetGuestSession({ regenerateSessionId: true })
-      resetProspectorUiState()
-      setIsGuest(true)
+      setViewerMode('guest_trial')
       setViewerEmail('')
-      setGuestLeadCount(0)
+      setGuestLeadCount(nextGuestLeadCount)
       setAuthenticatedLeadCount(0)
       return
     }
 
+    const nextIsGuest = !user
+    const nextGuestLeadCount = nextIsGuest ? countCountableLeads(getGuestLeads()) : 0
+
     if (nextIsGuest) {
-      guestSafetyResetCheckedRef.current = true
-    }
+      console.log('SCRAPER INIT: guest session detected', {
+        localStorageUsage: nextGuestLeadCount,
+      })
 
-    setIsGuest(nextIsGuest)
-    setViewerEmail(user?.email || '')
-    setGuestLeadCount(nextGuestLeadCount)
-    setAuthenticatedLeadCount(0)
-
-    if (!nextIsGuest && user?.id) {
-      if (profileLoading) {
+      if (
+        !guestSafetyResetCheckedRef.current &&
+        nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
+      ) {
+        guestSafetyResetCheckedRef.current = true
+        console.log('AUTO RESET TRIGGERED ON LOAD')
+        resetGuestSession({ regenerateSessionId: true })
+        resetProspectorUiState()
+        setViewerMode('guest_trial')
+        setViewerEmail('')
+        setGuestLeadCount(0)
+        setAuthenticatedLeadCount(0)
         return
       }
 
-      const effectivePlan = profile?.plan ?? 'free'
-      const cachedUsage = getClampedLeadUsage(readStoredUsage(user.id), effectivePlan)
-      setAuthenticatedLeadCount(cachedUsage)
-      await refreshAuthenticatedUsage(user.id, effectivePlan)
+      guestSafetyResetCheckedRef.current = true
+      setViewerMode('guest_trial')
+      setViewerEmail('')
+      setGuestLeadCount(nextGuestLeadCount)
+      setAuthenticatedLeadCount(0)
+      return
     }
+
+    if (profileLoading) {
+      console.log('AUTH RESOLVED: authenticated user found, waiting for profile', {
+        userId: user.id,
+      })
+      setViewerMode('resolving')
+      return
+    }
+
+    const effectivePlan = profile?.plan ?? 'free'
+    const cachedUsage = getClampedLeadUsage(readStoredUsage(user.id), effectivePlan)
+    const nextViewerMode = effectivePlan === 'starter' ? 'authenticated_paid' : 'authenticated_free'
+
+    clearGuestTrialMode()
+    console.log('AUTH RESOLVED', {
+      userId: user.id,
+      plan: effectivePlan,
+      viewerMode: nextViewerMode,
+    })
+    console.log('USAGE SOURCE: localStorage(auth)', { count: cachedUsage })
+
+    setViewerMode(nextViewerMode)
+    setViewerEmail(user.email || '')
+    setGuestLeadCount(0)
+    setAuthenticatedLeadCount(cachedUsage)
+    await refreshAuthenticatedUsage(user.id, effectivePlan)
   }
 
   async function refreshAuthenticatedUsage(userId: string, planOverride?: string) {
@@ -414,6 +498,12 @@ export default function Page() {
 
     const effectivePlan = planOverride ?? profile?.plan ?? 'free'
     const nextCount = getClampedLeadUsage(count || 0, effectivePlan)
+    console.log('USAGE SOURCE: db', {
+      userId,
+      rawCount: count || 0,
+      clampedCount: nextCount,
+      plan: effectivePlan,
+    })
     setAuthenticatedLeadCount(nextCount)
     writeStoredUsage(userId, nextCount, effectivePlan)
   }
@@ -618,7 +708,7 @@ export default function Page() {
         }
       }
 
-      if (!isGuest && profile?.id) {
+      if (isAuthenticated && profile?.id) {
         await refreshAuthenticatedUsage(profile.id, profile.plan)
       }
 

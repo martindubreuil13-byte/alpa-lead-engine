@@ -10,7 +10,10 @@ import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 import { getOrCreateGuestSessionId } from '@/lib/guest-session'
+import { isGuestTrialModeForced } from '@/lib/session/guest-trial-mode'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
+
+type ViewerMode = 'resolving' | 'guest_trial' | 'authenticated_free' | 'authenticated_paid'
 
 export default function DashboardLayout({
   children,
@@ -18,7 +21,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [forcedGuestTrial, setForcedGuestTrial] = useState(() => isGuestTrialModeForced())
   const [lockedFeature, setLockedFeature] = useState<{
     title: string
     description: string
@@ -26,8 +29,18 @@ export default function DashboardLayout({
   } | null>(null)
   const { profile, loading: profileLoading } = useClientUserProfile()
 
+  const viewerMode: ViewerMode = forcedGuestTrial
+    ? 'guest_trial'
+    : profileLoading
+      ? 'resolving'
+      : profile?.plan === 'starter'
+        ? 'authenticated_paid'
+        : profile
+          ? 'authenticated_free'
+          : 'guest_trial'
+
   useEffect(() => {
-    loadViewerMode()
+    setForcedGuestTrial(isGuestTrialModeForced())
 
     const syncGuestState = () => {
       getOrCreateGuestSessionId()
@@ -40,6 +53,15 @@ export default function DashboardLayout({
       window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestState)
     }
   }, [])
+
+  useEffect(() => {
+    console.log('NAV LOCK STATE UPDATED', {
+      viewerMode,
+      forcedGuestTrial,
+      plan: profile?.plan ?? null,
+      profileLoading,
+    })
+  }, [forcedGuestTrial, profile?.plan, profileLoading, viewerMode])
 
   const navItems: Array<{
     href: string
@@ -93,27 +115,19 @@ export default function DashboardLayout({
     window.location.href = '/login'
   }
 
-  async function loadViewerMode() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user?.id) {
-      setIsAuthenticated(false)
-      return
+  function isLocked(item: (typeof navItems)[number]) {
+    if (viewerMode === 'resolving') {
+      return Boolean(item.feature || item.lockedOnFree)
     }
 
-    setIsAuthenticated(true)
-  }
-
-  function isLocked(item: (typeof navItems)[number]) {
     if (item.feature) {
-      return !profileLoading && !canAccessFeature(item.feature, profile)
+      if (viewerMode === 'guest_trial') return true
+      return !canAccessFeature(item.feature, profile)
     }
 
     if (item.lockedOnFree) {
-      if (!isAuthenticated) return true
-      return !profileLoading && profile?.plan === 'free'
+      if (profile?.role === 'admin') return false
+      return viewerMode !== 'authenticated_paid'
     }
 
     return false
@@ -177,7 +191,7 @@ export default function DashboardLayout({
 
           <div className="my-4 border-t border-white/10" />
 
-          {isAuthenticated ? (
+          {viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid' ? (
             <button
               onClick={handleLogout}
               className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-red-400 transition hover:bg-white/5 hover:text-red-300"
