@@ -200,7 +200,7 @@ export default function DashboardLayout({
             </button>
           ) : (
             <Link
-              href="/login"
+              href="/plans"
               className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-cyan-300 transition hover:bg-white/5 hover:text-white"
             >
               <span>Unlock full access</span>

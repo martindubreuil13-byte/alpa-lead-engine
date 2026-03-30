@@ -188,6 +188,10 @@ function isValidDiscoveredLead(lead: DiscoveryLead) {
   return Boolean(lead.company_name && (lead.website || lead.phone))
 }
 
+function hasContactMethod(lead: Pick<DiscoveryLead, 'email' | 'phone'>) {
+  return Boolean(String(lead.email || '').trim() || String(lead.phone || '').trim())
+}
+
 function namesClearlyRelated(left: string | null | undefined, right: string | null | undefined) {
   const normalizedLeft = normalizeCompanyName(left)
   const normalizedRight = normalizeCompanyName(right)
@@ -1022,7 +1026,9 @@ async function runScraper(
       send('✅ Serper satisfied quality targets')
     }
 
-    const finalEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
+    const fullyEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
+    const finalEnrichedLeads = fullyEnrichedLeads.filter((lead) => hasContactMethod(lead))
+    const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
     const allowedOutputCount = Math.max(0, outputLeadLimit)
     const locationLabel = formatLocationLabel(defaultCity, region, country)
     const summaryLine = formatLeadSummary(finalEnrichedLeads.length, locationLabel)
@@ -1032,6 +1038,10 @@ async function runScraper(
         : null
 
     send(`📦 enriched: ${finalEnrichedLeads.length}`)
+
+    if (filteredOutWithoutContactCount > 0) {
+      send(`Filtered out ${filteredOutWithoutContactCount} leads without contact info`)
+    }
 
     let addedCount = 0
     let duplicateCount = 0

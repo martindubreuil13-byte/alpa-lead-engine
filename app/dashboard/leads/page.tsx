@@ -328,23 +328,24 @@ export default function LeadsPage() {
   return (
     <>
       <div className="space-y-8">
-        <div>
-          <h1 className="text-4xl font-bold text-white">Leads Inbox</h1>
-          {!limitedMode ? (
-            <p className="mt-2 text-slate-400">New leads waiting to be reviewed and assigned.</p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold text-white">These could be your next clients.</h1>
+            <p className="mt-2 text-slate-400">Start reaching out and turn these into conversations.</p>
+          </div>
+          {limitedMode ? (
+            <Link
+              href="/plans"
+              className="inline-flex min-h-[46px] items-center justify-center rounded-xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-4 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5"
+            >
+              Unlock pipeline
+            </Link>
           ) : null}
         </div>
 
         {limitedMode ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm text-cyan-100">
-            <span>You’ve found leads. Now turn them into clients.</span>
-            <button
-              type="button"
-              onClick={openRestrictedAction}
-              className="font-medium text-white transition hover:text-cyan-100"
-            >
-              Unlock pipeline
-            </button>
+          <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm text-cyan-100">
+            You’ve found leads. Now turn them into clients.
           </div>
         ) : null}
 
@@ -443,7 +444,7 @@ export default function LeadsPage() {
 
         {limitedMode ? (
           <div className="text-xs italic text-slate-500">
-            Open any lead to review details. Upgrade when you’re ready to organize follow-up.
+            Pick the most promising opportunity and start the first conversation.
           </div>
         ) : (
           <div className="glass flex flex-wrap items-center justify-between gap-3 rounded-xl p-4">
@@ -584,7 +585,7 @@ export default function LeadsPage() {
                       href={`/dashboard/leads/${lead.id}`}
                       className="rounded-lg bg-white/10 px-4 py-2 text-sm text-slate-100 transition hover:bg-white/15"
                     >
-                      Open details
+                      View opportunity
                     </Link>
                     {limitedMode ? (
                       <button

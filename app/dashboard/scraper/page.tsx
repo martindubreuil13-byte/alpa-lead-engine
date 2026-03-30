@@ -8,13 +8,13 @@ import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import {
   getGuestLeads,
   getOrCreateGuestSessionId,
+  saveGuestLeads,
   upsertGuestLead,
 } from '@/lib/guest-session'
 import {
   clearGuestTrialMode,
   isGuestTrialModeForced,
 } from '@/lib/session/guest-trial-mode'
-import { resetGuestSession } from '@/lib/session/resetGuestSession'
 import {
   requestInboxFocus,
   writeStoredScrapeResult,
@@ -224,7 +224,7 @@ export default function Page() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const completionModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const guestSafetyResetCheckedRef = useRef(false)
+  const runStartUsageRef = useRef(0)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
   const isGuest = viewerMode === 'guest_trial'
@@ -320,7 +320,7 @@ export default function Page() {
 
     const timeout = window.setTimeout(() => {
       setToastMessage('')
-    }, 2600)
+    }, 3600)
 
     return () => {
       window.clearTimeout(timeout)
@@ -407,23 +407,6 @@ export default function Page() {
 
       const nextGuestLeadCount = countCountableLeads(getGuestLeads())
       console.log('USAGE SOURCE: guest localStorage', { count: nextGuestLeadCount })
-
-      if (
-        !guestSafetyResetCheckedRef.current &&
-        nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
-      ) {
-        guestSafetyResetCheckedRef.current = true
-        console.log('AUTO RESET TRIGGERED ON LOAD')
-        resetGuestSession({ regenerateSessionId: true })
-        resetProspectorUiState()
-        setViewerMode('guest_trial')
-        setViewerEmail('')
-        setGuestLeadCount(0)
-        setAuthenticatedLeadCount(0)
-        return
-      }
-
-      guestSafetyResetCheckedRef.current = true
       setViewerMode('guest_trial')
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
@@ -438,23 +421,6 @@ export default function Page() {
       console.log('SCRAPER INIT: guest session detected', {
         localStorageUsage: nextGuestLeadCount,
       })
-
-      if (
-        !guestSafetyResetCheckedRef.current &&
-        nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
-      ) {
-        guestSafetyResetCheckedRef.current = true
-        console.log('AUTO RESET TRIGGERED ON LOAD')
-        resetGuestSession({ regenerateSessionId: true })
-        resetProspectorUiState()
-        setViewerMode('guest_trial')
-        setViewerEmail('')
-        setGuestLeadCount(0)
-        setAuthenticatedLeadCount(0)
-        return
-      }
-
-      guestSafetyResetCheckedRef.current = true
       setViewerMode('guest_trial')
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
@@ -560,6 +526,7 @@ export default function Page() {
       setShowCompletionModal(false)
       setToastMessage('')
       setActivity('Launching prospecting engines…')
+      runStartUsageRef.current = leadsUsed
 
       const payload = {
         query: businessType.trim(),
@@ -719,10 +686,39 @@ export default function Page() {
       }
 
       if (latestResult) {
+        const finalResult: ScrapeResultPayload = latestResult as ScrapeResultPayload
+
+        if (isGuest && finalResult.addedLeads.length > 0) {
+          const existingGuestLeads = getGuestLeads()
+          const mergedGuestLeads = [...existingGuestLeads]
+
+          for (const lead of finalResult.addedLeads) {
+            const existingIndex = mergedGuestLeads.findIndex((item) => item.id === lead.id)
+
+            if (existingIndex >= 0) {
+              mergedGuestLeads[existingIndex] = lead
+              continue
+            }
+
+            mergedGuestLeads.unshift(lead)
+          }
+
+          saveGuestLeads(mergedGuestLeads)
+        }
+
+        const nextUsage = Math.min(leadLimit, runStartUsageRef.current + finalResult.addedCount)
+        const shouldShowLimitModal = nextUsage >= leadLimit
+
+        if (!shouldShowLimitModal && runStartUsageRef.current === 0 && finalResult.addedCount > 0) {
+          setToastMessage('Nice — your first leads are in. See how fast that was?')
+        }
+
+        if (shouldShowLimitModal) {
         completionModalTimeoutRef.current = setTimeout(() => {
           setShowCompletionModal(true)
           completionModalTimeoutRef.current = null
         }, 3500)
+        }
       }
 
       if (abortRef.current === controller) {
