@@ -308,24 +308,6 @@ export default function Page() {
   }, [toastMessage])
 
   useEffect(() => {
-    if (!isGuest || guestSafetyResetCheckedRef.current) return
-
-    guestSafetyResetCheckedRef.current = true
-
-    if (guestLeadCount < FREE_TRIAL_LEAD_LIMIT) return
-
-    resetGuestSession({ regenerateSessionId: true })
-    setGuestLeadCount(0)
-    setLogs([])
-    setDiscovered(0)
-    setDisplayedDiscovered(0)
-    setEnriched(0)
-    setActivity('Idle')
-    setCompletionResult(null)
-    setShowCompletionModal(false)
-  }, [guestLeadCount, isGuest])
-
-  useEffect(() => {
     if (displayedDiscovered === discovered) return
 
     const interval = window.setInterval(() => {
@@ -352,15 +334,58 @@ export default function Page() {
     }
   }, [discovered, displayedDiscovered])
 
+  function resetProspectorUiState() {
+    if (completionModalTimeoutRef.current) {
+      clearTimeout(completionModalTimeoutRef.current)
+      completionModalTimeoutRef.current = null
+    }
+
+    setLoading(false)
+    setLogs([])
+    setDiscovered(0)
+    setDisplayedDiscovered(0)
+    setEnriched(0)
+    setElapsed(0)
+    setFinalElapsed(null)
+    setValidationMessage('')
+    setShowValidation(false)
+    setCompletionResult(null)
+    setShowCompletionModal(false)
+    setToastMessage('')
+    setActivity('Idle')
+  }
+
   async function loadViewerMode() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
     const nextIsGuest = !user
+    const nextGuestLeadCount = nextIsGuest ? countCountableLeads(getGuestLeads()) : 0
+
+    if (
+      nextIsGuest &&
+      !guestSafetyResetCheckedRef.current &&
+      nextGuestLeadCount >= FREE_TRIAL_LEAD_LIMIT
+    ) {
+      guestSafetyResetCheckedRef.current = true
+      console.log('AUTO RESET TRIGGERED ON LOAD')
+      resetGuestSession({ regenerateSessionId: true })
+      resetProspectorUiState()
+      setIsGuest(true)
+      setViewerEmail('')
+      setGuestLeadCount(0)
+      setAuthenticatedLeadCount(0)
+      return
+    }
+
+    if (nextIsGuest) {
+      guestSafetyResetCheckedRef.current = true
+    }
+
     setIsGuest(nextIsGuest)
     setViewerEmail(user?.email || '')
-    setGuestLeadCount(nextIsGuest ? countCountableLeads(getGuestLeads()) : 0)
+    setGuestLeadCount(nextGuestLeadCount)
     setAuthenticatedLeadCount(0)
 
     if (!nextIsGuest && user?.id) {
