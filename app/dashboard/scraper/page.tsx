@@ -4,10 +4,12 @@ import { forwardRef, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import {
   getGuestLeads,
   getOrCreateGuestSessionId,
+  mergeGuestLeads,
   saveGuestLeads,
   upsertGuestLead,
 } from '@/lib/guest-session'
@@ -17,6 +19,7 @@ import {
 } from '@/lib/session/guest-trial-mode'
 import {
   requestInboxFocus,
+  readStoredScrapeResult,
   writeStoredScrapeResult,
 } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
@@ -48,6 +51,7 @@ const COUNTRY_OPTIONS = [
 ]
 
 const LEAD_OPTIONS = ['10', '25', '50']
+const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
 
 function formatTime(s: number) {
   const m = Math.floor(s / 60)
@@ -104,6 +108,15 @@ function normalizeSummaryLine(summaryLine: string) {
 
 function isHiddenSystemLog(msg: string) {
   return msg.includes('api cost estimate') || msg.includes('SCRAPER API COST')
+}
+
+function hasSeenFirstSuccessModal() {
+  return typeof window !== 'undefined' && window.sessionStorage.getItem(FIRST_SUCCESS_MODAL_STORAGE_KEY) === '1'
+}
+
+function markFirstSuccessModalSeen() {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(FIRST_SUCCESS_MODAL_STORAGE_KEY, '1')
 }
 
 type ScrapeResultPayload = {
@@ -213,6 +226,8 @@ export default function Page() {
   const [enriched, setEnriched] = useState(0)
   const [activity, setActivity] = useState('Idle')
   const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
+  const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
+  const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
   const [showCompletionModal, setShowCompletionModal] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
@@ -410,6 +425,7 @@ export default function Page() {
       setViewerMode('guest_trial')
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
+      setSessionSavedLeads(getGuestLeads())
       setAuthenticatedLeadCount(0)
       return
     }
@@ -424,6 +440,7 @@ export default function Page() {
       setViewerMode('guest_trial')
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
+      setSessionSavedLeads(getGuestLeads())
       setAuthenticatedLeadCount(0)
       return
     }
@@ -451,6 +468,7 @@ export default function Page() {
     setViewerMode(nextViewerMode)
     setViewerEmail(user.email || '')
     setGuestLeadCount(0)
+    setSessionSavedLeads(readStoredScrapeResult()?.latestSavedLeads ?? [])
     setAuthenticatedLeadCount(cachedUsage)
     await refreshAuthenticatedUsage(user.id, effectivePlan)
   }
@@ -523,6 +541,7 @@ export default function Page() {
       setValidationMessage('')
       setShowValidation(false)
       setCompletionResult(null)
+      setShowFirstSuccessModal(false)
       setShowCompletionModal(false)
       setToastMessage('')
       setActivity('Launching prospecting engines…')
@@ -600,11 +619,6 @@ export default function Page() {
 
       const handleResult = (result: ScrapeResultPayload) => {
         latestResult = result
-        writeStoredScrapeResult({
-          totalFoundLeads: result.enrichedCount,
-          savedLeads: result.addedCount,
-          latestSavedLeads: result.addedLeads,
-        })
         setDiscovered(result.discoveredCount)
         setEnriched(result.enrichedCount)
         setCompletionResult(result)
@@ -687,30 +701,32 @@ export default function Page() {
 
       if (latestResult) {
         const finalResult: ScrapeResultPayload = latestResult as ScrapeResultPayload
+        const sessionLeads = isGuest
+          ? mergeGuestLeads(getGuestLeads(), finalResult.addedLeads)
+          : finalResult.addedLeads
 
         if (isGuest && finalResult.addedLeads.length > 0) {
-          const existingGuestLeads = getGuestLeads()
-          const mergedGuestLeads = [...existingGuestLeads]
-
-          for (const lead of finalResult.addedLeads) {
-            const existingIndex = mergedGuestLeads.findIndex((item) => item.id === lead.id)
-
-            if (existingIndex >= 0) {
-              mergedGuestLeads[existingIndex] = lead
-              continue
-            }
-
-            mergedGuestLeads.unshift(lead)
-          }
-
-          saveGuestLeads(mergedGuestLeads)
+          saveGuestLeads(sessionLeads)
         }
+
+        writeStoredScrapeResult({
+          totalFoundLeads: isGuest ? sessionLeads.length : finalResult.enrichedCount,
+          savedLeads: isGuest ? sessionLeads.length : finalResult.addedCount,
+          latestSavedLeads: sessionLeads,
+        })
+        setSessionSavedLeads(sessionLeads)
 
         const nextUsage = Math.min(leadLimit, runStartUsageRef.current + finalResult.addedCount)
         const shouldShowLimitModal = nextUsage >= leadLimit
 
-        if (!shouldShowLimitModal && runStartUsageRef.current === 0 && finalResult.addedCount > 0) {
-          setToastMessage('Nice — your first leads are in. See how fast that was?')
+        if (
+          !shouldShowLimitModal &&
+          runStartUsageRef.current === 0 &&
+          finalResult.addedCount > 0 &&
+          !hasSeenFirstSuccessModal()
+        ) {
+          markFirstSuccessModalSeen()
+          setShowFirstSuccessModal(true)
         }
 
         if (shouldShowLimitModal) {
@@ -959,10 +975,20 @@ export default function Page() {
         }}
         summaryLine={completionResult?.summaryLine || ''}
         detailLine={completionResult?.detailLine || ''}
-        addedLeads={completionResult?.addedLeads || []}
+        addedLeads={sessionSavedLeads}
         viewerEmail={viewerEmail}
         onDownload={() => setToastMessage('Want a copy in your inbox?')}
         onEmailSent={(message) => setToastMessage(message)}
+      />
+
+      <FirstSuccessModal
+        isOpen={showFirstSuccessModal}
+        onClose={() => setShowFirstSuccessModal(false)}
+        onViewLeads={() => {
+          requestInboxFocus()
+          setShowFirstSuccessModal(false)
+          router.push('/dashboard/leads')
+        }}
       />
 
       {toastMessage ? (

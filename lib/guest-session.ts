@@ -16,12 +16,15 @@ function dispatchGuestLeadUpdate() {
   window.dispatchEvent(new Event(GUEST_LEADS_UPDATED_EVENT))
 }
 
-function buildGuestLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'website' | 'city'>) {
+function normalizeGuestPhone(phone: string | null | undefined) {
+  return String(phone || '').replace(/\D/g, '')
+}
+
+function buildGuestLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'phone'>) {
   return [
     lead.company_name.trim().toLowerCase(),
     (lead.email || '').trim().toLowerCase(),
-    (lead.website || '').trim().toLowerCase(),
-    (lead.city || '').trim().toLowerCase(),
+    normalizeGuestPhone(lead.phone),
   ].join('::')
 }
 
@@ -65,12 +68,27 @@ export function saveGuestLeads(leads: TrialLead[]) {
   dispatchGuestLeadUpdate()
 }
 
+export function mergeGuestLeads(existingLeads: TrialLead[], incomingLeads: TrialLead[]) {
+  const next = [...existingLeads]
+
+  for (const lead of incomingLeads) {
+    const leadKey = buildGuestLeadKey(lead)
+    const existingIndex = next.findIndex(
+      (item) => item.id === lead.id || buildGuestLeadKey(item) === leadKey
+    )
+
+    if (existingIndex >= 0) {
+      next.splice(existingIndex, 1)
+    }
+
+    next.unshift(lead)
+  }
+
+  return next
+}
+
 export function upsertGuestLead(lead: TrialLead) {
-  const current = getGuestLeads()
-  const leadKey = buildGuestLeadKey(lead)
-  const next = current.filter((item) => item.id !== lead.id && buildGuestLeadKey(item) !== leadKey)
-  next.unshift(lead)
-  saveGuestLeads(next)
+  saveGuestLeads(mergeGuestLeads(getGuestLeads(), [lead]))
 }
 
 export function removeGuestLead(id: string) {

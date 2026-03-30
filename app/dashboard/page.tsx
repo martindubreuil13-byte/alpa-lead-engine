@@ -15,12 +15,19 @@ const PIPELINE_STATUSES = ['pipeline', 'contacted', 'followup_due'] as const
 
 type LeadStatusRow = {
   status: string | null
+  email?: string | null
+  phone?: string | null
 }
 
 type Stats = {
   saved: number
   inbox: number
   found: number
+  ready: number
+}
+
+function hasContactDetails(lead: Pick<LeadStatusRow, 'email' | 'phone'>) {
+  return Boolean(String(lead.email || '').trim() || String(lead.phone || '').trim())
 }
 
 export default function Page() {
@@ -29,6 +36,7 @@ export default function Page() {
     saved: 0,
     inbox: 0,
     found: 0,
+    ready: 0,
   })
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
@@ -66,11 +74,13 @@ export default function Page() {
     const guestLeads = getGuestLeads()
     const inbox = guestLeads.filter((lead) => lead.status === 'inbox').length
     const storedScrapeResult = readStoredScrapeResult()
+    const ready = guestLeads.filter((lead) => hasContactDetails(lead)).length
 
     setStats({
       saved: guestLeads.length,
       inbox,
       found: storedScrapeResult?.totalFoundLeads ?? guestLeads.length,
+      ready,
     })
 
     const counts: Record<string, number> = {}
@@ -87,22 +97,20 @@ export default function Page() {
   async function loadStats(currentUserId: string) {
     try {
       const storedScrapeResult = readStoredScrapeResult()
-      const { count } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', currentUserId)
-
       const { data } = await supabase
         .from('leads')
-        .select('status')
+        .select('status, email, phone')
         .eq('user_id', currentUserId)
 
       const inbox = data?.filter((l) => l.status === 'inbox').length || 0
+      const saved = data?.length || 0
+      const ready = data?.filter((lead) => hasContactDetails(lead)).length || 0
 
       setStats({
-        saved: count || 0,
+        saved,
         inbox,
-        found: storedScrapeResult?.totalFoundLeads ?? (count || 0),
+        found: storedScrapeResult?.totalFoundLeads ?? saved,
+        ready,
       })
 
     } catch (err) {
@@ -155,24 +163,9 @@ export default function Page() {
   if (stats.saved === 0) {
     return (
       <div className="space-y-10">
-        <div className="space-y-4">
-          <h1 className="text-5xl font-bold">
-            <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
-              ALPA Command Center
-            </span>
-          </h1>
-          <p className="text-slate-400">
-            {isGuest ? 'A fresh session is ready for your first search.' : 'Your workspace is ready for its first run.'}
-          </p>
-        </div>
-
         <div className="glass rounded-[28px] p-10">
           <h2 className="text-3xl font-semibold text-white">Start finding your first leads</h2>
-          <div className="mt-6 space-y-3 text-slate-300">
-            <p>1. Use Prospector</p>
-            <p>2. Review in Inbox</p>
-            <p>3. Upgrade to unlock pipeline</p>
-          </div>
+          <p className="mt-4 text-slate-400">Run your first search and we&apos;ll bring the next step into focus.</p>
           <div className="mt-8">
             <Link
               href="/dashboard/scraper"
@@ -192,64 +185,54 @@ export default function Page() {
 
   if (isFreeViewer) {
     return (
-      <div className="space-y-10">
-        <div className="space-y-4">
-          <h1 className="text-5xl font-bold">
-            <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
-              ALPA Command Center
-            </span>
-          </h1>
-          <p className="text-slate-400">
-            {isGuest ? 'Your free workspace is focused on finding and reviewing leads.' : 'Your free workspace keeps the next step clear.'}
-          </p>
-        </div>
-
-        <div className="glass rounded-[28px] p-10">
-          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
-            Free Workspace
+      <div className="space-y-8">
+        <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_42%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(8,15,29,0.98))] p-10 shadow-[0_30px_90px_rgba(2,8,23,0.45)]">
+          <div className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
+            Progress checkpoint
           </div>
-          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white">
-            You found {stats.found} {stats.found === 1 ? 'lead' : 'leads'} — {stats.saved} saved in your workspace
+          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
+            You&apos;ve built your first lead list
           </h2>
-          <p className="mt-4 text-lg text-slate-300">Your next step is turning them into clients.</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/plans"
-              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
-            >
-              Unlock pipeline to manage and convert leads
-            </Link>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
+            {stats.saved} {stats.saved === 1 ? 'lead is' : 'leads are'} now in your inbox. Some are ready to contact right now.
+          </p>
+          <div className="mt-8">
             <Link
               href="/dashboard/leads"
-              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-6 text-base font-semibold text-slate-100 transition hover:bg-white/[0.08]"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
             >
-              Review your leads
+              Go to my leads
             </Link>
+          </div>
+          <div className="mt-8 border-t border-white/10 pt-6">
+            <p className="text-base text-slate-300">Want to contact, track, and follow up from one place?</p>
+            <div className="mt-4">
+              <Link
+                href="/plans"
+                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                Unlock outreach
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="glass rounded-3xl p-6">
-            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Prospector</div>
-            <div className="mt-3 text-lg font-semibold text-white">Your main entry point</div>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Keep running new searches to discover the next pockets of demand.
-            </p>
-          </div>
-          <div className="glass rounded-3xl p-6">
-            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Inbox</div>
-            <div className="mt-3 text-lg font-semibold text-white">{stats.saved} saved leads ready to review</div>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Open individual leads, review quality, and see what ALPA is finding for you.
-            </p>
-          </div>
-          <div className="glass rounded-3xl p-6">
-            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Next Unlock</div>
-            <div className="mt-3 text-lg font-semibold text-white">Pipeline turns this into a system</div>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Track stages, manage follow-ups, and convert more of the leads you already found.
-            </p>
-          </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <SummaryCard
+            title="Leads found"
+            value={stats.saved}
+            caption="Leads in this session"
+          />
+          <SummaryCard
+            title="Ready to contact"
+            value={stats.ready}
+            caption="Include email or phone"
+          />
+          <SummaryCard
+            title="Next step"
+            value="Review leads"
+            caption="Start with the strongest opportunities"
+          />
         </div>
       </div>
     )
@@ -302,6 +285,24 @@ function Metric({ title, value, highlight }: any) {
     <div className={`glass p-8 rounded-2xl ${highlight ? 'ring-1 ring-emerald-400/40' : ''}`}>
       <div className="text-xs uppercase text-slate-500">{title}</div>
       <div className="text-5xl font-bold mt-4 text-white">{value}</div>
+    </div>
+  )
+}
+
+function SummaryCard({
+  title,
+  value,
+  caption,
+}: {
+  title: string
+  value: number | string
+  caption: string
+}) {
+  return (
+    <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-6 shadow-[0_18px_40px_rgba(2,8,23,0.18)]">
+      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</div>
+      <div className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">{value}</div>
+      <div className="mt-2 text-sm text-slate-400">{caption}</div>
     </div>
   )
 }

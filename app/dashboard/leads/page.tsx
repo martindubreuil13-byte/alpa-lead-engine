@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
+import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import { getGuestLeads, removeGuestLead } from '@/lib/guest-session'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import {
@@ -17,6 +18,26 @@ import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 
 type Lead = TrialLead & {
   user_id?: string
+}
+
+type FeatureLockContent = {
+  title: string
+  description: string
+  benefit: string
+  ctaLabel?: string
+}
+
+const PIPELINE_LOCK_CONTENT: FeatureLockContent = {
+  title: 'Pipeline',
+  description: 'Organize leads into working stages, track follow-ups, and keep execution moving after discovery.',
+  benefit: 'Pipeline turns a one-time scrape into a repeatable outbound workflow your team can actually run.',
+}
+
+const CONTACT_LOCK_CONTENT: FeatureLockContent = {
+  title: 'Contact your leads directly',
+  description: 'Reach out to these businesses and start real conversations.',
+  benefit: 'Send emails, follow up, and track replies all in one place.',
+  ctaLabel: 'Unlock outreach',
 }
 
 function formatLocation(value: string | null) {
@@ -37,10 +58,13 @@ export default function LeadsPage() {
   const [selected, setSelected] = useState<string[]>([])
   const [isGuest, setIsGuest] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
+  const [featureLockContent, setFeatureLockContent] = useState<FeatureLockContent>(
+    PIPELINE_LOCK_CONTENT
+  )
+  const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
   const [latestSessionLeads, setLatestSessionLeads] = useState<TrialLead[]>([])
   const [actionMessage, setActionMessage] = useState('')
   const [actionError, setActionError] = useState('')
-  const [sendingEmail, setSendingEmail] = useState(false)
   const [highlightActions, setHighlightActions] = useState(false)
 
   const [search, setSearch] = useState('')
@@ -49,10 +73,18 @@ export default function LeadsPage() {
   const limitedMode = isGuest || (!profileLoading && (profile?.plan ?? 'free') === 'free')
   const actionBarRef = useRef<HTMLDivElement | null>(null)
 
+  function getSessionActionLeads(nextIsGuest: boolean) {
+    if (nextIsGuest) {
+      return getGuestLeads()
+    }
+
+    const storedScrapeResult = readStoredScrapeResult()
+    return storedScrapeResult?.latestSavedLeads ?? []
+  }
+
   useEffect(() => {
     fetchLeads()
-    const storedScrapeResult = readStoredScrapeResult()
-    setLatestSessionLeads(storedScrapeResult?.latestSavedLeads ?? [])
+    setLatestSessionLeads(getSessionActionLeads(isGuest))
 
     if (consumeInboxFocusRequest()) {
       window.setTimeout(() => {
@@ -69,6 +101,7 @@ export default function LeadsPage() {
       if (!isGuest) return
       const guestLeads = getGuestLeads()
       setLeads(guestLeads)
+      setLatestSessionLeads(guestLeads)
       setLoading(false)
     }
 
@@ -107,12 +140,15 @@ export default function LeadsPage() {
 
     if (!user) {
       setIsGuest(true)
-      setLeads(getGuestLeads())
+      const guestLeads = getGuestLeads()
+      setLeads(guestLeads)
+      setLatestSessionLeads(guestLeads)
       setLoading(false)
       return
     }
 
     setIsGuest(false)
+    setLatestSessionLeads(getSessionActionLeads(false))
 
     const { data } = await supabase
       .from('leads')
@@ -145,6 +181,7 @@ export default function LeadsPage() {
     if (ids.length === 0) return
 
     if (pipelineLocked) {
+      setFeatureLockContent(PIPELINE_LOCK_CONTENT)
       setShowFeatureLock(true)
       return
     }
@@ -186,6 +223,12 @@ export default function LeadsPage() {
   }
 
   function openRestrictedAction() {
+    setFeatureLockContent(PIPELINE_LOCK_CONTENT)
+    setShowFeatureLock(true)
+  }
+
+  function openContactLock() {
+    setFeatureLockContent(CONTACT_LOCK_CONTENT)
     setShowFeatureLock(true)
   }
 
@@ -207,51 +250,14 @@ export default function LeadsPage() {
     URL.revokeObjectURL(url)
   }
 
-  async function emailLatestSessionLeads() {
+  function openSendLeadsModal() {
     if (latestSessionLeads.length === 0) {
       setActionError('No saved leads from your latest session yet.')
       return
     }
 
-    const targetEmail =
-      profile?.email?.trim() ||
-      window.prompt('Enter your email to receive your latest saved leads:')?.trim() ||
-      ''
-
-    if (!targetEmail) {
-      return
-    }
-
-    setSendingEmail(true)
     setActionError('')
-    setActionMessage('')
-
-    try {
-      const res = await fetch('/api/results-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toEmail: targetEmail,
-          leads: latestSessionLeads,
-          summaryLine: `${latestSessionLeads.length} leads ready from your latest ALPA session`,
-          detailLine: null,
-          limitMessage: null,
-        }),
-      })
-
-      const data = await res.json().catch(() => null)
-
-      if (res.status !== 200) {
-        setActionError(data?.error || 'Something went wrong. Please try again.')
-        return
-      }
-
-      setActionMessage("Email sent successfully. If you don't see it, check your spam folder.")
-    } catch {
-      setActionError('Something went wrong. Please try again.')
-    } finally {
-      setSendingEmail(false)
-    }
+    setShowSendLeadsModal(true)
   }
 
   function exportCsv() {
@@ -331,23 +337,9 @@ export default function LeadsPage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-4xl font-bold text-white">These could be your next clients.</h1>
-            <p className="mt-2 text-slate-400">Start reaching out and turn these into conversations.</p>
+            <p className="mt-2 text-slate-400">Start by contacting the ones that look promising.</p>
           </div>
-          {limitedMode ? (
-            <Link
-              href="/plans"
-              className="inline-flex min-h-[46px] items-center justify-center rounded-xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-4 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5"
-            >
-              Unlock pipeline
-            </Link>
-          ) : null}
         </div>
-
-        {limitedMode ? (
-          <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm text-cyan-100">
-            You’ve found leads. Now turn them into clients.
-          </div>
-        ) : null}
 
         <div
           ref={actionBarRef}
@@ -359,11 +351,10 @@ export default function LeadsPage() {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium text-white">Latest saved leads from this session</div>
-              <div className="mt-1 text-sm text-slate-400">
+              <div className="text-sm font-medium text-white">
                 {latestSessionLeads.length > 0
-                  ? `${latestSessionLeads.length} leads ready whenever you want to save or share them.`
-                  : 'Run Prospector to unlock download and email actions for this session.'}
+                  ? `${latestSessionLeads.length} leads ready to use`
+                  : 'No saved leads yet'}
               </div>
             </div>
 
@@ -382,15 +373,15 @@ export default function LeadsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => void emailLatestSessionLeads()}
-                disabled={latestSessionLeads.length === 0 || sendingEmail}
+                onClick={openSendLeadsModal}
+                disabled={latestSessionLeads.length === 0}
                 className={`rounded-lg px-4 py-2 text-sm transition ${
-                  latestSessionLeads.length === 0 || sendingEmail
+                  latestSessionLeads.length === 0
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
                     : 'border border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
                 }`}
               >
-                {sendingEmail ? 'Sending...' : 'Send to my email'}
+                Send to my email
               </button>
             </div>
           </div>
@@ -414,13 +405,6 @@ export default function LeadsPage() {
               Select all
             </label>
           ) : null}
-
-          <input
-            placeholder="Search company..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="min-w-[220px] flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400"
-          />
 
           {!limitedMode ? (
             <>
@@ -504,7 +488,10 @@ export default function LeadsPage() {
             <span>Pipeline stays locked on free access, but your session leads remain fully reviewable and exportable.</span>
             <button
               type="button"
-              onClick={() => setShowFeatureLock(true)}
+              onClick={() => {
+                setFeatureLockContent(PIPELINE_LOCK_CONTENT)
+                setShowFeatureLock(true)
+              }}
               className="font-medium text-cyan-200 transition hover:text-white"
             >
               Learn more
@@ -587,6 +574,13 @@ export default function LeadsPage() {
                     >
                       View opportunity
                     </Link>
+                    <button
+                      type="button"
+                      onClick={openContactLock}
+                      className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-400/15"
+                    >
+                      Contact this lead
+                    </button>
                     {limitedMode ? (
                       <button
                         type="button"
@@ -607,9 +601,23 @@ export default function LeadsPage() {
       <FeatureLockModal
         isOpen={showFeatureLock}
         onClose={() => setShowFeatureLock(false)}
-        title="Pipeline"
-        description="Organize leads into working stages, track follow-ups, and keep execution moving after discovery."
-        benefit="Pipeline turns a one-time scrape into a repeatable outbound workflow your team can actually run."
+        title={featureLockContent.title}
+        description={featureLockContent.description}
+        benefit={featureLockContent.benefit}
+        ctaLabel={featureLockContent.ctaLabel}
+      />
+
+      <SendLeadsModal
+        isOpen={showSendLeadsModal}
+        onClose={() => setShowSendLeadsModal(false)}
+        viewerEmail={profile?.email ?? ''}
+        leads={latestSessionLeads}
+        summaryLine={`${latestSessionLeads.length} leads ready from your ALPA session`}
+        onSent={(message) => {
+          setShowSendLeadsModal(false)
+          setActionMessage(message)
+          setActionError('')
+        }}
       />
     </>
   )
