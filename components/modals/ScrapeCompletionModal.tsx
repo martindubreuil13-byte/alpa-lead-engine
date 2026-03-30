@@ -132,7 +132,7 @@ export default function ScrapeCompletionModal({
           toEmail: targetEmail,
           leads: addedLeads,
           summaryLine: normalizedSummaryLine,
-          detailLine: detailLine || null,
+          detailLine: null,
           limitMessage: null,
         }),
       })
@@ -146,8 +146,8 @@ export default function ScrapeCompletionModal({
         return
       }
 
-      const nextMessage = "Email sent successfully. If you don't see it, check your spam folder."
-      setResponseMessage(data?.message || 'Email sent successfully')
+      const nextMessage = 'Email sent. It may take a few minutes to arrive.'
+      setResponseMessage('')
       setSuccessMessage(nextMessage)
       onEmailSent?.(nextMessage)
     } catch (sendError: any) {
