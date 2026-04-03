@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
-import { canAccessFeature } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import SendLeadsModal from '@/components/modals/SendLeadsModal'
@@ -70,7 +70,7 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
-  const limitedMode = isGuest || (!profileLoading && (profile?.plan ?? 'free') === 'free')
+  const limitedMode = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
   const actionBarRef = useRef<HTMLDivElement | null>(null)
 
   function getSessionActionLeads(nextIsGuest: boolean) {

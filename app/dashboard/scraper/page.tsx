@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
@@ -57,6 +58,10 @@ function formatTime(s: number) {
   const m = Math.floor(s / 60)
   const r = s % 60
   return m ? `${m}m ${r}s` : `${r}s`
+}
+
+function formatLeadLimit(limit: number) {
+  return Number.isFinite(limit) ? String(limit) : 'Unlimited'
 }
 
 function translateActivity(msg: string) {
@@ -246,7 +251,7 @@ export default function Page() {
   const isAuthenticated = viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid'
   const requestedLeadCount = Number(maxLeads)
   const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
-  const leadPlan = viewerMode === 'authenticated_paid' ? 'starter' : 'free'
+  const leadPlan = isAuthenticated ? profile?.plan ?? 'free' : 'free'
   const leadLimit = getLeadLimit(leadPlan)
   const leadsUsed = isGuest ? guestLeadCount : getClampedLeadUsage(authenticatedLeadCount, leadPlan)
   const remainingLeadCapacity = isGuest
@@ -455,7 +460,10 @@ export default function Page() {
 
     const effectivePlan = profile?.plan ?? 'free'
     const cachedUsage = getClampedLeadUsage(readStoredUsage(user.id), effectivePlan)
-    const nextViewerMode = effectivePlan === 'starter' ? 'authenticated_paid' : 'authenticated_free'
+    const nextViewerMode =
+      isAdmin(profile) || isPaid(profile) || isAdminPlan(effectivePlan) || isPaidPlan(effectivePlan)
+        ? 'authenticated_paid'
+        : 'authenticated_free'
 
     clearGuestTrialMode()
     console.log('AUTH RESOLVED', {
@@ -872,7 +880,7 @@ export default function Page() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
           <span>
-            Usage: {leadsUsed} / {leadLimit} enriched leads
+            Usage: {leadsUsed} / {formatLeadLimit(leadLimit)} enriched leads
           </span>
           {usageBlocked ? (
             <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">

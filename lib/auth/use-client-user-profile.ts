@@ -29,8 +29,8 @@ export function useClientUserProfile() {
       }
 
       const { data: dbProfile } = await supabase
-        .from('users')
-        .select('*')
+        .from('profiles')
+        .select('plan, created_at')
         .eq('id', user.id)
         .maybeSingle()
 
@@ -39,7 +39,7 @@ export function useClientUserProfile() {
       setProfile({
         id: user.id,
         email: user.email ?? '',
-        role: dbProfile?.role ?? 'user',
+        role: dbProfile?.plan === 'admin' ? 'admin' : 'user',
         plan: dbProfile?.plan ?? 'free',
         created_at: dbProfile?.created_at ?? user.created_at ?? new Date().toISOString(),
       })

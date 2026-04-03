@@ -1,7 +1,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type UserRole = 'admin' | 'user';
-export type UserPlan = 'free' | 'starter';
+export type UserPlan = 'free' | 'starter' | 'pro' | 'admin';
 
 export type UserProfile = {
   id: string;
@@ -14,6 +14,19 @@ export type UserProfile = {
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          plan: UserPlan;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          plan?: UserPlan;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+      };
       users: {
         Row: UserProfile;
         Insert: {

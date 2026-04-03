@@ -1,11 +1,23 @@
 import type { UserProfile } from '@/lib/supabase/types'
 
+export function isAdminPlan(plan: string | null | undefined) {
+  return plan === 'admin'
+}
+
+export function isPaidPlan(plan: string | null | undefined) {
+  return plan === 'starter' || plan === 'pro'
+}
+
 export function isAdmin(user: UserProfile | null) {
-  return user?.role === 'admin'
+  return isAdminPlan(user?.plan) || user?.role === 'admin'
+}
+
+export function isPaid(user: UserProfile | null) {
+  return isPaidPlan(user?.plan)
 }
 
 export function isFree(user: UserProfile | null) {
-  return user?.plan === 'free'
+  return !isAdmin(user) && !isPaid(user)
 }
 
 export function isStarter(user: UserProfile | null) {
@@ -15,13 +27,16 @@ export function isStarter(user: UserProfile | null) {
 export function canAccessFeature(feature: string, user: UserProfile | null) {
   if (!user) return false
 
-  if (user.role === 'admin') return true
+  if (isAdmin(user) || isPaid(user)) {
+    if (feature === 'leads' || feature === 'csv') return true
+    if (feature === 'pipeline' || feature === 'templates' || feature === 'email') return true
+  }
 
   switch (feature) {
     case 'pipeline':
     case 'templates':
     case 'email':
-      return user.plan === 'starter'
+      return false
 
     case 'leads':
     case 'csv':

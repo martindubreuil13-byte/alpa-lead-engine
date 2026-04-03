@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 import { getGuestLeads } from '@/lib/guest-session'
@@ -158,7 +159,7 @@ export default function Page() {
     activePipeline > 0
       ? Math.round((contacted / activePipeline) * 100)
       : 0
-  const isFreeViewer = isGuest || (!profileLoading && (profile?.plan ?? 'free') === 'free')
+  const isFreeViewer = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
 
   if (stats.saved === 0) {
     return (

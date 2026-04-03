@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Lock } from 'lucide-react'
 
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
-import { canAccessFeature } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 import { getOrCreateGuestSessionId } from '@/lib/guest-session'
@@ -33,7 +33,7 @@ export default function DashboardLayout({
     ? 'guest_trial'
     : profileLoading
       ? 'resolving'
-      : profile?.plan === 'starter'
+      : profile && (isAdmin(profile) || isPaid(profile))
         ? 'authenticated_paid'
         : profile
           ? 'authenticated_free'
@@ -126,7 +126,6 @@ export default function DashboardLayout({
     }
 
     if (item.lockedOnFree) {
-      if (profile?.role === 'admin') return false
       return viewerMode !== 'authenticated_paid'
     }
 

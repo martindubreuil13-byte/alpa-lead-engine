@@ -14,15 +14,15 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   }
 
   const { data: profile } = await supabase
-    .from('users')
-    .select('*')
+    .from('profiles')
+    .select('plan, created_at')
     .eq('id', user.id)
     .maybeSingle()
 
   return {
     id: user.id,
     email: user.email ?? '',
-    role: profile?.role ?? 'user',
+    role: profile?.plan === 'admin' ? 'admin' : 'user',
     plan: profile?.plan ?? 'free',
     created_at: profile?.created_at ?? user.created_at ?? new Date().toISOString(),
   }

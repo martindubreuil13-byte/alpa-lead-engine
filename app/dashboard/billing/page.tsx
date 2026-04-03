@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
-import { isFree, isStarter } from '@/lib/auth/access'
+import { isAdmin, isFree, isPaid } from '@/lib/auth/access'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import {
   getClampedLeadUsage,
@@ -28,7 +28,8 @@ export default async function BillingPage() {
   })
 
   const userIsFree = isFree(user) || !user
-  const userIsStarter = isStarter(user)
+  const userIsAdmin = isAdmin(user)
+  const userIsPaid = isPaid(user)
   const supabase = await createSupabaseServerClient()
   const { count } = await supabase
     .from('leads')
@@ -38,8 +39,32 @@ export default async function BillingPage() {
 
   const leadsUsed = getClampedLeadUsage(count || 0, user.plan)
   const leadsLimit = getLeadLimit(user.plan)
-  const usagePercent = Math.min(100, Math.round((leadsUsed / leadsLimit) * 100))
+  const leadsLimitLabel = Number.isFinite(leadsLimit) ? String(leadsLimit) : 'Unlimited'
+  const usagePercent = Number.isFinite(leadsLimit)
+    ? Math.min(100, Math.round((leadsUsed / leadsLimit) * 100))
+    : 0
   const usageState = getUsageState(leadsUsed, leadsLimit)
+  const currentPlanName = userIsAdmin
+    ? 'Admin Access'
+    : user.plan === 'pro'
+      ? 'Pro Plan'
+      : userIsPaid
+        ? 'Starter Plan'
+        : 'Free Plan'
+  const currentPlanDescription = userIsAdmin
+    ? 'Unlimited access across all ALPA features.'
+    : user.plan === 'pro'
+      ? 'Paid access across prospecting, outreach, and workflow tools.'
+      : userIsPaid
+        ? 'Up to 500 verified leads per month'
+        : 'Access to 25 verified leads'
+  const currentPlanBadge = userIsAdmin
+    ? 'Admin access'
+    : user.plan === 'pro'
+      ? 'Pro access'
+      : userIsPaid
+        ? 'Starter access'
+        : 'Free access'
 
   return (
     <div className="space-y-10">
@@ -56,12 +81,10 @@ export default async function BillingPage() {
             Current Plan
           </div>
           <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-            {userIsStarter ? 'Starter Plan' : 'Free Plan'}
+            {currentPlanName}
           </h2>
           <p className="mt-3 max-w-xl text-base leading-7 text-slate-300">
-            {userIsStarter
-              ? 'Up to 500 verified leads per month'
-              : 'Access to 25 verified leads'}
+            {currentPlanDescription}
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-slate-400">
@@ -69,7 +92,7 @@ export default async function BillingPage() {
               {user.email}
             </span>
             <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
-              {userIsStarter ? 'Starter access' : 'Free access'}
+              {currentPlanBadge}
             </span>
           </div>
         </section>
@@ -79,7 +102,7 @@ export default async function BillingPage() {
             Usage
           </div>
           <div className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-            Leads used: {leadsUsed} / {leadsLimit}
+            Leads used: {leadsUsed} / {leadsLimitLabel}
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-400">
             Usage is based on enriched leads that include an email or phone number.
@@ -141,7 +164,7 @@ export default async function BillingPage() {
               Your plan is active
             </h2>
             <p className="max-w-2xl text-base leading-7 text-slate-300">
-              Starter is active on your workspace. Billing controls and future plan actions will land here in the next phase.
+              Your workspace has paid access enabled. Billing controls and future plan actions will land here in the next phase.
             </p>
           </div>
         )}

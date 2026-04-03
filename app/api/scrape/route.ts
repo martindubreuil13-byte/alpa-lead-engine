@@ -1220,7 +1220,7 @@ export async function POST(req: Request) {
   if (user?.id) {
     const [{ data: profile }, { count }] = await Promise.all([
       supabase
-        .from('users')
+        .from('profiles')
         .select('plan')
         .eq('id', user.id)
         .maybeSingle(),

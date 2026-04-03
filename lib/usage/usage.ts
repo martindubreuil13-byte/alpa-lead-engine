@@ -1,3 +1,5 @@
+import { isAdminPlan, isPaidPlan } from '@/lib/auth/access'
+
 type CountableLead = {
   email?: string | null
   phone?: string | null
@@ -9,7 +11,8 @@ export const LEAD_LIMIT_REACHED_MESSAGE = "You've reached your limit. Upgrade to
 export const STARTER_LOCK_MESSAGE = 'Available on Starter plan'
 
 export function getLeadLimit(plan: string) {
-  if (plan === 'starter') return 500
+  if (isAdminPlan(plan)) return Number.POSITIVE_INFINITY
+  if (isPaidPlan(plan)) return 500
   return 25
 }
 
