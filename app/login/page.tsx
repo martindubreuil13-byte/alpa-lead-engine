@@ -7,11 +7,31 @@ import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 
+type GuestClaimResult = {
+  success: boolean
+  imported: number
+  skipped_invalid: number
+  skipped_duplicate: number
+}
+
+function getErrorMessageValue(error: unknown) {
+  return typeof error === 'object' && error && 'message' in error && typeof error.message === 'string'
+    ? error.message
+    : ''
+}
+
+function getClaimRouteError(data: unknown) {
+  return typeof data === 'object' && data && 'error' in data && typeof data.error === 'string' ? data.error : ''
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignup, setIsSignup] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [infoMessage, setInfoMessage] = useState('')
 
   const router = useRouter()
 
@@ -21,58 +41,143 @@ export default function LoginPage() {
     setIsSignup(mode === 'signup')
   }, [])
 
-  async function claimGuestTrialIfNeeded() {
-    const guestLeads = getGuestLeads()
-    if (guestLeads.length === 0) return
+  function getAuthErrorMessage(error: unknown, mode: 'login' | 'signup') {
+    const normalizedMessage = getErrorMessageValue(error).toLowerCase()
 
-    const res = await fetch('/api/guest/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ leads: guestLeads }),
-    })
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      throw new Error(data?.error || 'Failed to import guest leads')
+    if (normalizedMessage.includes('invalid login credentials')) {
+      return 'Email or password is incorrect.'
     }
 
-    clearGuestTrial()
+    if (normalizedMessage.includes('user already registered') || normalizedMessage.includes('already registered')) {
+      return 'This email is already registered. Log in instead.'
+    }
+
+    if (normalizedMessage.includes('email not confirmed')) {
+      return 'Please confirm your email before logging in.'
+    }
+
+    if (
+      normalizedMessage.includes('failed to fetch') ||
+      normalizedMessage.includes('network') ||
+      normalizedMessage.includes('fetch')
+    ) {
+      return 'Unable to reach the server. Check your connection and try again.'
+    }
+
+    return mode === 'signup'
+      ? 'Unable to create your account right now. Please try again.'
+      : 'Login failed. Please try again.'
+  }
+
+  function needsEmailConfirmation(error: unknown) {
+    const message = getErrorMessageValue(error).toLowerCase()
+
+    return message.includes('email not confirmed')
+  }
+
+  async function claimGuestTrialIfNeeded(): Promise<GuestClaimResult | null> {
+    const guestLeads = getGuestLeads()
+    if (guestLeads.length === 0) return null
+
+    try {
+      const res = await fetch('/api/guest/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: guestLeads }),
+      })
+
+      const data = (await res.json().catch(() => null)) as GuestClaimResult | null
+
+      if (!res.ok) {
+        throw new Error(getClaimRouteError(data) || 'Failed to import guest leads')
+      }
+
+      console.info('Guest claim result:', {
+        imported: data?.imported ?? 0,
+        skipped_invalid: data?.skipped_invalid ?? 0,
+        skipped_duplicate: data?.skipped_duplicate ?? 0,
+      })
+
+      clearGuestTrial()
+
+      return (data as GuestClaimResult | null) ?? {
+        success: true,
+        imported: 0,
+        skipped_invalid: 0,
+        skipped_duplicate: 0,
+      }
+    } catch (err) {
+      console.error('Non-blocking claim error:', err)
+      return null
+    }
   }
 
   async function handleAuth() {
-    if (isSignup) {
-      const { data, error } = await supabase.auth.signUp({ email, password })
-      if (error) return alert(error.message)
+    if (isLoading) return
 
-      if (data.session) {
+    setIsLoading(true)
+    setErrorMessage('')
+    setInfoMessage('')
+
+    try {
+      if (isSignup) {
+        const { data, error } = await supabase.auth.signUp({ email, password })
+        if (error) throw error
+
+        if (data.session) {
+          await claimGuestTrialIfNeeded()
+          clearGuestTrialMode()
+          router.push('/dashboard')
+          return
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (signInError) {
+          if (needsEmailConfirmation(signInError)) {
+            setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+            setIsSignup(false)
+            return
+          }
+
+          throw signInError
+        }
+
+        if (!data.session) {
+          setInfoMessage('Account created successfully. You can now continue to your dashboard.')
+        }
+
         await claimGuestTrialIfNeeded()
         clearGuestTrialMode()
         router.push('/dashboard')
         return
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-      if (signInError) {
-        alert('Account created. Confirm your email and then log in to import your guest leads.')
-        setIsSignup(false)
-        return
-      }
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw error
 
       await claimGuestTrialIfNeeded()
       clearGuestTrialMode()
       router.push('/dashboard')
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) return alert(error.message)
-      await claimGuestTrialIfNeeded()
-      clearGuestTrialMode()
-      router.push('/dashboard')
+    } catch (err) {
+      console.error('Login failed:', err)
+
+      if (isSignup && needsEmailConfirmation(err)) {
+        setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+        setIsSignup(false)
+        return
+      }
+
+      setErrorMessage(getAuthErrorMessage(err, isSignup ? 'signup' : 'login'))
+    } finally {
+      setIsLoading(false)
     }
   }
 
   function switchMode(nextIsSignup: boolean) {
     setIsSignup(nextIsSignup)
     setShowPassword(false)
+    setErrorMessage('')
+    setInfoMessage('')
   }
 
   return (
@@ -116,6 +221,7 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   autoComplete="email"
+                  disabled={isLoading}
                   className="h-14 w-full rounded-2xl border border-white/[0.10] bg-white/[0.06] px-4 text-[15px] text-white placeholder:text-slate-500 transition-all duration-200 focus:border-cyan-300/45 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
                   placeholder="Email address"
                   value={email}
@@ -128,7 +234,11 @@ export default function LoginPage() {
                   {!isSignup && (
                     <button
                       type="button"
-                      onClick={() => alert('Forgot password flow later')}
+                      onClick={() => {
+                        setErrorMessage('')
+                        setInfoMessage('Password reset is not available yet. Please contact support if you need help accessing your account.')
+                      }}
+                      disabled={isLoading}
                       className="text-sm font-medium text-slate-400 transition hover:text-white"
                     >
                       Forgot password?
@@ -144,6 +254,7 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={isSignup ? 'new-password' : 'current-password'}
+                    disabled={isLoading}
                     className="w-full rounded-xl border border-white/10 bg-[#0B1120] px-4 py-3 pr-12 text-white placeholder:text-gray-500 focus:border-cyan-400/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/40 transition-all duration-150"
                     placeholder={isSignup ? 'Create a password' : 'Password'}
                     style={{ color: '#ffffff' }}
@@ -154,6 +265,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((current) => !current)}
+                    disabled={isLoading}
                     className="absolute right-3 top-1/2 z-[60] -translate-y-1/2 cursor-pointer text-gray-400 transition-all duration-150 hover:text-white hover:drop-shadow-[0_0_6px_rgba(56,189,248,0.5)] focus:outline-none"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
@@ -167,11 +279,30 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {errorMessage ? (
+                <div
+                  aria-live="polite"
+                  className="rounded-2xl border border-rose-400/25 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100"
+                >
+                  {errorMessage}
+                </div>
+              ) : null}
+
+              {infoMessage ? (
+                <div
+                  aria-live="polite"
+                  className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 py-3 text-sm leading-6 text-cyan-50"
+                >
+                  {infoMessage}
+                </div>
+              ) : null}
+
               <button
                 type="submit"
-                className="mt-2 flex min-h-[58px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(37,99,235,0.95))] px-4 text-base font-semibold text-slate-950 shadow-[0_20px_50px_rgba(14,165,233,0.28)] transition-all duration-200 hover:scale-[1.02] hover:shadow-[0_28px_64px_rgba(14,165,233,0.38)] focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+                disabled={isLoading}
+                className="mt-2 flex min-h-[58px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(37,99,235,0.95))] px-4 text-base font-semibold text-slate-950 shadow-[0_20px_50px_rgba(14,165,233,0.28)] transition-all duration-200 hover:scale-[1.02] hover:shadow-[0_28px_64px_rgba(14,165,233,0.38)] focus:outline-none focus:ring-2 focus:ring-cyan-300/40 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 disabled:hover:shadow-[0_20px_50px_rgba(14,165,233,0.28)]"
               >
-                {isSignup ? 'Create account' : 'Continue'}
+                {isLoading ? (isSignup ? 'Creating account...' : 'Signing in...') : isSignup ? 'Create account' : 'Continue'}
               </button>
             </form>
 
@@ -180,6 +311,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => switchMode(!isSignup)}
+                disabled={isLoading}
                 className="font-medium text-cyan-200 transition hover:text-white"
               >
                 {isSignup ? 'Log in' : 'Create account'}

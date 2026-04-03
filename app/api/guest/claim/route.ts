@@ -19,6 +19,18 @@ type GuestLeadInsertPayload = {
   cost_estimate: number
 }
 
+type GuestClaimResponse = {
+  success: true
+  imported: number
+  skipped_invalid: number
+  skipped_duplicate: number
+}
+
+function normalizeContactValue(value: string | null) {
+  const normalized = value?.trim() || null
+  return normalized
+}
+
 function buildLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'website' | 'city'>) {
   return [
     lead.company_name.trim().toLowerCase(),
@@ -29,15 +41,18 @@ function buildLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'website'
 }
 
 function buildGuestLeadInsertPayload(lead: TrialLead, userId: string): GuestLeadInsertPayload | null {
-  if (!userId || !lead.company_name) {
+  const email = normalizeContactValue(lead.email)
+  const phone = normalizeContactValue(lead.phone)
+
+  if (!userId || !lead.company_name || (!email && !phone)) {
     return null
   }
 
   const payload: GuestLeadInsertPayload = {
     user_id: userId,
     company_name: lead.company_name,
-    email: lead.email,
-    phone: lead.phone,
+    email,
+    phone,
     website: lead.website,
     city: lead.city,
     status: 'inbox',
@@ -53,6 +68,19 @@ function buildGuestLeadInsertPayload(lead: TrialLead, userId: string): GuestLead
   if (payload.is_generic_email === undefined) payload.is_generic_email = false
 
   return payload
+}
+
+function buildGuestClaimResponse(
+  imported: number,
+  skippedInvalid: number,
+  skippedDuplicate: number
+): GuestClaimResponse {
+  return {
+    success: true,
+    imported,
+    skipped_invalid: skippedInvalid,
+    skipped_duplicate: skippedDuplicate,
+  }
 }
 
 export async function POST(req: Request) {
@@ -89,7 +117,7 @@ export async function POST(req: Request) {
   const leads = Array.isArray(body?.leads) ? (body.leads as TrialLead[]) : []
 
   if (leads.length === 0) {
-    return NextResponse.json({ success: true, imported: 0 })
+    return NextResponse.json(buildGuestClaimResponse(0, 0, 0))
   }
 
   const limitedLeads = leads.slice(0, FREE_TRIAL_LEAD_LIMIT)
@@ -104,22 +132,32 @@ export async function POST(req: Request) {
   }
 
   const existingKeys = new Set((existingLeads || []).map(buildLeadKey))
-  const newRows = limitedLeads
-    .filter((lead) => !existingKeys.has(buildLeadKey(lead)))
-    .map((lead) => {
-      const payload = buildGuestLeadInsertPayload(lead, user.id)
+  const newRows: GuestLeadInsertPayload[] = []
+  let skippedInvalid = 0
+  let skippedDuplicate = 0
 
-      if (!payload) {
-        console.log('invalid lead skipped')
-        return null
-      }
+  for (const lead of limitedLeads) {
+    const leadKey = buildLeadKey(lead)
 
-      return payload
-    })
-    .filter((lead): lead is GuestLeadInsertPayload => Boolean(lead))
+    if (existingKeys.has(leadKey)) {
+      skippedDuplicate += 1
+      continue
+    }
+
+    const payload = buildGuestLeadInsertPayload(lead, user.id)
+
+    if (!payload) {
+      skippedInvalid += 1
+      console.warn('Skipping invalid lead (no email, no phone)', lead)
+      continue
+    }
+
+    existingKeys.add(leadKey)
+    newRows.push(payload)
+  }
 
   if (newRows.length === 0) {
-    return NextResponse.json({ success: true, imported: 0 })
+    return NextResponse.json(buildGuestClaimResponse(0, skippedInvalid, skippedDuplicate))
   }
 
   console.log('INSERT PAYLOAD:', newRows)
@@ -142,5 +180,5 @@ export async function POST(req: Request) {
     console.log('DB INSERT OK:', row.id)
   })
 
-  return NextResponse.json({ success: true, imported: data.length })
+  return NextResponse.json(buildGuestClaimResponse(data.length, skippedInvalid, skippedDuplicate))
 }
