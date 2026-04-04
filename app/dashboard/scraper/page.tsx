@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
+import PartialCompletionModal from '@/components/modals/PartialCompletionModal'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
+import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import FirstRunOverlay from '@/components/scraper/FirstRunOverlay'
 import {
   getGuestLeads,
@@ -241,7 +243,9 @@ export default function Page() {
   const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
   const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
   const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
+  const [showPartialCompletionModal, setShowPartialCompletionModal] = useState(false)
   const [showCompletionModal, setShowCompletionModal] = useState(false)
+  const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [showValidation, setShowValidation] = useState(false)
@@ -433,7 +437,9 @@ export default function Page() {
     setValidationMessage('')
     setShowValidation(false)
     setCompletionResult(null)
+    setShowPartialCompletionModal(false)
     setShowCompletionModal(false)
+    setShowSendLeadsModal(false)
     setToastMessage('')
     setActivity('Idle')
   }
@@ -582,7 +588,9 @@ export default function Page() {
       setShowValidation(false)
       setCompletionResult(null)
       setShowFirstSuccessModal(false)
+      setShowPartialCompletionModal(false)
       setShowCompletionModal(false)
+      setShowSendLeadsModal(false)
       setToastMessage('')
       setActivity('Finding businesses...')
       runStartUsageRef.current = leadsUsed
@@ -758,8 +766,11 @@ export default function Page() {
 
         const nextUsage = Math.min(leadLimit, runStartUsageRef.current + finalResult.addedCount)
         const shouldShowLimitModal = nextUsage >= leadLimit
+        const shouldShowPartialCompletionModal =
+          finalResult.addedCount > 0 && nextUsage < leadLimit
 
         if (
+          !shouldShowPartialCompletionModal &&
           !shouldShowLimitModal &&
           runStartUsageRef.current === 0 &&
           finalResult.addedCount > 0 &&
@@ -769,9 +780,13 @@ export default function Page() {
           setShowFirstSuccessModal(true)
         }
 
-        if (shouldShowLimitModal) {
+        if (shouldShowLimitModal || shouldShowPartialCompletionModal) {
           completionModalTimeoutRef.current = setTimeout(() => {
-            setShowCompletionModal(true)
+            if (shouldShowLimitModal) {
+              setShowCompletionModal(true)
+            } else if (shouldShowPartialCompletionModal) {
+              setShowPartialCompletionModal(true)
+            }
             completionModalTimeoutRef.current = null
           }, 4800)
         }
@@ -829,7 +844,7 @@ export default function Page() {
           <span>Lead storage limit reached. Searches still run, but no new leads can be added until you upgrade.</span>
           <Link
             href="/plans"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-4 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-4 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
           >
             Upgrade to Starter
           </Link>
@@ -1086,6 +1101,17 @@ export default function Page() {
         onEmailSent={(message) => setToastMessage(message)}
       />
 
+      <PartialCompletionModal
+        isOpen={showPartialCompletionModal && Boolean(completionResult)}
+        count={completionResult?.addedCount || 0}
+        onClose={() => setShowPartialCompletionModal(false)}
+        onViewLeads={() => {
+          requestInboxFocus()
+          setShowPartialCompletionModal(false)
+          router.push('/dashboard/leads')
+        }}
+      />
+
       <FirstSuccessModal
         isOpen={showFirstSuccessModal}
         onClose={() => setShowFirstSuccessModal(false)}
@@ -1093,6 +1119,18 @@ export default function Page() {
           requestInboxFocus()
           setShowFirstSuccessModal(false)
           router.push('/dashboard/leads')
+        }}
+      />
+
+      <SendLeadsModal
+        isOpen={showSendLeadsModal}
+        onClose={() => setShowSendLeadsModal(false)}
+        viewerEmail={viewerEmail}
+        leads={sessionSavedLeads}
+        summaryLine={completionResult?.summaryLine || `${sessionSavedLeads.length} leads ready from your ALPA session`}
+        onSent={(message) => {
+          setShowSendLeadsModal(false)
+          setToastMessage(message)
         }}
       />
 

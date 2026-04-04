@@ -130,14 +130,14 @@ export default function PlansPage() {
               <div className="mt-8 flex w-full max-w-[34rem] flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
                 <Link
                   href="/dashboard"
-                  className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-7 text-base font-semibold text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] transition duration-200 hover:scale-[1.02] hover:shadow-[0_30px_84px_rgba(34,211,238,0.38)]"
+                  className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-7 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]"
                 >
                   Start Free
                 </Link>
                 <StartCheckoutButton
                   label="Start Building"
                   source="plans_footer"
-                  className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-7 text-base font-semibold text-slate-200 transition duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.06]"
+                  className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-7 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]"
                 />
               </div>
             </div>

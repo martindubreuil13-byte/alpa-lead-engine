@@ -1,6 +1,6 @@
 'use client'
 
-import { Download, Mail, Sparkles, X } from 'lucide-react'
+import { Download, Eye, Mail, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
@@ -225,18 +225,18 @@ export default function ScrapeCompletionModal({
             label="Unlock 300 leads/month — $29.99"
             email={viewerEmail || email}
             source="scrape_completion"
-            className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_56px_rgba(14,165,233,0.3)]"
+            className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]"
           />
 
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               type="button"
               onClick={handleDownload}
               disabled={addedLeads.length === 0}
-              className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-medium transition ${
+              className={`inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-medium transition-all duration-200 ${
                 addedLeads.length === 0
-                  ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                  : 'border border-white/10 bg-white/5 text-slate-100 hover:bg-white/[0.08]'
+                  ? 'cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-500'
+                  : 'border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08]'
               }`}
             >
               <Download className="h-4 w-4" />
@@ -247,14 +247,23 @@ export default function ScrapeCompletionModal({
               type="button"
               onClick={() => void handleSendEmail()}
               disabled={sending || addedLeads.length === 0}
-              className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-medium transition ${
+              className={`inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-medium transition-all duration-200 ${
                 sending || addedLeads.length === 0
-                  ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
-                  : 'border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.08]'
+                  ? 'cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-500'
+                  : 'border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08]'
               }`}
             >
               <Mail className="h-4 w-4" />
               {sending ? 'Sending...' : showEmailInput && !viewerEmail ? 'Save my copy' : 'Save to my email'}
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.03] px-4 text-sm font-medium text-white transition-all duration-200 hover:bg-white/[0.08]"
+            >
+              <Eye className="h-4 w-4" />
+              View my leads
             </button>
           </div>
         </div>

@@ -150,7 +150,7 @@ export default function SendLeadsModal({
             className={`inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold transition ${
               sending || leads.length === 0
                 ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                : 'border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]'
+                : 'border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110'
             }`}
           >
             <Mail className="h-4 w-4" />

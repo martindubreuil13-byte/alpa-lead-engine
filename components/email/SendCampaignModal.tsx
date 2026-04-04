@@ -213,7 +213,7 @@ export default function SendCampaignModal({
             <Link
               href="/plans"
               onClick={onClose}
-              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-5 text-sm font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5"
+              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
             >
               Upgrade
             </Link>

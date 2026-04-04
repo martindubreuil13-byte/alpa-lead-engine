@@ -133,7 +133,7 @@ export default function PlanCard({
               className={cn(
                 'inline-flex min-h-[54px] w-full items-center justify-center rounded-2xl px-5 text-sm font-semibold transition duration-300',
                 featured
-                  ? 'border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(34,211,238,0.34)]'
+                  ? 'border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]'
                   : 'border border-cyan-300/18 bg-white/[0.05] text-white shadow-[0_16px_36px_rgba(2,8,23,0.26)] hover:border-cyan-300/24 hover:bg-cyan-300/[0.08]'
               )}
             />
@@ -147,7 +147,7 @@ export default function PlanCard({
               className={cn(
                 'inline-flex min-h-[54px] w-full items-center justify-center rounded-2xl px-5 text-sm font-semibold transition duration-300',
                 featured
-                  ? 'border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(34,211,238,0.34)]'
+                  ? 'border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]'
                   : 'border border-cyan-300/18 bg-white/[0.05] text-white shadow-[0_16px_36px_rgba(2,8,23,0.26)] hover:border-cyan-300/24 hover:bg-cyan-300/[0.08]'
               )}
             >

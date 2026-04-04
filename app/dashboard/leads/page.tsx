@@ -20,6 +20,8 @@ type Lead = TrialLead & {
   user_id?: string
 }
 
+type LeadContactFilter = 'all' | 'email' | 'phone' | 'fully_enriched'
+
 type FeatureLockContent = {
   title: string
   description: string
@@ -50,6 +52,18 @@ function formatLocation(value: string | null) {
     .join(' ')
 }
 
+function hasEmail(lead: Pick<Lead, 'email'>) {
+  return Boolean(String(lead.email || '').trim())
+}
+
+function hasPhone(lead: Pick<Lead, 'phone'>) {
+  return Boolean(String(lead.phone || '').trim())
+}
+
+function isFullyEnrichedLead(lead: Pick<Lead, 'email' | 'phone'>) {
+  return hasEmail(lead) && hasPhone(lead)
+}
+
 export default function LeadsPage() {
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
@@ -69,6 +83,7 @@ export default function LeadsPage() {
 
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
+  const [contactFilter, setContactFilter] = useState<LeadContactFilter>('all')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
   const limitedMode = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
   const actionBarRef = useRef<HTMLDivElement | null>(null)
@@ -113,7 +128,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     applyFilters()
-  }, [search, cityFilter, leads])
+  }, [contactFilter, search, cityFilter, leads])
 
   useEffect(() => {
     if (!actionMessage && !actionError) return
@@ -172,6 +187,14 @@ export default function LeadsPage() {
 
     if (!limitedMode && cityFilter !== 'all') {
       result = result.filter((lead) => lead.city === cityFilter)
+    }
+
+    if (contactFilter === 'email') {
+      result = result.filter((lead) => hasEmail(lead))
+    } else if (contactFilter === 'phone') {
+      result = result.filter((lead) => hasPhone(lead))
+    } else if (contactFilter === 'fully_enriched') {
+      result = result.filter((lead) => isFullyEnrichedLead(lead))
     }
 
     setFiltered(result)
@@ -394,6 +417,46 @@ export default function LeadsPage() {
           ) : null}
         </div>
 
+        <div className="space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Filter leads
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'all', label: 'All' },
+              { value: 'email', label: 'Email' },
+              { value: 'phone', label: 'Phone' },
+              { value: 'fully_enriched', label: 'Fully Enriched', helper: 'Email + Phone' },
+            ].map((option) => {
+              const active = contactFilter === option.value
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setContactFilter(option.value as LeadContactFilter)}
+                  className={`inline-flex min-h-[44px] flex-col items-start justify-center rounded-2xl border px-4 py-2 text-left transition ${
+                    active
+                      ? 'border-sky-400/40 bg-sky-500/12 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.12)]'
+                      : 'border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/15 hover:bg-white/[0.05] hover:text-white'
+                  }`}
+                >
+                  <span className="text-sm font-medium">{option.label}</span>
+                  {option.helper ? (
+                    <span
+                      className={`text-[11px] leading-4 ${
+                        active ? 'text-sky-100/80' : 'text-slate-500'
+                      }`}
+                    >
+                      {option.helper}
+                    </span>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <div className="glass flex flex-wrap items-center gap-4 rounded-xl p-5">
           {!limitedMode ? (
             <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -525,6 +588,11 @@ export default function LeadsPage() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    {isFullyEnrichedLead(lead) ? (
+                      <span className="rounded-full border border-sky-400/30 bg-sky-500/12 px-2.5 py-1 font-medium text-sky-100">
+                        Fully Enriched
+                      </span>
+                    ) : null}
                     {lead.email ? (
                       <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-slate-200">
                         Email available
