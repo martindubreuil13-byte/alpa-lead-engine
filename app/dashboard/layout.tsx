@@ -232,6 +232,7 @@ export default function DashboardLayout({
         title={lockedFeature?.title || 'Locked feature'}
         description={lockedFeature?.description || ''}
         benefit={lockedFeature?.benefit || ''}
+        showUpgradeCta={viewerMode !== 'authenticated_paid'}
       />
     </div>
   )

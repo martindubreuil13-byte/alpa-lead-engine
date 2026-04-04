@@ -6,13 +6,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
+import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 
-type GuestClaimResult = {
-  success: boolean
-  imported: number
-  skipped_invalid: number
-  skipped_duplicate: number
-}
+type GuestClaimResult = StoredGuestClaimResult
 
 function getErrorMessageValue(error: unknown) {
   return typeof error === 'object' && error && 'message' in error && typeof error.message === 'string'
@@ -89,25 +85,29 @@ export default function LoginPage() {
       const data = (await res.json().catch(() => null)) as GuestClaimResult | null
 
       if (!res.ok) {
-        throw new Error(getClaimRouteError(data) || 'Failed to import guest leads')
+        console.warn('Guest claim failed:', data)
+        return null
       }
 
-      console.info('Guest claim result:', {
+      const result: GuestClaimResult = {
+        success: true,
         imported: data?.imported ?? 0,
         skipped_invalid: data?.skipped_invalid ?? 0,
         skipped_duplicate: data?.skipped_duplicate ?? 0,
+      }
+
+      console.info('Guest claim result:', {
+        imported: result.imported,
+        skipped_invalid: result.skipped_invalid,
+        skipped_duplicate: result.skipped_duplicate,
       })
 
+      writeStoredGuestClaimResult(result)
       clearGuestTrial()
 
-      return (data as GuestClaimResult | null) ?? {
-        success: true,
-        imported: 0,
-        skipped_invalid: 0,
-        skipped_duplicate: 0,
-      }
+      return result
     } catch (err) {
-      console.error('Non-blocking claim error:', err)
+      console.warn('Non-blocking claim error:', err)
       return null
     }
   }
@@ -125,7 +125,9 @@ export default function LoginPage() {
         if (error) throw error
 
         if (data.session) {
-          await claimGuestTrialIfNeeded()
+          await claimGuestTrialIfNeeded().catch((err) => {
+            console.warn('Guest claim skipped:', err)
+          })
           clearGuestTrialMode()
           router.push('/dashboard')
           return
@@ -146,7 +148,9 @@ export default function LoginPage() {
           setInfoMessage('Account created successfully. You can now continue to your dashboard.')
         }
 
-        await claimGuestTrialIfNeeded()
+        await claimGuestTrialIfNeeded().catch((err) => {
+          console.warn('Guest claim skipped:', err)
+        })
         clearGuestTrialMode()
         router.push('/dashboard')
         return
@@ -155,7 +159,9 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
 
-      await claimGuestTrialIfNeeded()
+      await claimGuestTrialIfNeeded().catch((err) => {
+        console.warn('Guest claim skipped:', err)
+      })
       clearGuestTrialMode()
       router.push('/dashboard')
     } catch (err) {

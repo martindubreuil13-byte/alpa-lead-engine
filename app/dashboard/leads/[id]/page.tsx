@@ -58,6 +58,8 @@ export default function Page() {
   const [setupLoading, setSetupLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
+  const plan = profile?.plan || 'free'
+  const isFree = plan === 'free'
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   useEffect(() => {
@@ -343,6 +345,7 @@ export default function Page() {
         title="Email Sending"
         description="Reviewing lead details stays available on free access, but sending outreach from inside ALPA unlocks on Starter."
         benefit="Templates and built-in sending help you turn a good lead into a live conversation much faster."
+        showUpgradeCta={isFree}
       />
     </div>
   )

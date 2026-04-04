@@ -277,7 +277,7 @@ export default function SendCampaignModal({
               <select
                 value={selectedTemplateId || ''}
                 onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="input"
+                className="w-full rounded-lg border border-white/10 bg-gray-900 px-3 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {templates.map((template) => (
                   <option key={template.id} value={template.id}>
@@ -294,7 +294,7 @@ export default function SendCampaignModal({
                   <div className="text-xs uppercase tracking-wide text-slate-500">
                     Subject
                   </div>
-                  <div className="mt-1 text-white">
+                  <div className="mt-1 rounded-lg border border-white/10 bg-gray-900 p-3 text-white">
                     {selectedTemplate.subject}
                   </div>
                 </div>
@@ -304,7 +304,8 @@ export default function SendCampaignModal({
                     HTML Preview
                   </div>
                   <div
-                    className="mt-2 max-h-72 overflow-y-auto rounded-lg bg-black/30 p-4 text-sm text-slate-200"
+                    className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-white/10 bg-gray-900 p-4 text-sm text-white"
+                    style={{ backgroundColor: '#020617', color: '#ffffff' }}
                     dangerouslySetInnerHTML={{ __html: previewHtml }}
                   />
                 </div>

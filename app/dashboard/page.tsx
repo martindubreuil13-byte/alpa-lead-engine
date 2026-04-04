@@ -2,12 +2,12 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import UsageCard from '@/components/billing/UsageCard'
 import { isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { supabase } from '@/lib/supabase'
 import { getGuestLeads } from '@/lib/guest-session'
-import { readStoredScrapeResult } from '@/lib/session/scrape-result'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 /**
@@ -28,12 +28,45 @@ type Stats = {
   ready: number
 }
 
+type DateRange = '7d' | '30d' | '90d' | 'month' | 'all'
+
+type UsageSummary = {
+  plan: string
+  subscriptionStatus: string | null
+  currentPeriodEnd: string | null
+  leadsUsed: number
+  leadsLimit: number
+  usageWarning: 'none' | 'warning' | 'critical'
+}
+
+function getPlanLeadLimit(plan: string) {
+  if (plan === 'admin') return 1000
+  if (plan === 'starter') return 300
+  return 25
+}
+
 function hasContactDetails(lead: Pick<LeadStatusRow, 'email' | 'phone'>) {
   return Boolean(String(lead.email || '').trim() || String(lead.phone || '').trim())
 }
 
+function getRangeStart(dateRange: DateRange) {
+  const now = new Date()
+
+  if (dateRange === 'all') return null
+  if (dateRange === 'month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  }
+
+  const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90
+  const start = new Date(now)
+  start.setDate(start.getDate() - days)
+  return start.toISOString()
+}
+
 export default function Page() {
   const { profile, loading: profileLoading } = useClientUserProfile()
+  const plan = profileLoading ? null : profile?.plan || 'free'
+  const isFree = plan === 'free'
   const [stats, setStats] = useState<Stats>({
     saved: 0,
     inbox: 0,
@@ -43,19 +76,25 @@ export default function Page() {
 
   const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
   const [isGuest, setIsGuest] = useState(false)
+  const [hasAnyLeads, setHasAnyLeads] = useState(false)
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [usageLoading, setUsageLoading] = useState(true)
+  const [dateRange, setDateRange] = useState<DateRange>('month')
 
   useEffect(() => {
+    if (profileLoading) return
+
     loadDashboard()
 
     const refreshGuest = () => {
-      loadGuestStats()
+      loadGuestStats(dateRange)
     }
 
     window.addEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
     return () => {
       window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
     }
-  }, [])
+  }, [dateRange, profileLoading, profile?.id, profile?.plan])
 
   async function loadDashboard() {
     const {
@@ -64,29 +103,54 @@ export default function Page() {
 
     if (!user) {
       setIsGuest(true)
-      loadGuestStats()
+      const guestLeads = getGuestLeads()
+      setHasAnyLeads(guestLeads.length > 0)
+      loadGuestStats(dateRange)
+      setUsageSummary({
+        plan: 'free',
+        subscriptionStatus: null,
+        currentPeriodEnd: null,
+        leadsUsed: 0,
+        leadsLimit: 25,
+        usageWarning: 'none',
+      })
+      setUsageLoading(false)
       return
     }
 
     setIsGuest(false)
-    await Promise.all([loadStats(user.id), loadPipeline(user.id)])
+    const { count } = await supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    setHasAnyLeads((count ?? 0) > 0)
+    const resolvedPlan = plan || 'free'
+    await Promise.all([
+      loadStats(user.id, dateRange),
+      loadPipeline(user.id, dateRange),
+      loadUsage(user.id, resolvedPlan),
+    ])
   }
 
-  function loadGuestStats() {
+  function loadGuestStats(selectedRange: DateRange) {
     const guestLeads = getGuestLeads()
-    const inbox = guestLeads.filter((lead) => lead.status === 'inbox').length
-    const storedScrapeResult = readStoredScrapeResult()
-    const ready = guestLeads.filter((lead) => hasContactDetails(lead)).length
+    const rangeStart = getRangeStart(selectedRange)
+    const filteredGuestLeads = rangeStart
+      ? guestLeads.filter((lead) => new Date(lead.created_at).getTime() >= new Date(rangeStart).getTime())
+      : guestLeads
+    const inbox = filteredGuestLeads.filter((lead) => lead.status === 'inbox').length
+    const ready = filteredGuestLeads.filter((lead) => hasContactDetails(lead)).length
 
     setStats({
-      saved: guestLeads.length,
+      saved: filteredGuestLeads.length,
       inbox,
-      found: storedScrapeResult?.totalFoundLeads ?? guestLeads.length,
+      found: filteredGuestLeads.length,
       ready,
     })
 
     const counts: Record<string, number> = {}
-    guestLeads.forEach((lead) => {
+    filteredGuestLeads.forEach((lead) => {
       const key = lead.status || 'pipeline'
       counts[key] = (counts[key] || 0) + 1
     })
@@ -96,13 +160,19 @@ export default function Page() {
   /**
    * STATS
    */
-  async function loadStats(currentUserId: string) {
+  async function loadStats(currentUserId: string, selectedRange: DateRange) {
     try {
-      const storedScrapeResult = readStoredScrapeResult()
-      const { data } = await supabase
+      const rangeStart = getRangeStart(selectedRange)
+      let query = supabase
         .from('leads')
         .select('status, email, phone')
         .eq('user_id', currentUserId)
+
+      if (rangeStart) {
+        query = query.gte('created_at', rangeStart)
+      }
+
+      const { data } = await query
 
       const inbox = data?.filter((l) => l.status === 'inbox').length || 0
       const saved = data?.length || 0
@@ -111,7 +181,7 @@ export default function Page() {
       setStats({
         saved,
         inbox,
-        found: storedScrapeResult?.totalFoundLeads ?? saved,
+        found: saved,
         ready,
       })
 
@@ -123,13 +193,20 @@ export default function Page() {
   /**
    * PIPELINE
    */
-  async function loadPipeline(currentUserId: string) {
+  async function loadPipeline(currentUserId: string, selectedRange: DateRange) {
     try {
-      const { data, error } = await supabase
+      const rangeStart = getRangeStart(selectedRange)
+      let query = supabase
         .from('leads')
         .select('status')
         .eq('user_id', currentUserId)
         .in('status', [...PIPELINE_STATUSES])
+
+      if (rangeStart) {
+        query = query.gte('created_at', rangeStart)
+      }
+
+      const { data, error } = await query
 
       if (error) throw error
 
@@ -147,6 +224,69 @@ export default function Page() {
     }
   }
 
+  async function loadUsage(currentUserId: string, loadedPlan: string) {
+    try {
+      setUsageLoading(true)
+      const nowIso = new Date().toISOString()
+
+      const [{ data: profileData }, { data: usageData }, { count: freeLeadCount }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('plan, subscription_status, current_period_end')
+          .eq('id', currentUserId)
+          .maybeSingle(),
+        supabase
+          .from('usage')
+          .select('leads_used, leads_limit, period_start, period_end')
+          .eq('user_id', currentUserId)
+          .lte('period_start', nowIso)
+          .gte('period_end', nowIso)
+          .order('period_start', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('leads')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', currentUserId)
+          .or('email.not.is.null,phone.not.is.null'),
+      ])
+
+      const plan = profileData?.plan || loadedPlan || 'free'
+      const isPaidUsagePlan = plan === 'admin' || plan === 'starter'
+      const leadsLimit = getPlanLeadLimit(plan)
+      const leadsUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
+
+      setUsageSummary({
+        plan,
+        subscriptionStatus: plan === 'free' ? 'free' : 'active',
+        currentPeriodEnd: isPaidUsagePlan ? usageData?.period_end ?? null : null,
+        leadsUsed,
+        leadsLimit,
+        usageWarning:
+          isPaidUsagePlan && leadsLimit > 0
+            ? leadsUsed / leadsLimit >= 0.9
+              ? 'critical'
+              : leadsUsed / leadsLimit >= 0.8
+                ? 'warning'
+                : 'none'
+            : 'none',
+      })
+    } catch (err) {
+      console.error('Usage error:', err)
+      const plan = loadedPlan || 'free'
+      setUsageSummary({
+        plan,
+        subscriptionStatus: plan === 'free' ? 'free' : 'active',
+        currentPeriodEnd: null,
+        leadsUsed: 0,
+        leadsLimit: getPlanLeadLimit(plan),
+        usageWarning: 'none',
+      })
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+
   /**
    * METRICS
    */
@@ -160,9 +300,14 @@ export default function Page() {
     activePipeline > 0
       ? Math.round((contacted / activePipeline) * 100)
       : 0
-  const isFreeViewer = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
+  const isFreeViewer = isGuest || (!profileLoading && isFree)
+  const freeLeadLimit = usageSummary?.leadsLimit ?? 25
 
-  if (stats.saved === 0) {
+  if (!isGuest && (profileLoading || !plan)) {
+    return <div className="text-slate-400">Loading dashboard...</div>
+  }
+
+  if (!hasAnyLeads) {
     return (
       <div className="space-y-10">
         <div className="glass rounded-[28px] p-10">
@@ -177,12 +322,17 @@ export default function Page() {
             </Link>
           </div>
         </div>
+        <UsageCard
+          loading={usageLoading}
+          plan={usageSummary?.plan}
+          subscriptionStatus={usageSummary?.subscriptionStatus}
+          currentPeriodEnd={usageSummary?.currentPeriodEnd}
+          leadsUsed={usageSummary?.leadsUsed}
+          leadsLimit={usageSummary?.leadsLimit}
+          usageWarning={usageSummary?.usageWarning}
+        />
       </div>
     )
-  }
-
-  if (!isGuest && profileLoading) {
-    return <div className="text-slate-400">Loading dashboard...</div>
   }
 
   if (isFreeViewer) {
@@ -199,7 +349,7 @@ export default function Page() {
             You found {stats.saved} {stats.saved === 1 ? 'lead' : 'leads'}. {stats.ready} {stats.ready === 1 ? 'is' : 'are'} ready to contact right now.
           </p>
           <p className="mt-3 text-sm text-cyan-100">
-            Free plan: {Math.min(stats.saved, 25)} / 25 leads used
+            Free plan: {Math.min(stats.saved, freeLeadLimit)} / {freeLeadLimit} leads used
           </p>
           <div className="mt-8">
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -219,21 +369,49 @@ export default function Page() {
           </div>
         </div>
 
+        <UsageCard
+          loading={usageLoading}
+          plan={usageSummary?.plan}
+          subscriptionStatus={usageSummary?.subscriptionStatus}
+          currentPeriodEnd={usageSummary?.currentPeriodEnd}
+          leadsUsed={usageSummary?.leadsUsed}
+          leadsLimit={usageSummary?.leadsLimit}
+          usageWarning={usageSummary?.usageWarning}
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-white">Date range</div>
+            <div className="mt-1 text-xs text-slate-500">Based on selected time range</div>
+          </div>
+          <select
+            value={dateRange}
+            onChange={(event) => setDateRange(event.target.value as DateRange)}
+            className="rounded-xl border border-white/10 bg-[#0b1220] px-4 py-2 text-sm text-slate-200 focus:outline-none"
+          >
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+            <option value="month">This month</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-3">
           <SummaryCard
-            title="Leads found"
+            title="Leads found (this period)"
             value={stats.saved}
-            caption="Leads in this session"
+            caption="Based on selected time range"
           />
           <SummaryCard
             title="Ready to contact"
             value={stats.ready}
-            caption="Include email or phone"
+            caption="Based on selected time range"
           />
           <SummaryCard
             title="Next step"
             value="Review leads"
-            caption="Start with the strongest opportunities"
+            caption="Based on selected time range"
           />
         </div>
       </div>
@@ -245,20 +423,51 @@ export default function Page() {
 
       {/* HEADER */}
       <div className="space-y-4">
-        <h1 className="text-5xl font-bold">
-          <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
-            ALPA Command Center
-          </span>
-        </h1>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-4">
+            <h1 className="text-5xl font-bold">
+              <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
+                ALPA Command Center
+              </span>
+            </h1>
 
-        <p className="text-slate-400">
-          {isGuest ? 'Your free trial workspace at a glance.' : 'Your prospecting system at a glance.'}
-        </p>
+            <p className="text-slate-400">
+              {isGuest ? 'Your free trial workspace at a glance.' : 'Your prospecting system at a glance.'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+            <div className="text-sm font-medium text-white">Date range</div>
+            <select
+              value={dateRange}
+              onChange={(event) => setDateRange(event.target.value as DateRange)}
+              className="mt-2 rounded-xl border border-white/10 bg-[#0b1220] px-4 py-2 text-sm text-slate-200 focus:outline-none"
+            >
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+              <option value="month">This month</option>
+              <option value="all">All time</option>
+            </select>
+          </div>
+        </div>
       </div>
+
+      <UsageCard
+        loading={usageLoading}
+        plan={usageSummary?.plan}
+        subscriptionStatus={usageSummary?.subscriptionStatus}
+        currentPeriodEnd={usageSummary?.currentPeriodEnd}
+        leadsUsed={usageSummary?.leadsUsed}
+        leadsLimit={usageSummary?.leadsLimit}
+        usageWarning={usageSummary?.usageWarning}
+      />
+
+      <div className="text-sm text-slate-500">Based on selected time range</div>
 
       {/* METRICS */}
       <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-        <Metric title="Found Leads" value={stats.found} />
+        <Metric title="Leads found (this period)" value={stats.found} />
         <Metric title="Saved Leads" value={stats.saved} />
         <Metric title="Inbox" value={stats.inbox} highlight />
 

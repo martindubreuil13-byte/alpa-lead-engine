@@ -28,7 +28,7 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-sm font-medium transition',
+                  'inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-sm font-medium tracking-tight transition',
                   active
                     ? 'border border-cyan-300/25 bg-cyan-300/10 text-cyan-100'
                     : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
@@ -41,7 +41,7 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
 
           <Link
             href="/login"
-            className="inline-flex min-h-[42px] items-center justify-center rounded-full px-3 text-xs font-medium text-slate-300/70 transition hover:text-white"
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-sm font-medium tracking-tight text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
           >
             Log in
           </Link>

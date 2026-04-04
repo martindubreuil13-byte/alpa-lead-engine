@@ -7,8 +7,8 @@ import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
 type GuestLeadInsertPayload = {
   user_id: string
   company_name: string
-  email: string | null
-  phone: string | null
+  email?: string
+  phone?: string
   website: string | null
   city: string | null
   status: 'inbox'
@@ -26,23 +26,24 @@ type GuestClaimResponse = {
   skipped_duplicate: number
 }
 
-function normalizeContactValue(value: string | null) {
-  const normalized = value?.trim() || null
-  return normalized
-}
+function buildLeadKey(
+  lead: Pick<TrialLead, 'company_name' | 'email' | 'phone' | 'website' | 'city'>
+) {
+  const email = lead.email?.trim().toLowerCase() || ''
+  const phone = lead.phone?.trim().toLowerCase() || ''
 
-function buildLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'website' | 'city'>) {
   return [
     lead.company_name.trim().toLowerCase(),
-    (lead.email || '').trim().toLowerCase(),
+    email,
+    phone,
     (lead.website || '').trim().toLowerCase(),
     (lead.city || '').trim().toLowerCase(),
   ].join('::')
 }
 
 function buildGuestLeadInsertPayload(lead: TrialLead, userId: string): GuestLeadInsertPayload | null {
-  const email = normalizeContactValue(lead.email)
-  const phone = normalizeContactValue(lead.phone)
+  const email = lead.email?.trim() || null
+  const phone = lead.phone?.trim() || null
 
   if (!userId || !lead.company_name || (!email && !phone)) {
     return null
@@ -51,8 +52,8 @@ function buildGuestLeadInsertPayload(lead: TrialLead, userId: string): GuestLead
   const payload: GuestLeadInsertPayload = {
     user_id: userId,
     company_name: lead.company_name,
-    email,
-    phone,
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
     website: lead.website,
     city: lead.city,
     status: 'inbox',
@@ -124,7 +125,7 @@ export async function POST(req: Request) {
 
   const { data: existingLeads, error: existingError } = await supabase
     .from('leads')
-    .select('company_name, email, website, city')
+    .select('company_name, email, phone, website, city')
     .eq('user_id', user.id)
 
   if (existingError) {
@@ -137,18 +138,38 @@ export async function POST(req: Request) {
   let skippedDuplicate = 0
 
   for (const lead of limitedLeads) {
-    const leadKey = buildLeadKey(lead)
+    const email = lead.email?.trim() || null
+    const phone = lead.phone?.trim() || null
+
+    if (!email && !phone) {
+      skippedInvalid += 1
+      console.warn('Skipping invalid lead (no contact)', lead)
+      continue
+    }
+
+    const leadKey = buildLeadKey({
+      ...lead,
+      email,
+      phone,
+    })
 
     if (existingKeys.has(leadKey)) {
       skippedDuplicate += 1
       continue
     }
 
-    const payload = buildGuestLeadInsertPayload(lead, user.id)
+    const payload = buildGuestLeadInsertPayload(
+      {
+        ...lead,
+        email,
+        phone,
+      },
+      user.id
+    )
 
     if (!payload) {
       skippedInvalid += 1
-      console.warn('Skipping invalid lead (no email, no phone)', lead)
+      console.warn('Skipping invalid lead (no contact)', lead)
       continue
     }
 
@@ -157,10 +178,16 @@ export async function POST(req: Request) {
   }
 
   if (newRows.length === 0) {
-    return NextResponse.json(buildGuestClaimResponse(0, skippedInvalid, skippedDuplicate))
+    const imported = 0
+    const response = {
+      success: true,
+      imported,
+      skipped_invalid: skippedInvalid,
+      skipped_duplicate: skippedDuplicate,
+    } satisfies GuestClaimResponse
+    console.info(response)
+    return NextResponse.json(response)
   }
-
-  console.log('INSERT PAYLOAD:', newRows)
 
   const { data, error } = await supabase
     .from('leads')
@@ -176,9 +203,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Insert succeeded without returned rows' }, { status: 500 })
   }
 
-  data.forEach((row) => {
-    console.log('DB INSERT OK:', row.id)
-  })
-
-  return NextResponse.json(buildGuestClaimResponse(data.length, skippedInvalid, skippedDuplicate))
+  const imported = data.length
+  const response = {
+    success: true,
+    imported,
+    skipped_invalid: skippedInvalid,
+    skipped_duplicate: skippedDuplicate,
+  } satisfies GuestClaimResponse
+  console.info(response)
+  return NextResponse.json(response)
 }

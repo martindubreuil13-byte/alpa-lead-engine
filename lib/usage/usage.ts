@@ -11,8 +11,8 @@ export const LEAD_LIMIT_REACHED_MESSAGE = "You've reached your limit. Upgrade to
 export const STARTER_LOCK_MESSAGE = 'Available on Starter plan'
 
 export function getLeadLimit(plan: string) {
-  if (isAdminPlan(plan)) return Number.POSITIVE_INFINITY
-  if (isPaidPlan(plan)) return 500
+  if (isAdminPlan(plan)) return 1000
+  if (isPaidPlan(plan)) return 300
   return 25
 }
 
@@ -45,7 +45,7 @@ export function getUsageState(count: number, limit: number) {
 }
 
 export function getUsageWarningMessage(count: number, limit: number) {
-  return `You're close to your limit (${count} / ${limit})`
+  return `You're close to your free limit (${count} / ${limit})`
 }
 
 export function getUsageBlockedMessage(plan: string, limit: number) {

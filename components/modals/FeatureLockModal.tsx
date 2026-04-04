@@ -10,6 +10,7 @@ export default function FeatureLockModal({
   description,
   benefit,
   ctaLabel = 'Unlock full access',
+  showUpgradeCta = true,
 }: {
   isOpen: boolean
   onClose: () => void
@@ -17,6 +18,7 @@ export default function FeatureLockModal({
   description: string
   benefit: string
   ctaLabel?: string
+  showUpgradeCta?: boolean
 }) {
   if (!isOpen) return null
 
@@ -49,16 +51,20 @@ export default function FeatureLockModal({
         </div>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/plans"
-            className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-6 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
-          >
-            {ctaLabel}
-          </Link>
+          {showUpgradeCta ? (
+            <Link
+              href="/plans"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-6 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
+            >
+              {ctaLabel}
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-base font-semibold text-slate-200"
+            className={`inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-base font-semibold text-slate-200 ${
+              showUpgradeCta ? '' : 'w-full'
+            }`}
           >
             Maybe later
           </button>

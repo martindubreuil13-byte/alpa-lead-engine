@@ -84,7 +84,10 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
   const [contactFilter, setContactFilter] = useState<LeadContactFilter>('all')
+  const plan = profile?.plan || 'free'
+  const isFree = isGuest || (!profileLoading && plan === 'free')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
+  const emailLocked = isFree
   const limitedMode = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
   const actionBarRef = useRef<HTMLDivElement | null>(null)
 
@@ -642,13 +645,22 @@ export default function LeadsPage() {
                     >
                       View opportunity
                     </Link>
-                    <button
-                      type="button"
-                      onClick={openContactLock}
-                      className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-400/15"
-                    >
-                      Contact this lead
-                    </button>
+                    {emailLocked ? (
+                      <button
+                        type="button"
+                        onClick={openContactLock}
+                        className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-400/15"
+                      >
+                        Contact this lead
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/dashboard/leads/${lead.id}`}
+                        className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-400/15"
+                      >
+                        Contact this lead
+                      </Link>
+                    )}
                     {limitedMode ? (
                       <button
                         type="button"
@@ -673,6 +685,7 @@ export default function LeadsPage() {
         description={featureLockContent.description}
         benefit={featureLockContent.benefit}
         ctaLabel={featureLockContent.ctaLabel}
+        showUpgradeCta={isFree}
       />
 
       <SendLeadsModal

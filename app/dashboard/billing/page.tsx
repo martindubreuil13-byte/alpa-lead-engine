@@ -1,18 +1,18 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import UsageCard from '@/components/billing/UsageCard'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { isAdmin, isFree, isPaid } from '@/lib/auth/access'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import {
-  getClampedLeadUsage,
-  getLeadLimit,
-  getUsageBlockedMessage,
-  getUsageState,
-  getUsageWarningMessage,
-} from '@/lib/usage/usage'
 
 export const dynamic = 'force-dynamic'
+
+function getPlanLeadLimit(plan: string) {
+  if (plan === 'admin') return 1000
+  if (plan === 'starter') return 300
+  return 25
+}
 
 export default async function BillingPage() {
   const user = await getUserProfile()
@@ -31,19 +31,44 @@ export default async function BillingPage() {
   const userIsAdmin = isAdmin(user)
   const userIsPaid = isPaid(user)
   const supabase = await createSupabaseServerClient()
-  const { count } = await supabase
-    .from('leads')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .or('email.not.is.null,phone.not.is.null')
+  const nowIso = new Date().toISOString()
+  const [{ data: profileData }, { data: usageData }, { count: freeLeadCount }] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('plan, subscription_status, current_period_end')
+      .eq('id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('usage')
+      .select('leads_used, leads_limit, period_start, period_end')
+      .eq('user_id', user.id)
+      .lte('period_start', nowIso)
+      .gte('period_end', nowIso)
+      .order('period_start', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .or('email.not.is.null,phone.not.is.null'),
+  ])
 
-  const leadsUsed = getClampedLeadUsage(count || 0, user.plan)
-  const leadsLimit = getLeadLimit(user.plan)
-  const leadsLimitLabel = Number.isFinite(leadsLimit) ? String(leadsLimit) : 'Unlimited'
-  const usagePercent = Number.isFinite(leadsLimit)
-    ? Math.min(100, Math.round((leadsUsed / leadsLimit) * 100))
-    : 0
-  const usageState = getUsageState(leadsUsed, leadsLimit)
+  const usagePlan = profileData?.plan || 'free'
+  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'starter'
+  const usageStatus = usagePlan === 'free' ? 'free' : 'active'
+  const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
+  const usageLimit = getPlanLeadLimit(usagePlan)
+  const usageUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
+  const usageWarning =
+    isPaidUsagePlan && usageLimit > 0
+      ? usageUsed / usageLimit >= 0.9
+        ? 'critical'
+        : usageUsed / usageLimit >= 0.8
+          ? 'warning'
+          : 'none'
+      : 'none'
+
   const currentPlanName = userIsAdmin
     ? 'Admin Access'
     : user.plan === 'pro'
@@ -56,7 +81,7 @@ export default async function BillingPage() {
     : user.plan === 'pro'
       ? 'Paid access across prospecting, outreach, and workflow tools.'
       : userIsPaid
-        ? 'Up to 500 verified leads per month'
+        ? 'Up to 300 verified leads per month'
         : 'Access to 25 verified leads'
   const currentPlanBadge = userIsAdmin
     ? 'Admin access'
@@ -75,63 +100,35 @@ export default async function BillingPage() {
         <p className="text-base text-slate-400">Manage your plan and track your usage</p>
       </header>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-        <section className="glass rounded-3xl p-8">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-            Current Plan
-          </div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-            {currentPlanName}
-          </h2>
-          <p className="mt-3 max-w-xl text-base leading-7 text-slate-300">
-            {currentPlanDescription}
-          </p>
+      <UsageCard
+        plan={usagePlan}
+        subscriptionStatus={usageStatus}
+        currentPeriodEnd={usageRenewal}
+        leadsUsed={usageUsed}
+        leadsLimit={usageLimit}
+        usageWarning={usageWarning}
+      />
 
-          <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-              {user.email}
-            </span>
-            <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
-              {currentPlanBadge}
-            </span>
-          </div>
-        </section>
+      <section className="glass rounded-3xl p-8">
+        <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+          Current Plan
+        </div>
+        <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
+          {currentPlanName}
+        </h2>
+        <p className="mt-3 max-w-xl text-base leading-7 text-slate-300">
+          {currentPlanDescription}
+        </p>
 
-        <section className="glass rounded-3xl p-8">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-            Usage
-          </div>
-          <div className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-            Leads used: {leadsUsed} / {leadsLimitLabel}
-          </div>
-          <p className="mt-3 text-sm leading-6 text-slate-400">
-            Usage is based on enriched leads that include an email or phone number.
-          </p>
-
-          <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/[0.06]">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400"
-              style={{ width: `${usagePercent}%` }}
-            />
-          </div>
-          <div className="mt-3 text-sm text-slate-500">{usagePercent}% of current allowance used</div>
-          {usageState === 'warning' ? (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-100">
-              <span>{getUsageWarningMessage(leadsUsed, leadsLimit)}</span>
-              <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
-                Upgrade to Starter
-              </Link>
-            </div>
-          ) : usageState === 'blocked' ? (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-              <span>{getUsageBlockedMessage(user.plan, leadsLimit)}</span>
-              <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
-                Upgrade to Starter
-              </Link>
-            </div>
-          ) : null}
-        </section>
-      </div>
+        <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-slate-400">
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+            {user.email}
+          </span>
+          <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+            {currentPlanBadge}
+          </span>
+        </div>
+      </section>
 
       <section className="glass rounded-3xl p-8">
         {userIsFree ? (

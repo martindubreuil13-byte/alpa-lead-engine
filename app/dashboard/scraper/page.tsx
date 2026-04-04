@@ -22,17 +22,18 @@ import {
   isGuestTrialModeForced,
 } from '@/lib/session/guest-trial-mode'
 import {
+  clearStoredGuestClaimResult,
   requestInboxFocus,
+  readStoredGuestClaimResult,
   readStoredScrapeResult,
+  type StoredGuestClaimResult,
   writeStoredScrapeResult,
 } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
-import { FREE_TRIAL_LEAD_LIMIT, GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
+import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 import {
   countCountableLeads,
-  getClampedLeadUsage,
   getLeadLimit,
-  getRemainingLeadCapacity,
   getUsageState,
   getUsageWarningMessage,
   readStoredUsage,
@@ -139,7 +140,6 @@ type ScrapeResultPayload = {
   detailLine: string | null
   limitMessage: string | null
   locationLabel: string
-  highQualityContactCount: number | null
   discoveredCount: number
   enrichedCount: number
   addedCount: number
@@ -242,6 +242,7 @@ export default function Page() {
   const [activity, setActivity] = useState('Idle')
   const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
   const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
+  const [guestClaimResult, setGuestClaimResult] = useState<StoredGuestClaimResult | null>(null)
   const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
   const [showPartialCompletionModal, setShowPartialCompletionModal] = useState(false)
   const [showCompletionModal, setShowCompletionModal] = useState(false)
@@ -261,17 +262,25 @@ export default function Page() {
   const cityRef = useRef<HTMLInputElement | null>(null)
   const isGuest = viewerMode === 'guest_trial'
   const isAuthenticated = viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid'
+  const plan = isGuest ? 'free' : profile?.plan ?? null
+  const isPlanReady = Boolean(plan)
+  const isFree = plan === 'free'
   const requestedLeadCount = Number(maxLeads)
-  const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
-  const leadPlan = isAuthenticated ? profile?.plan ?? 'free' : 'free'
-  const leadLimit = getLeadLimit(leadPlan)
-  const leadsUsed = isGuest ? guestLeadCount : getClampedLeadUsage(authenticatedLeadCount, leadPlan)
-  const remainingLeadCapacity = isGuest
-    ? remainingGuestCapacity
-    : getRemainingLeadCapacity(authenticatedLeadCount, leadPlan)
-  const usageState = isAuthenticated ? getUsageState(leadsUsed, leadLimit) : 'normal'
-  const usageBlocked = isAuthenticated && usageState === 'blocked'
-  const usageWarning = isAuthenticated && usageState === 'warning'
+  const freeUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
+  let leadLimit: number | null = null
+  let usageCount: number | null = null
+
+  if (plan) {
+    leadLimit = getLeadLimit(plan)
+    usageCount = isFree ? freeUsageCount : authenticatedLeadCount
+  }
+
+  const safeLeadLimit = leadLimit ?? 25
+  const safeUsageCount = usageCount ?? 0
+  const usageState = isPlanReady ? getUsageState(safeUsageCount, safeLeadLimit) : 'normal'
+  const usageBlocked = usageState === 'blocked'
+  const usageWarning = usageState === 'warning'
+  const freeUsageWarning = isPlanReady && isFree && (usageWarning || usageBlocked)
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
   const locationTarget = city.trim() || region.trim() || country.trim()
@@ -300,6 +309,9 @@ export default function Page() {
         ? 'Finding businesses...'
         : 'Ready to search'
   const previewLeads = sessionSavedLeads.slice(0, 5)
+  const skippedInvalidCount = guestClaimResult?.skipped_invalid ?? 0
+  const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
+  const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
 
   useEffect(() => {
     if (loading) {
@@ -384,15 +396,18 @@ export default function Page() {
   }, [toastMessage])
 
   useEffect(() => {
-    console.log('SCRAPER MODE UPDATED', {
-      viewerMode,
-      guestLeadCount,
-      authenticatedLeadCount,
+    console.log('PLAN UPDATED:', plan)
+  }, [plan])
+
+  useEffect(() => {
+    console.log('SCRAPER PLAN STATE:', {
+      plan,
+      isPlanReady,
+      isFree,
       leadLimit,
-      leadsUsed,
-      usageBlocked,
+      usageCount,
     })
-  }, [authenticatedLeadCount, guestLeadCount, leadLimit, leadsUsed, usageBlocked, viewerMode])
+  }, [isFree, isPlanReady, leadLimit, plan, usageCount])
 
   useEffect(() => {
     if (displayedDiscovered === discovered) return
@@ -437,14 +452,18 @@ export default function Page() {
     setValidationMessage('')
     setShowValidation(false)
     setCompletionResult(null)
+    setGuestClaimResult(null)
     setShowPartialCompletionModal(false)
     setShowCompletionModal(false)
     setShowSendLeadsModal(false)
     setToastMessage('')
     setActivity('Idle')
+    clearStoredGuestClaimResult()
   }
 
   async function loadViewerMode() {
+    setGuestClaimResult(readStoredGuestClaimResult())
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -496,8 +515,12 @@ export default function Page() {
       return
     }
 
-    const effectivePlan = profile?.plan ?? 'free'
-    const cachedUsage = getClampedLeadUsage(readStoredUsage(user.id), effectivePlan)
+    const effectivePlan = profile?.plan
+    if (!effectivePlan) {
+      setViewerMode('resolving')
+      return
+    }
+    const cachedUsage = readStoredUsage(user.id)
     const nextViewerMode =
       isAdmin(profile) || isPaid(profile) || isAdminPlan(effectivePlan) || isPaidPlan(effectivePlan)
         ? 'authenticated_paid'
@@ -520,23 +543,53 @@ export default function Page() {
   }
 
   async function refreshAuthenticatedUsage(userId: string, planOverride?: string) {
-    const { count, error } = await supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .or('email.not.is.null,phone.not.is.null')
+    const effectivePlan = planOverride ?? profile?.plan
+    if (!effectivePlan) return
+    const freePlan = effectivePlan === 'free'
 
-    if (error) {
-      console.error('Usage count failed:', error.message)
+    if (freePlan) {
+      const { count, error } = await supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .or('email.not.is.null,phone.not.is.null')
+
+      if (error) {
+        console.error('Usage count failed:', error.message)
+        return
+      }
+
+      const nextCount = count || 0
+      console.log('USAGE SOURCE: free lead count', {
+        userId,
+        count: nextCount,
+        plan: effectivePlan,
+      })
+      setAuthenticatedLeadCount(nextCount)
+      writeStoredUsage(userId, nextCount, effectivePlan)
       return
     }
 
-    const effectivePlan = planOverride ?? profile?.plan ?? 'free'
-    const nextCount = getClampedLeadUsage(count || 0, effectivePlan)
-    console.log('USAGE SOURCE: db', {
+    const nowIso = new Date().toISOString()
+    const { data: usageRow, error } = await supabase
+      .from('usage')
+      .select('leads_used, leads_limit, period_start, period_end')
+      .eq('user_id', userId)
+      .lte('period_start', nowIso)
+      .gte('period_end', nowIso)
+      .order('period_start', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Usage lookup failed:', error.message)
+      return
+    }
+
+    const nextCount = usageRow?.leads_used ?? 0
+    console.log('USAGE SOURCE: usage table', {
       userId,
-      rawCount: count || 0,
-      clampedCount: nextCount,
+      count: nextCount,
       plan: effectivePlan,
     })
     setAuthenticatedLeadCount(nextCount)
@@ -593,7 +646,7 @@ export default function Page() {
       setShowSendLeadsModal(false)
       setToastMessage('')
       setActivity('Finding businesses...')
-      runStartUsageRef.current = leadsUsed
+      runStartUsageRef.current = safeUsageCount
 
       const payload = {
         query: businessType.trim(),
@@ -764,10 +817,10 @@ export default function Page() {
         })
         setSessionSavedLeads(sessionLeads)
 
-        const nextUsage = Math.min(leadLimit, runStartUsageRef.current + finalResult.addedCount)
-        const shouldShowLimitModal = nextUsage >= leadLimit
+        const nextUsage = Math.min(safeLeadLimit, runStartUsageRef.current + finalResult.addedCount)
+        const shouldShowLimitModal = nextUsage >= safeLeadLimit
         const shouldShowPartialCompletionModal =
-          finalResult.addedCount > 0 && nextUsage < leadLimit
+          finalResult.addedCount > 0 && nextUsage < safeLeadLimit
 
         if (
           !shouldShowPartialCompletionModal &&
@@ -780,9 +833,9 @@ export default function Page() {
           setShowFirstSuccessModal(true)
         }
 
-        if (shouldShowLimitModal || shouldShowPartialCompletionModal) {
+        if ((isFree && shouldShowLimitModal) || shouldShowPartialCompletionModal) {
           completionModalTimeoutRef.current = setTimeout(() => {
-            if (shouldShowLimitModal) {
+            if (isFree && shouldShowLimitModal) {
               setShowCompletionModal(true)
             } else if (shouldShowPartialCompletionModal) {
               setShowPartialCompletionModal(true)
@@ -833,31 +886,20 @@ export default function Page() {
         </div>
         <h1 className="mt-2 text-4xl font-bold text-white">Prospector Engine</h1>
         <p className="mt-2 text-slate-400">
-          {isGuest
-            ? 'Discover and enrich businesses instantly. Your free trial stores up to 25 leads.'
-            : 'Discover and enrich businesses by category and location.'}
+          {plan
+            ? isFree
+              ? 'Discover and enrich businesses instantly. Your free plan stores up to 25 leads.'
+              : `Discover and enrich businesses instantly. Your plan allows up to ${leadLimit} leads per month.`
+            : 'Loading your plan...'}
         </p>
+        {!isPlanReady ? (
+          <p className="mt-2 text-sm text-slate-500">Preparing your workspace...</p>
+        ) : null}
       </div>
 
-      {usageBlocked ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-5 py-4 text-amber-200">
-          <span>Lead storage limit reached. Searches still run, but no new leads can be added until you upgrade.</span>
-          <Link
-            href="/plans"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-4 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
-          >
-            Upgrade to Starter
-          </Link>
-        </div>
-      ) : usageWarning ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-cyan-100">
-          <span>{getUsageWarningMessage(leadsUsed, leadLimit)}</span>
-          <Link
-            href="/plans"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-cyan-300/30 bg-white/[0.05] px-4 text-sm font-semibold text-cyan-100 transition hover:bg-white/[0.08]"
-          >
-            Upgrade to Starter
-          </Link>
+      {freeUsageWarning ? (
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-cyan-100">
+          {getUsageWarningMessage(safeUsageCount, safeLeadLimit)}
         </div>
       ) : null}
 
@@ -943,14 +985,7 @@ export default function Page() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-          <span>
-            Usage: {leadsUsed} / {formatLeadLimit(leadLimit)} enriched leads
-          </span>
-          {usageBlocked ? (
-            <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
-              Upgrade to Starter
-            </Link>
-          ) : null}
+          <span>{plan ? `Usage: ${safeUsageCount} / ${formatLeadLimit(safeLeadLimit)} leads this month` : 'Loading usage...'}</span>
         </div>
 
         {validationMessage ? (
@@ -1028,7 +1063,7 @@ export default function Page() {
           </div>
         ) : null}
 
-        {completionResult && previewLeads.length > 0 ? (
+        {(completionResult || guestClaimResult) && previewLeads.length > 0 ? (
           <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
@@ -1037,6 +1072,20 @@ export default function Page() {
               <div className="mt-2 text-sm text-slate-400">
                 Your newest leads are ready to review before the next step.
               </div>
+              {showGuestClaimHelper ? (
+                <div className="mt-2 space-y-1">
+                  {skippedInvalidCount > 0 ? (
+                    <div className="text-xs text-gray-400">
+                      {skippedInvalidCount} leads skipped due to missing contact details
+                    </div>
+                  ) : null}
+                  {skippedDuplicateCount > 0 ? (
+                    <div className="text-xs text-gray-400">
+                      {skippedDuplicateCount} duplicates removed
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-3">
@@ -1087,7 +1136,7 @@ export default function Page() {
       </div>
 
       <ScrapeCompletionModal
-        isOpen={showCompletionModal && Boolean(completionResult)}
+        isOpen={isFree && showCompletionModal && Boolean(completionResult)}
         onClose={() => {
           requestInboxFocus()
           setShowCompletionModal(false)

@@ -14,8 +14,8 @@ import {
   pickBestEmailCandidate,
   sanitizeWebsite,
 } from '@/lib/validation'
-import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
-import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
+import { type TrialLead } from '@/lib/trial'
+import { isCountableLead } from '@/lib/usage/usage'
 
 export const runtime = 'nodejs'
 
@@ -81,7 +81,7 @@ type DiscoveryLead = {
 type ScrapeMetrics = {
   leadsWithWebsite: number
   leadsWithValidEmail: number
-  highConfidenceLeads: number
+  strongSignalLeads: number
   enrichmentRate: number
 }
 
@@ -109,11 +109,23 @@ type ScrapeResultPayload = {
   detailLine: string | null
   limitMessage: string | null
   locationLabel: string
-  highQualityContactCount: number | null
   discoveredCount: number
   enrichedCount: number
   addedCount: number
   addedLeads: TrialLead[]
+  leads_used?: number
+  leads_limit?: number
+  usage_warning?: 'none' | 'warning' | 'critical'
+  current_period_end?: string | null
+}
+
+type UsageRow = {
+  id: string
+  user_id: string
+  leads_used: number
+  leads_limit: number
+  period_start: string
+  period_end: string
 }
 
 type LeadInsertPayload = {
@@ -158,16 +170,166 @@ function formatLocationLabel(city: string, region: string, country: string) {
   return String(country || '').trim() || 'your target market'
 }
 
-function formatLeadSummary(count: number, locationLabel: string) {
-  return `${count} enriched ${count === 1 ? 'lead' : 'leads'} found in ${locationLabel}`
-}
-
-function formatHighQualitySummary(count: number) {
-  return `${count} high-quality ${count === 1 ? 'contact identified' : 'contacts identified'}`
+function formatLeadSummary(count: number) {
+  return `${count} ${count === 1 ? 'lead' : 'leads'} ready to contact`
 }
 
 function formatOutputLimitMessage(count: number) {
   return `Only ${count} ${count === 1 ? 'lead' : 'leads'} added — limit reached`
+}
+
+function getUsagePeriodEnd(periodStartIso: string) {
+  const periodEnd = new Date(periodStartIso)
+  periodEnd.setMonth(periodEnd.getMonth() + 1)
+  return periodEnd.toISOString()
+}
+
+function getUsageWarning(leadsUsed: number, leadsLimit: number): 'none' | 'warning' | 'critical' {
+  if (!Number.isFinite(leadsLimit) || leadsLimit <= 0) {
+    return 'none'
+  }
+
+  const usageRatio = leadsUsed / leadsLimit
+
+  if (usageRatio >= 0.9) {
+    return 'critical'
+  }
+
+  if (usageRatio >= 0.8) {
+    return 'warning'
+  }
+
+  return 'none'
+}
+
+function createSseResponse(message: string, status = 200) {
+  return new Response(`data: ${JSON.stringify({ type: 'log', message })}\n\n`, {
+    status,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  })
+}
+
+async function getOrCreateCurrentUsageRow(
+  supabase: ReturnType<typeof createServerClient>,
+  userId: string,
+  leadsLimit: number
+) {
+  const nowIso = new Date().toISOString()
+
+  const { data: latestRow, error: selectError } = await supabase
+    .from('usage')
+    .select('id, user_id, leads_used, leads_limit, period_start, period_end')
+    .eq('user_id', userId)
+    .order('period_start', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (selectError) {
+    throw new Error(`Usage lookup failed: ${selectError.message}`)
+  }
+
+  if (latestRow) {
+    const activePeriod =
+      latestRow.period_start <= nowIso && nowIso <= latestRow.period_end
+
+    if (activePeriod) {
+      if (latestRow.leads_limit === leadsLimit) {
+        return latestRow as UsageRow
+      }
+
+      const { data: updatedRow, error: updateError } = await supabase
+        .from('usage')
+        .update({ leads_limit: leadsLimit })
+        .eq('id', latestRow.id)
+        .select('id, user_id, leads_used, leads_limit, period_start, period_end')
+        .maybeSingle()
+
+      if (updateError) {
+        throw new Error(`Usage limit sync failed: ${updateError.message}`)
+      }
+
+      if (!updatedRow) {
+        throw new Error('Usage limit sync failed: row not returned')
+      }
+
+      return updatedRow as UsageRow
+    }
+  }
+
+  const periodStart = nowIso
+  const periodEnd = getUsagePeriodEnd(periodStart)
+
+  const { data: insertedRow, error: insertError } = await supabase
+    .from('usage')
+    .insert({
+      user_id: userId,
+      leads_used: 0,
+      leads_limit: leadsLimit,
+      period_start: periodStart,
+      period_end: periodEnd,
+    })
+    .select('id, user_id, leads_used, leads_limit, period_start, period_end')
+    .maybeSingle()
+
+  if (insertError) {
+    throw new Error(`Usage creation failed: ${insertError.message}`)
+  }
+
+  if (!insertedRow) {
+    throw new Error('Usage creation failed: row not returned')
+  }
+
+  return insertedRow as UsageRow
+}
+
+async function incrementUsageRow(
+  supabase: ReturnType<typeof createServerClient>,
+  usageRow: UsageRow,
+  addedCount: number
+) {
+  let currentRow = usageRow
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const nextLeadsUsed = currentRow.leads_used + addedCount
+
+    const { data: updatedRow, error: updateError } = await supabase
+      .from('usage')
+      .update({ leads_used: nextLeadsUsed })
+      .eq('id', currentRow.id)
+      .eq('leads_used', currentRow.leads_used)
+      .select('id, user_id, leads_used, leads_limit, period_start, period_end')
+      .maybeSingle()
+
+    if (updateError) {
+      throw new Error(`Usage update failed: ${updateError.message}`)
+    }
+
+    if (updatedRow) {
+      return updatedRow as UsageRow
+    }
+
+    const { data: refetchedRow, error: refetchError } = await supabase
+      .from('usage')
+      .select('id, user_id, leads_used, leads_limit, period_start, period_end')
+      .eq('id', currentRow.id)
+      .maybeSingle()
+
+    if (refetchError) {
+      throw new Error(`Usage refetch failed: ${refetchError.message}`)
+    }
+
+    if (!refetchedRow) {
+      throw new Error('Usage update failed: row not found after retry')
+    }
+
+    currentRow = refetchedRow as UsageRow
+  }
+
+  throw new Error('Usage update failed after retries')
 }
 
 function normalizePhoneKey(phone: string | null | undefined) {
@@ -442,14 +604,14 @@ function classifyDbError(
 function calculateMetrics(leads: DiscoveryLead[]): ScrapeMetrics {
   const leadsWithWebsite = leads.filter((lead) => hasUsableWebsite(lead.website)).length
   const leadsWithValidEmail = leads.filter((lead) => Boolean(lead.email)).length
-  const highConfidenceLeads = leads.filter((lead) => lead.email_confidence === 'high').length
+  const strongSignalLeads = leads.filter((lead) => lead.email_confidence === 'high').length
   const enrichmentRate =
     leadsWithWebsite === 0 ? 0 : Number((leadsWithValidEmail / leadsWithWebsite).toFixed(2))
 
   return {
     leadsWithWebsite,
     leadsWithValidEmail,
-    highConfidenceLeads,
+    strongSignalLeads,
     enrichmentRate,
   }
 }
@@ -466,11 +628,11 @@ function shouldAttemptEnrichment(lead: DiscoveryLead) {
 
 function shouldEscalateToGoogle(
   metrics: ScrapeMetrics,
-  targetHighConfidenceLeads: number,
+  targetStrongSignalLeads: number,
   websiteTarget: number
 ) {
   return (
-    metrics.highConfidenceLeads < targetHighConfidenceLeads ||
+    metrics.strongSignalLeads < targetStrongSignalLeads ||
     metrics.leadsWithWebsite < websiteTarget ||
     metrics.enrichmentRate < MIN_ENRICHMENT_RATE
   )
@@ -821,7 +983,7 @@ async function runScraper(
     const discoveredLeads: DiscoveryLead[] = []
     const sentPhases = new Set<ScrapePhase>()
 
-    const targetHighConfidenceLeads = Math.min(HIGH_CONFIDENCE_TARGET, maxLeads)
+    const targetStrongSignalLeads = Math.min(HIGH_CONFIDENCE_TARGET, maxLeads)
     const websiteTarget = Math.min(MIN_WEBSITE_TARGET, maxLeads)
     const sendPhase = (phase: ScrapePhase) => {
       if (sentPhases.has(phase)) {
@@ -908,12 +1070,12 @@ async function runScraper(
     let metrics = calculateMetrics(validDiscoveredLeads)
 
     send(
-      `📊 websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, high confidence: ${metrics.highConfidenceLeads}, enrichment rate: ${metrics.enrichmentRate}`
+      `📊 websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, enrichment rate: ${metrics.enrichmentRate}`
     )
 
     const shouldStopAfterSerper =
-      metrics.highConfidenceLeads >= targetHighConfidenceLeads ||
-      !shouldEscalateToGoogle(metrics, targetHighConfidenceLeads, websiteTarget)
+      metrics.strongSignalLeads >= targetStrongSignalLeads ||
+      !shouldEscalateToGoogle(metrics, targetStrongSignalLeads, websiteTarget)
 
     if (!shouldStopAfterSerper && googleCalls < MAX_GOOGLE_CALLS) {
       if (!canSpend(totalApiCost, GOOGLE_DISCOVERY_COST_ESTIMATE)) {
@@ -928,19 +1090,19 @@ async function runScraper(
           (lead) => !lead.email || lead.email_confidence !== 'high'
         ).length
         const missingLeadCount = Math.max(0, maxLeads - validDiscoveredLeads.length)
-        const confidenceGap = Math.max(0, targetHighConfidenceLeads - metrics.highConfidenceLeads)
+        const signalGap = Math.max(0, targetStrongSignalLeads - metrics.strongSignalLeads)
         const websiteGap = Math.max(0, websiteTarget - metrics.leadsWithWebsite)
         const googleBudget = Math.max(
           1,
           Math.min(
             maxLeads,
-            missingLeadCount + Math.max(confidenceGap, websiteGap) + Math.min(weakLeadCount, 2)
+            missingLeadCount + Math.max(signalGap, websiteGap) + Math.min(weakLeadCount, 2)
           )
         )
 
         send('⚡ Improving results with Google...')
         send(
-          `🛰️ Google improvement pass (${metrics.highConfidenceLeads}/${targetHighConfidenceLeads} high confidence, ${metrics.leadsWithWebsite}/${websiteTarget} websites, rate ${metrics.enrichmentRate})`
+          `🛰️ Google improvement pass (${metrics.leadsWithWebsite}/${websiteTarget} websites, rate ${metrics.enrichmentRate})`
         )
 
         let googleResults: Awaited<ReturnType<typeof searchGooglePlaces>> = []
@@ -1017,11 +1179,11 @@ async function runScraper(
         metrics = calculateMetrics(validDiscoveredLeads)
 
         send(
-          `📊 improved websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, high confidence: ${metrics.highConfidenceLeads}, enrichment rate: ${metrics.enrichmentRate}`
+          `📊 improved websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, enrichment rate: ${metrics.enrichmentRate}`
         )
       }
-    } else if (metrics.highConfidenceLeads >= targetHighConfidenceLeads) {
-      send(`✅ early stop: ${metrics.highConfidenceLeads} high-confidence leads`)
+    } else if (metrics.strongSignalLeads >= targetStrongSignalLeads) {
+      send('✅ early stop: enrichment target reached')
     } else {
       send('✅ Serper satisfied quality targets')
     }
@@ -1031,11 +1193,8 @@ async function runScraper(
     const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
     const allowedOutputCount = Math.max(0, outputLeadLimit)
     const locationLabel = formatLocationLabel(defaultCity, region, country)
-    const summaryLine = formatLeadSummary(finalEnrichedLeads.length, locationLabel)
-    const detailLine =
-      metrics.highConfidenceLeads > 0
-        ? formatHighQualitySummary(metrics.highConfidenceLeads)
-        : null
+    const summaryLine = formatLeadSummary(finalEnrichedLeads.length)
+    const detailLine = null
 
     send(`📦 enriched: ${finalEnrichedLeads.length}`)
 
@@ -1133,7 +1292,6 @@ async function runScraper(
       detailLine,
       limitMessage,
       locationLabel,
-      highQualityContactCount: metrics.highConfidenceLeads > 0 ? metrics.highConfidenceLeads : null,
       discoveredCount: validDiscoveredLeads.length,
       enrichedCount: finalEnrichedLeads.length,
       addedCount,
@@ -1208,14 +1366,17 @@ export async function POST(req: Request) {
     })
   }
 
-  const guestLeadCount = isGuestMode
-    ? Math.max(0, Math.min(Number(body.existingLeadCount || 0), FREE_TRIAL_LEAD_LIMIT))
-    : 0
-  const remainingGuestCapacity = Math.max(FREE_TRIAL_LEAD_LIMIT - guestLeadCount, 0)
   const requestedLeadCount = Number(body.maxLeads || 10)
 
-  let authenticatedLeadCount = 0
   let authenticatedPlan = 'free'
+  let trackedUsageRow: UsageRow | null = null
+  let leadsLimit = 25
+  let currentUsage = 0
+
+  if (isGuestMode) {
+    leadsLimit = 25
+    currentUsage = Math.max(0, Math.min(Number(body.existingLeadCount || 0), leadsLimit))
+  }
 
   if (user?.id) {
     const [{ data: profile }, { count }] = await Promise.all([
@@ -1231,13 +1392,31 @@ export async function POST(req: Request) {
         .or('email.not.is.null,phone.not.is.null'),
     ])
 
-    authenticatedPlan = profile?.plan ?? 'free'
-    authenticatedLeadCount = count ?? 0
+    authenticatedPlan = profile?.plan || 'free'
+    currentUsage = count ?? 0
+
+    if (authenticatedPlan === 'admin') {
+      leadsLimit = 1000
+    } else if (authenticatedPlan === 'starter') {
+      leadsLimit = 300
+    } else {
+      leadsLimit = 25
+    }
+
+    if (authenticatedPlan === 'starter' || authenticatedPlan === 'admin') {
+      trackedUsageRow = await getOrCreateCurrentUsageRow(supabase, user.id, leadsLimit)
+      currentUsage = trackedUsageRow.leads_used
+
+      if (trackedUsageRow.leads_used >= trackedUsageRow.leads_limit) {
+        return createSseResponse(
+          `❌ fatal: You’ve reached your monthly limit of ${trackedUsageRow.leads_limit} leads.`,
+          403
+        )
+      }
+    }
   }
 
-  const authenticatedRemainingCapacity = user?.id
-    ? Math.max(getLeadLimit(authenticatedPlan) - authenticatedLeadCount, 0)
-    : 0
+  const remainingCapacity = Math.max(leadsLimit - currentUsage, 0)
 
   const config: ScrapeConfig = {
     query: String(body.query || '').trim(),
@@ -1245,7 +1424,7 @@ export async function POST(req: Request) {
     region: String(body.region || '').trim(),
     country: String(body.country || 'Canada').trim(),
     maxLeads: requestedLeadCount,
-    outputLeadLimit: isGuestMode ? remainingGuestCapacity : authenticatedRemainingCapacity,
+    outputLeadLimit: remainingCapacity,
     userId: user?.id || null,
   }
 
@@ -1253,6 +1432,8 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let latestResult: ScrapeResultPayload | null = null
+
       const emit = (payload: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
@@ -1281,9 +1462,48 @@ export async function POST(req: Request) {
           emit({ type: 'lead', payload: lead })
         },
         onResult(result) {
-          emit({ type: 'result', payload: result })
+          latestResult = result
         },
       })
+
+      if (latestResult) {
+        const finalResult = latestResult as ScrapeResultPayload
+        let resultPayload: ScrapeResultPayload = finalResult
+
+        if (trackedUsageRow) {
+          try {
+            const nextUsageRow = await incrementUsageRow(
+              supabase,
+              trackedUsageRow,
+              finalResult.addedCount
+            )
+
+            trackedUsageRow = nextUsageRow
+            resultPayload = {
+              ...finalResult,
+              leads_used: nextUsageRow.leads_used,
+              leads_limit: nextUsageRow.leads_limit,
+              usage_warning: getUsageWarning(nextUsageRow.leads_used, nextUsageRow.leads_limit),
+              current_period_end: nextUsageRow.period_end,
+            }
+          } catch (usageError: any) {
+            send(`⚠️ usage update skipped: ${usageError?.message || 'unknown error'}`)
+            resultPayload = {
+              ...finalResult,
+              leads_used: trackedUsageRow.leads_used + finalResult.addedCount,
+              leads_limit: trackedUsageRow.leads_limit,
+              usage_warning: getUsageWarning(
+                trackedUsageRow.leads_used + finalResult.addedCount,
+                trackedUsageRow.leads_limit
+              ),
+              current_period_end: trackedUsageRow.period_end,
+            }
+          }
+        }
+
+        emit({ type: 'result', payload: resultPayload })
+      }
+
       controller.close()
     },
     cancel() {},

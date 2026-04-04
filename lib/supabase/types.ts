@@ -8,6 +8,8 @@ export type UserProfile = {
   email: string;
   role: UserRole;
   plan: UserPlan;
+  subscription_status?: string | null;
+  current_period_end?: string | null;
   created_at: string;
 };
 
@@ -18,14 +20,35 @@ export interface Database {
         Row: {
           id: string;
           plan: UserPlan;
+          subscription_status: string | null;
+          current_period_end: string | null;
           created_at: string;
         };
         Insert: {
           id: string;
           plan?: UserPlan;
+          subscription_status?: string | null;
+          current_period_end?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+      };
+      usage: {
+        Row: {
+          user_id: string;
+          leads_used: number;
+          leads_limit: number;
+          period_start: string;
+          period_end: string;
+        };
+        Insert: {
+          user_id: string;
+          leads_used?: number;
+          leads_limit?: number;
+          period_start?: string;
+          period_end?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["usage"]["Insert"]>;
       };
       users: {
         Row: UserProfile;

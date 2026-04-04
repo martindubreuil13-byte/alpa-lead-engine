@@ -572,6 +572,7 @@ export default function PipelinePage() {
         title="Pipeline"
         description="Track follow-ups, manage outreach stages, and keep active leads moving after discovery."
         benefit="Pipeline turns one good search into a real operating system for outbound work."
+        showUpgradeCta={!profileLoading && (profile?.plan || 'free') === 'free'}
       />
     </>
   )
