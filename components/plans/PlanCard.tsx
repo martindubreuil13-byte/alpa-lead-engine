@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { cn } from '@/lib/utils'
 
 export type PlanCardProps = {
@@ -10,6 +11,7 @@ export type PlanCardProps = {
   features: string[]
   ctaLabel: string
   href?: string
+  checkoutSource?: string
   priceNote?: string
   featured?: boolean
   disabled?: boolean
@@ -49,6 +51,7 @@ export default function PlanCard({
   features,
   ctaLabel,
   href,
+  checkoutSource,
   priceNote,
   featured = false,
   disabled = false,
@@ -119,7 +122,22 @@ export default function PlanCard({
         </div>
 
         <div className="mt-auto pt-10">
-          {disabled || !href ? (
+          {disabled ? (
+            <span className="inline-flex min-h-[54px] w-full items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] px-5 text-sm font-semibold text-slate-400">
+              {ctaLabel}
+            </span>
+          ) : checkoutSource ? (
+            <StartCheckoutButton
+              label={ctaLabel}
+              source={checkoutSource}
+              className={cn(
+                'inline-flex min-h-[54px] w-full items-center justify-center rounded-2xl px-5 text-sm font-semibold transition duration-300',
+                featured
+                  ? 'border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] text-slate-950 shadow-[0_22px_60px_rgba(34,211,238,0.28)] hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(34,211,238,0.34)]'
+                  : 'border border-cyan-300/18 bg-white/[0.05] text-white shadow-[0_16px_36px_rgba(2,8,23,0.26)] hover:border-cyan-300/24 hover:bg-cyan-300/[0.08]'
+              )}
+            />
+          ) : !href ? (
             <span className="inline-flex min-h-[54px] w-full items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] px-5 text-sm font-semibold text-slate-400">
               {ctaLabel}
             </span>

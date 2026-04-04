@@ -7,6 +7,7 @@ import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
+import FirstRunOverlay from '@/components/scraper/FirstRunOverlay'
 import {
   getGuestLeads,
   getOrCreateGuestSessionId,
@@ -65,17 +66,17 @@ function formatLeadLimit(limit: number) {
 }
 
 function translateActivity(msg: string) {
-  if (msg === 'Finding businesses') return 'Finding businesses'
-  if (msg === 'Checking websites') return 'Checking websites'
-  if (msg === 'Extracting contacts') return 'Extracting contacts'
-  if (msg === 'Improving results') return 'Improving results'
+  if (msg === 'Finding businesses') return 'Finding businesses...'
+  if (msg === 'Checking websites') return 'Enriching contacts...'
+  if (msg === 'Extracting contacts') return 'Enriching contacts...'
+  if (msg === 'Improving results') return 'Finalizing leads...'
   if (msg.includes('starting scraper')) return 'Launching prospecting engines…'
   if (msg.includes('Google') || msg.includes('Serper')) return 'Scanning business sources…'
   if (msg.includes('🔎')) return 'Exploring search patterns…'
   if (msg.includes('🔬')) return 'Inspecting business websites…'
   if (msg.includes('📥')) return 'Business discovered…'
   if (msg.includes('✨')) return 'Contact signal discovered…'
-  if (msg.includes('🛑 discovery complete')) return 'Discovery complete. Enriching leads…'
+  if (msg.includes('🛑 discovery complete')) return 'Deep enrichment in progress...'
   if (msg.includes('🎉 Prospecting complete')) return 'Prospecting mission complete.'
   if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
   return null
@@ -113,6 +114,13 @@ function normalizeSummaryLine(summaryLine: string) {
 
 function isHiddenSystemLog(msg: string) {
   return msg.includes('api cost estimate') || msg.includes('SCRAPER API COST')
+}
+
+function formatLeadPreviewLocation(lead: TrialLead) {
+  return [lead.city, lead.industry]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' • ')
 }
 
 function hasSeenFirstSuccessModal() {
@@ -262,8 +270,32 @@ export default function Page() {
   const usageWarning = isAuthenticated && usageState === 'warning'
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
-  const missingCity = !city.trim()
-  const hasMissingRequiredFields = missingBusinessType || missingCity
+  const locationTarget = city.trim() || region.trim() || country.trim()
+  const missingLocation = !locationTarget
+  const hasMissingRequiredFields = missingBusinessType || missingLocation
+  const validationCopy = missingBusinessType
+    ? missingLocation
+      ? 'Please enter business type and select at least a country'
+      : 'Please enter business type'
+    : 'Please select at least a country'
+  const isFinalizing = Boolean(completionResult) || activity === 'Prospecting mission complete.'
+  const isEnriching =
+    loading &&
+    !isFinalizing &&
+    (enriched > 0 ||
+      activity.includes('Enrich') ||
+      activity.includes('Inspecting') ||
+      activity.includes('Contact') ||
+      activity.includes('Checking') ||
+      activity.includes('Deep enrichment'))
+  const currentStageLabel = isFinalizing
+    ? 'Finalizing leads...'
+    : isEnriching
+      ? 'Enriching contacts...'
+      : loading
+        ? 'Finding businesses...'
+        : 'Ready to search'
+  const previewLeads = sessionSavedLeads.slice(0, 5)
 
   useEffect(() => {
     if (loading) {
@@ -518,12 +550,12 @@ export default function Page() {
     try {
       if (hasMissingRequiredFields) {
         setShowValidation(true)
-        setValidationMessage('Please enter business type and city')
+        setValidationMessage(validationCopy)
         setLogs([])
         setActivity('Missing required fields.')
         if (missingBusinessType) {
           businessTypeRef.current?.focus()
-        } else if (missingCity) {
+        } else if (missingLocation) {
           cityRef.current?.focus()
         }
         return
@@ -552,13 +584,13 @@ export default function Page() {
       setShowFirstSuccessModal(false)
       setShowCompletionModal(false)
       setToastMessage('')
-      setActivity('Launching prospecting engines…')
+      setActivity('Finding businesses...')
       runStartUsageRef.current = leadsUsed
 
       const payload = {
         query: businessType.trim(),
         region: region.trim(),
-        defaultCity: city.trim(),
+        defaultCity: locationTarget,
         country,
         maxLeads: requestedLeadCount,
         existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
@@ -738,10 +770,10 @@ export default function Page() {
         }
 
         if (shouldShowLimitModal) {
-        completionModalTimeoutRef.current = setTimeout(() => {
-          setShowCompletionModal(true)
-          completionModalTimeoutRef.current = null
-        }, 3500)
+          completionModalTimeoutRef.current = setTimeout(() => {
+            setShowCompletionModal(true)
+            completionModalTimeoutRef.current = null
+          }, 4800)
         }
       }
 
@@ -778,6 +810,7 @@ export default function Page() {
 
   return (
     <>
+      <FirstRunOverlay />
       <div className="space-y-12">
       <div>
         <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -823,7 +856,7 @@ export default function Page() {
               setBusinessType(value)
               if (showValidation) {
                 const nextMissingBusinessType = !value.trim()
-                if (!nextMissingBusinessType && !missingCity) {
+                if (!nextMissingBusinessType && !missingLocation) {
                   setValidationMessage('')
                 }
               }
@@ -846,14 +879,30 @@ export default function Page() {
             label="Country"
             options={COUNTRY_OPTIONS}
             value={country}
-            onChange={setCountry}
+            onChange={(value) => {
+              setCountry(value)
+              if (showValidation) {
+                const nextLocation = city.trim() || region.trim() || value.trim()
+                if (!missingBusinessType && nextLocation) {
+                  setValidationMessage('')
+                }
+              }
+            }}
             disabled={loading}
           />
 
           <Input
             label="Province / State"
             value={region}
-            onChange={setRegion}
+            onChange={(value) => {
+              setRegion(value)
+              if (showValidation) {
+                const nextLocation = city.trim() || value.trim() || country.trim()
+                if (!missingBusinessType && nextLocation) {
+                  setValidationMessage('')
+                }
+              }
+            }}
             placeholder="Quebec, California..."
             disabled={loading}
           />
@@ -865,16 +914,16 @@ export default function Page() {
             onChange={(value) => {
               setCity(value)
               if (showValidation) {
-                const nextMissingCity = !value.trim()
-                if (!missingBusinessType && !nextMissingCity) {
+                const nextLocation = value.trim() || region.trim() || country.trim()
+                if (!missingBusinessType && nextLocation) {
                   setValidationMessage('')
                 }
               }
             }}
             placeholder="Montreal, Austin..."
             disabled={loading}
-            invalid={showValidation && missingCity}
-            errorText="Required field"
+            invalid={showValidation && missingLocation}
+            errorText="Add a city, state, or country"
           />
         </div>
 
@@ -913,6 +962,16 @@ export default function Page() {
         </div>
 
         <div className="space-y-6">
+          <div className="rounded-2xl border border-cyan-300/14 bg-cyan-400/8 px-5 py-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
+              Current stage
+            </div>
+            <div className="mt-2 text-xl font-semibold text-white">{currentStageLabel}</div>
+            {isEnriching ? (
+              <div className="mt-2 text-sm text-cyan-100/80">Deep enrichment in progress...</div>
+            ) : null}
+          </div>
+
           <div>
             <div className="flex justify-between text-xs text-slate-400">
               <span>Businesses found</span>
@@ -951,6 +1010,44 @@ export default function Page() {
             {completionResult.limitMessage ? (
               <div className="mt-3 text-sm text-amber-200">{completionResult.limitMessage}</div>
             ) : null}
+          </div>
+        ) : null}
+
+        {completionResult && previewLeads.length > 0 ? (
+          <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
+                Here are your first leads
+              </div>
+              <div className="mt-2 text-sm text-slate-400">
+                Your newest leads are ready to review before the next step.
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              {previewLeads.map((lead, index) => (
+                <div
+                  key={lead.id}
+                  className={`rounded-2xl border px-4 py-4 transition ${
+                    index < 5
+                      ? 'border-cyan-300/28 bg-cyan-400/10 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]'
+                      : 'border-white/10 bg-white/[0.03]'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-base font-semibold text-white">{lead.company_name}</div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        {formatLeadPreviewLocation(lead) || 'Location details coming in'}
+                      </div>
+                    </div>
+                    <div className="text-sm text-cyan-100">
+                      {lead.email || lead.phone || 'Contact enrichment complete'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 

@@ -225,7 +225,7 @@ export default function HomePage() {
                 href="/login"
                 className="text-sm font-medium text-cyan-100 underline-offset-4 transition hover:text-white hover:underline"
               >
-                Already have an account? Log in
+                Returning user? Log in
               </Link>
             </div>
           </div>

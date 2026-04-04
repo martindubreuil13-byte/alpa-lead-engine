@@ -41,15 +41,9 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
 
           <Link
             href="/login"
-            className="inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-sm font-medium text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full px-4 text-xs font-medium text-slate-400 transition hover:bg-white/[0.05] hover:text-white sm:text-sm"
           >
-            Log in
-          </Link>
-          <Link
-            href="/login?mode=signup"
-            className="inline-flex min-h-[42px] items-center justify-center rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
-          >
-            Sign up
+            Returning user? Log in
           </Link>
         </div>
       </div>

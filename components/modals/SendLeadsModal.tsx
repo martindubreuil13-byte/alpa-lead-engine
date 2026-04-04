@@ -3,6 +3,7 @@
 import { Mail, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { saveGuestCaptureEmail } from '@/lib/guest-session'
 import type { TrialLead } from '@/lib/trial'
 
 export default function SendLeadsModal({
@@ -56,6 +57,7 @@ export default function SendLeadsModal({
 
     setSending(true)
     setError('')
+    saveGuestCaptureEmail(targetEmail)
 
     try {
       const res = await fetch('/api/results-email', {
@@ -152,7 +154,7 @@ export default function SendLeadsModal({
             }`}
           >
             <Mail className="h-4 w-4" />
-            {sending ? 'Sending...' : 'Send my leads'}
+            {sending ? 'Sending...' : 'Save my leads'}
           </button>
           <button
             type="button"

@@ -1,9 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { Download, Mail, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
+import { saveGuestCaptureEmail } from '@/lib/guest-session'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import type { TrialLead } from '@/lib/trial'
 
@@ -67,6 +68,7 @@ export default function ScrapeCompletionModal({
   const [responseMessage, setResponseMessage] = useState('')
   const [entered, setEntered] = useState(false)
   const normalizedSummaryLine = normalizeSummaryLine(summaryLine)
+  const leadCount = addedLeads.length
 
   useEffect(() => {
     if (!isOpen) return
@@ -123,6 +125,7 @@ export default function ScrapeCompletionModal({
     setError('')
     setSuccessMessage('')
     setResponseMessage('')
+    saveGuestCaptureEmail(targetEmail)
 
     try {
       const res = await fetch('/api/results-email', {
@@ -187,14 +190,13 @@ export default function ScrapeCompletionModal({
         </div>
 
         <h2 className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-white">
-          You&apos;ve unlocked your first leads
+          You just found your first clients
         </h2>
 
         <div className="mt-5 space-y-3 text-base leading-7 text-slate-300">
-          <p>{normalizedSummaryLine}</p>
-          <p>Your leads are ready. Don&apos;t lose them.</p>
-          <p>If you leave this page, they&apos;ll disappear unless you save them.</p>
-          <p>Download now or send yourself a copy.</p>
+          <p>You discovered {leadCount} businesses ready to contact in seconds.</p>
+          <p>This was your free sample. You&apos;ve reached your limit.</p>
+          <p>Imagine doing this every day.</p>
         </div>
 
         {showEmailInput && !viewerEmail ? (
@@ -218,41 +220,43 @@ export default function ScrapeCompletionModal({
           <div className="mt-2 text-sm text-slate-400">{responseMessage}</div>
         ) : null}
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={addedLeads.length === 0}
-            className={`inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold transition ${
-              addedLeads.length === 0
-                ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                : 'border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]'
-            }`}
-          >
-            <Download className="h-4 w-4" />
-            Download CSV
-          </button>
+        <div className="mt-8 space-y-3">
+          <StartCheckoutButton
+            label="Unlock 300 leads/month — $29.99"
+            email={viewerEmail || email}
+            source="scrape_completion"
+            className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_56px_rgba(14,165,233,0.3)]"
+          />
 
-          <button
-            type="button"
-            onClick={() => void handleSendEmail()}
-            disabled={sending || addedLeads.length === 0}
-            className={`inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl border px-6 text-base font-semibold transition ${
-              sending || addedLeads.length === 0
-                ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
-                : 'border-white/10 bg-white/5 text-slate-100 hover:bg-white/[0.08]'
-            }`}
-          >
-            <Mail className="h-4 w-4" />
-            {sending ? 'Sending...' : showEmailInput && !viewerEmail ? 'Send my copy' : 'Send to my email'}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={addedLeads.length === 0}
+              className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-medium transition ${
+                addedLeads.length === 0
+                  ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                  : 'border border-white/10 bg-white/5 text-slate-100 hover:bg-white/[0.08]'
+              }`}
+            >
+              <Download className="h-4 w-4" />
+              Download CSV
+            </button>
 
-          <Link
-            href="/plans"
-            className="inline-flex min-h-[54px] items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 px-6 text-base font-semibold text-amber-100 transition hover:bg-amber-300/15"
-          >
-            Unlock more leads
-          </Link>
+            <button
+              type="button"
+              onClick={() => void handleSendEmail()}
+              disabled={sending || addedLeads.length === 0}
+              className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-medium transition ${
+                sending || addedLeads.length === 0
+                  ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
+                  : 'border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.08]'
+              }`}
+            >
+              <Mail className="h-4 w-4" />
+              {sending ? 'Sending...' : showEmailInput && !viewerEmail ? 'Save my copy' : 'Save to my email'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

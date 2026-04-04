@@ -33,6 +33,24 @@ export function getGuestSessionId() {
   return window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY)
 }
 
+export function getGuestCaptureEmail() {
+  if (!canUseStorage()) return ''
+  return window.localStorage.getItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY) || ''
+}
+
+export function saveGuestCaptureEmail(email: string) {
+  if (!canUseStorage()) return
+
+  const normalizedEmail = email.trim().toLowerCase()
+
+  if (!normalizedEmail) {
+    window.localStorage.removeItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY)
+    return
+  }
+
+  window.localStorage.setItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY, normalizedEmail)
+}
+
 export function getOrCreateGuestSessionId() {
   if (!canUseStorage()) return null
 

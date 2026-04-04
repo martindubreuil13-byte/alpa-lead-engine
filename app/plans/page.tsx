@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
+import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import BackToLeadsButton from '@/components/plans/BackToLeadsButton'
 import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
@@ -26,13 +27,13 @@ const plans: PlanCardProps[] = [
   },
   {
     name: 'Starter Pipeline',
-    price: '$49',
+    price: '$29.99',
     priceSuffix: '/ month',
-    priceNote: 'Up to 500 verified leads per month',
+    priceNote: 'Up to 300 leads per month',
     description:
       'Move from finding the right people to starting real conversations without adding complexity.',
     features: [
-      '500 verified leads / month',
+      '300 leads / month',
       'CSV export',
       '1 email template',
       'Basic outreach sending',
@@ -40,7 +41,7 @@ const plans: PlanCardProps[] = [
       'Simple upgrade path as ALPA evolves',
     ],
     ctaLabel: 'Start Building',
-    href: '/login?mode=signup',
+    checkoutSource: 'plans_featured',
     featured: true,
   },
   {
@@ -133,12 +134,11 @@ export default function PlansPage() {
                 >
                   Start Free
                 </Link>
-                <Link
-                  href="/login?mode=signup"
+                <StartCheckoutButton
+                  label="Start Building"
+                  source="plans_footer"
                   className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-7 text-base font-semibold text-slate-200 transition duration-200 hover:scale-[1.01] hover:border-white/20 hover:bg-white/[0.06]"
-                >
-                  Start Building
-                </Link>
+                />
               </div>
             </div>
           </div>

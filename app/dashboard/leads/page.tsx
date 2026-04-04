@@ -381,7 +381,7 @@ export default function LeadsPage() {
                     : 'border border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
                 }`}
               >
-                Send to my email
+                Save to my email
               </button>
             </div>
           </div>

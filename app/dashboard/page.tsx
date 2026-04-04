@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { supabase } from '@/lib/supabase'
 import { getGuestLeads } from '@/lib/guest-session'
 import { readStoredScrapeResult } from '@/lib/session/scrape-result'
@@ -192,27 +193,27 @@ export default function Page() {
             Progress checkpoint
           </div>
           <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-            You&apos;ve built your first lead list
+            You&apos;ve reached your free limit
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
-            {stats.saved} {stats.saved === 1 ? 'lead is' : 'leads are'} now in your inbox. Some are ready to contact right now.
+            You found {stats.saved} {stats.saved === 1 ? 'lead' : 'leads'}. {stats.ready} {stats.ready === 1 ? 'is' : 'are'} ready to contact right now.
+          </p>
+          <p className="mt-3 text-sm text-cyan-100">
+            Free plan: {Math.min(stats.saved, 25)} / 25 leads used
           </p>
           <div className="mt-8">
-            <Link
-              href="/dashboard/leads"
-              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
-            >
-              Go to my leads
-            </Link>
-          </div>
-          <div className="mt-8 border-t border-white/10 pt-6">
-            <p className="text-base text-slate-300">Want to contact, track, and follow up from one place?</p>
-            <div className="mt-4">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <StartCheckoutButton
+                label="Unlock outreach + 300 leads/month"
+                email={profile?.email ?? ''}
+                source="dashboard_free_limit"
+                className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(20,184,166,0.92))] px-6 text-base font-semibold text-slate-950 shadow-[0_18px_40px_rgba(14,165,233,0.24)]"
+              />
               <Link
-                href="/plans"
-                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.08]"
+                href="/dashboard/leads"
+                className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-6 text-base font-semibold text-slate-100 transition hover:bg-white/[0.08]"
               >
-                Unlock outreach
+                Go to my leads
               </Link>
             </div>
           </div>

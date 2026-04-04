@@ -17,8 +17,8 @@ export const dynamic = 'force-dynamic'
 export default async function BillingPage() {
   const user = await getUserProfile()
   if (!user) {
-    console.warn('[billing] no user resolved, redirecting to /login')
-    redirect('/login')
+    console.warn('[billing] no user resolved, redirecting to /plans')
+    redirect('/plans')
   }
 
   console.info('[billing] user resolved', {

@@ -132,6 +132,14 @@ export default function DashboardLayout({
     return false
   }
 
+  function getItemHref(item: (typeof navItems)[number]) {
+    if (item.label === 'Plan & Billing' && viewerMode !== 'authenticated_free' && viewerMode !== 'authenticated_paid') {
+      return '/plans'
+    }
+
+    return item.href
+  }
+
   return (
     <div className="flex min-h-screen bg-[#0b1220] text-white">
       <aside className="flex w-64 flex-col border-r border-white/5 bg-[#0f172a] p-6">
@@ -147,7 +155,8 @@ export default function DashboardLayout({
 
         <nav className="mt-12 space-y-2">
           {navItems.map((item) => {
-            const active = isActive(item.href)
+            const itemHref = getItemHref(item)
+            const active = isActive(itemHref)
             const locked = isLocked(item)
 
             if (locked) {
@@ -175,7 +184,7 @@ export default function DashboardLayout({
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={itemHref}
                 className={`group flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-all ${
                   active
                     ? 'border border-white/10 bg-white/10 text-white shadow-inner'
