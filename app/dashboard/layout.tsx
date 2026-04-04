@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Lock } from 'lucide-react'
+import { LifeBuoy, Lock, Mail } from 'lucide-react'
 
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
@@ -27,6 +27,7 @@ export default function DashboardLayout({
     description: string
     benefit: string
   } | null>(null)
+  const [supportOpen, setSupportOpen] = useState(false)
   const { profile, loading: profileLoading } = useClientUserProfile()
 
   const viewerMode: ViewerMode = forcedGuestTrial
@@ -197,6 +198,17 @@ export default function DashboardLayout({
             )
           })}
 
+          <button
+            type="button"
+            onClick={() => setSupportOpen(true)}
+            className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+          >
+            <span className="flex items-center gap-2">
+              <LifeBuoy className="h-4 w-4 text-cyan-300" />
+              <span>Support</span>
+            </span>
+          </button>
+
           <div className="my-4 border-t border-white/10" />
 
           {viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid' ? (
@@ -222,8 +234,18 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <main className="flex-1 p-10">
-        <div className="mx-auto max-w-7xl">{children}</div>
+      <main className="flex flex-1 flex-col p-10">
+        <div className="mx-auto w-full max-w-7xl flex-1">{children}</div>
+        <footer className="mx-auto mt-10 w-full max-w-5xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500">
+          Need help or have a question? Reach us at{' '}
+          <a
+            href="mailto:info@mindrasolutions.com"
+            className="font-medium text-sky-300 transition hover:underline"
+          >
+            info@mindrasolutions.com
+          </a>{' '}
+          — we typically reply within 24 hours.
+        </footer>
       </main>
 
       <FeatureLockModal
@@ -234,6 +256,53 @@ export default function DashboardLayout({
         benefit={lockedFeature?.benefit || ''}
         showUpgradeCta={viewerMode !== 'authenticated_paid'}
       />
+
+      {supportOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
+          <div className="glass w-full max-w-lg rounded-3xl p-8 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/12 text-cyan-200">
+                    <LifeBuoy className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
+                    Need help?
+                  </h2>
+                </div>
+                <p className="max-w-md text-sm leading-7 text-slate-300">
+                  If you have any issue with your account, billing, or leads, reach us directly at{' '}
+                  <a
+                    href="mailto:info@mindrasolutions.com"
+                    className="font-medium text-sky-300 transition hover:underline"
+                  >
+                    info@mindrasolutions.com
+                  </a>
+                  . We usually respond within 24 hours.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSupportOpen(false)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <a
+                href="mailto:info@mindrasolutions.com"
+                className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl border border-sky-300/20 bg-sky-300/10 px-5 text-sm font-medium text-sky-100 transition hover:bg-sky-300/15"
+              >
+                <Mail className="h-4 w-4" />
+                Email Support
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
