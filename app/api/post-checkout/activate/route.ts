@@ -1,9 +1,14 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
-import { getCheckoutEmail, getCheckoutSession, isCheckoutUnlocked } from '@/lib/stripe'
+import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16' as Stripe.LatestApiVersion,
+})
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +17,99 @@ const admin = createClient(
 
 type ActivateRequestBody = {
   sessionId?: string
-  mock?: boolean
+  cleanWorkspace?: boolean
+  leads?: TrialLead[]
+}
+
+type LeadInsertPayload = {
+  user_id: string
+  company_name: string
+  email?: string
+  phone?: string
+  website: string | null
+  city: string | null
+  status: 'inbox'
+  source: 'serper' | 'google' | 'hybrid'
+  email_confidence: 'high' | 'medium' | 'low'
+  email_source: string
+  is_generic_email: boolean
+  cost_estimate: number
+}
+
+function buildLeadKey(
+  lead: Pick<TrialLead, 'company_name' | 'email' | 'phone' | 'website' | 'city'>
+) {
+  return [
+    lead.company_name.trim().toLowerCase(),
+    lead.email?.trim().toLowerCase() || '',
+    lead.phone?.trim().toLowerCase() || '',
+    (lead.website || '').trim().toLowerCase(),
+    (lead.city || '').trim().toLowerCase(),
+  ].join('::')
+}
+
+function buildLeadInsertPayload(lead: TrialLead, userId: string): LeadInsertPayload | null {
+  const email = lead.email?.trim() || null
+  const phone = lead.phone?.trim() || null
+
+  if (!userId || !lead.company_name || (!email && !phone)) {
+    return null
+  }
+
+  return {
+    user_id: userId,
+    company_name: lead.company_name,
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
+    website: lead.website || null,
+    city: lead.city || null,
+    status: 'inbox',
+    source: (lead.source as LeadInsertPayload['source']) || 'serper',
+    email_confidence: 'low',
+    email_source: lead.email_source || lead.website || 'post_checkout_import',
+    is_generic_email: lead.is_generic_email ?? false,
+    cost_estimate: lead.cost_estimate ?? 0,
+  }
+}
+
+function getCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined) {
+  if (!customer) {
+    return ''
+  }
+
+  return typeof customer === 'string' ? customer.trim() : customer.id.trim()
+}
+
+function getSubscriptionId(
+  subscription: string | Stripe.Subscription | null | undefined
+) {
+  if (!subscription) {
+    return ''
+  }
+
+  return typeof subscription === 'string' ? subscription.trim() : subscription.id.trim()
+}
+
+function getCurrentPeriodEnd(
+  subscription: Stripe.Subscription | (Stripe.Subscription & { current_period_end?: number | null })
+) {
+  const currentPeriodEnd = (
+    subscription as Stripe.Subscription & { current_period_end?: number | null }
+  ).current_period_end
+
+  if (!currentPeriodEnd) {
+    return null
+  }
+
+  return new Date(currentPeriodEnd * 1000).toISOString()
+}
+
+function isCheckoutUnlocked(session: Stripe.Checkout.Session) {
+  return (
+    session.mode === 'subscription' &&
+    session.status === 'complete' &&
+    session.payment_status !== 'unpaid'
+  )
 }
 
 export async function POST(req: Request) {
@@ -48,30 +145,114 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json().catch(() => null)) as ActivateRequestBody | null
-    const isMock = body?.mock === true
+    const sessionId = String(body?.sessionId || '').trim()
 
-    if (!isMock) {
-      const session = await getCheckoutSession(String(body?.sessionId || ''))
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Missing checkout session id' }, { status: 400 })
+    }
 
-      if (!isCheckoutUnlocked(session)) {
-        return NextResponse.json({ error: 'Checkout is not complete' }, { status: 400 })
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription'],
+    })
+
+    if (!isCheckoutUnlocked(session)) {
+      return NextResponse.json({ error: 'Checkout is not complete' }, { status: 400 })
+    }
+
+    const customerId = getCustomerId(
+      session.customer as string | Stripe.Customer | Stripe.DeletedCustomer | null
+    )
+    const subscriptionId = getSubscriptionId(
+      session.subscription as string | Stripe.Subscription | null
+    )
+    const subscription = subscriptionId
+      ? await stripe.subscriptions.retrieve(subscriptionId)
+      : null
+    const currentPeriodEnd = subscription ? getCurrentPeriodEnd(subscription) : null
+
+    if (body?.cleanWorkspace) {
+      const { error: leadsDeleteError } = await admin.from('leads').delete().eq('user_id', user.id)
+
+      if (leadsDeleteError) {
+        return NextResponse.json({ error: leadsDeleteError.message }, { status: 500 })
       }
 
-      const checkoutEmail = getCheckoutEmail(session)
-      if (checkoutEmail && user.email?.trim().toLowerCase() !== checkoutEmail) {
-        return NextResponse.json(
-          { error: 'Checkout email does not match the authenticated user' },
-          { status: 400 }
+      const { error: pipelineDeleteError } = await admin.from('pipeline').delete().eq('user_id', user.id)
+      console.log('Pipeline cleaned for user:', user.id)
+
+      if (
+        pipelineDeleteError &&
+        !/relation .*pipeline.* does not exist|Could not find the table/i.test(
+          pipelineDeleteError.message || ''
         )
+      ) {
+        return NextResponse.json({ error: pipelineDeleteError.message }, { status: 500 })
       }
+    }
+
+    const { error: userPlanError } = await admin
+      .from('users')
+      .update({ plan: 'starter' })
+      .eq('id', user.id)
+
+    if (userPlanError) {
+      return NextResponse.json({ error: userPlanError.message }, { status: 500 })
     }
 
     const { error: profileError } = await admin
       .from('profiles')
-      .upsert({ id: user.id, plan: 'starter' }, { onConflict: 'id' })
+      .upsert(
+        {
+          id: user.id,
+          stripe_customer_id: customerId || null,
+          plan: 'starter',
+          subscription_status: subscription?.status || 'active',
+          current_period_end: currentPeriodEnd,
+        },
+        { onConflict: 'id' }
+      )
 
     if (profileError) {
       return NextResponse.json({ error: profileError.message }, { status: 500 })
+    }
+
+    const leadsToImport = Array.isArray(body?.leads) ? body.leads.slice(0, FREE_TRIAL_LEAD_LIMIT) : []
+
+    if (leadsToImport.length > 0) {
+      const { data: existingLeads, error: existingError } = await admin
+        .from('leads')
+        .select('company_name, email, phone, website, city')
+        .eq('user_id', user.id)
+
+      if (existingError) {
+        return NextResponse.json({ error: existingError.message }, { status: 500 })
+      }
+
+      const existingKeys = new Set((existingLeads || []).map(buildLeadKey))
+      const rowsToInsert: LeadInsertPayload[] = []
+
+      for (const lead of leadsToImport) {
+        const leadKey = buildLeadKey(lead)
+        if (existingKeys.has(leadKey)) {
+          continue
+        }
+
+        const payload = buildLeadInsertPayload(lead, user.id)
+        if (!payload) {
+          continue
+        }
+
+        existingKeys.add(leadKey)
+        rowsToInsert.push(payload)
+      }
+
+      if (rowsToInsert.length > 0) {
+        const { error: insertError } = await admin.from('leads').insert(rowsToInsert)
+
+        if (insertError) {
+          return NextResponse.json({ error: insertError.message }, { status: 500 })
+        }
+      }
     }
 
     return NextResponse.json({ success: true })

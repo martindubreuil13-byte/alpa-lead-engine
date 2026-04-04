@@ -1,27 +1,10 @@
-const STRIPE_API_BASE = 'https://api.stripe.com/v1'
+import Stripe from 'stripe'
+
 export const STRIPE_API_VERSION = '2026-02-25.clover'
 
-type StripeCheckoutSession = {
-  id: string
-  url?: string | null
-  mode?: string | null
-  status?: string | null
-  payment_status?: string | null
-  customer_email?: string | null
-  customer_details?: {
-    email?: string | null
-  } | null
-}
-
-function getStripeSecretKey() {
-  const secretKey = process.env.STRIPE_SECRET_KEY
-
-  if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY is not configured')
-  }
-
-  return secretKey
-}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
+})
 
 function getStarterPriceId() {
   const priceId = process.env.STRIPE_STARTER_PRICE_ID
@@ -33,65 +16,42 @@ function getStarterPriceId() {
   return priceId
 }
 
-async function stripeRequest<T>(path: string, init?: RequestInit) {
-  const response = await fetch(`${STRIPE_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${getStripeSecretKey()}`,
-      'Stripe-Version': STRIPE_API_VERSION,
-      ...(init?.headers || {}),
-    },
-  })
-
-  const payload = (await response.json().catch(() => null)) as
-    | (T & { error?: { message?: string } })
-    | null
-
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || 'Stripe request failed')
-  }
-
-  if (!payload) {
-    throw new Error('Stripe returned an empty response')
-  }
-
-  return payload as T
-}
-
 export async function createStarterCheckoutSession({
   origin,
-  email,
+  customerId,
+  userId,
+  userEmail,
   source,
 }: {
   origin: string
-  email?: string | null
+  customerId: string
+  userId?: string | null
+  userEmail?: string | null
   source?: string | null
 }) {
-  const params = new URLSearchParams()
-  params.set('mode', 'subscription')
-  params.set('success_url', `${origin}/post-checkout?session_id={CHECKOUT_SESSION_ID}`)
-  params.set('cancel_url', `${origin}/plans?checkout=cancelled`)
-  params.set('allow_promotion_codes', 'true')
-  params.set('line_items[0][price]', getStarterPriceId())
-  params.set('line_items[0][quantity]', '1')
-
-  const normalizedEmail = String(email || '').trim().toLowerCase()
-  if (normalizedEmail) {
-    params.set('customer_email', normalizedEmail)
-  }
-
+  const normalizedUserId = userId?.trim() ?? null
+  const normalizedEmail = String(userEmail || '').trim().toLowerCase()
   const normalizedSource = String(source || '').trim()
-  if (normalizedSource) {
-    params.set('client_reference_id', normalizedSource)
-    params.set('metadata[source]', normalizedSource)
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
 
-  const session = await stripeRequest<StripeCheckoutSession>('/checkout/sessions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    line_items: [
+      {
+        price: getStarterPriceId(),
+        quantity: 1,
+      },
+    ],
+    success_url: `${baseUrl}/post-checkout?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/plans`,
+    allow_promotion_codes: true,
+    ...(normalizedSource ? { client_reference_id: normalizedSource } : {}),
+    metadata: {
+      user_id: normalizedUserId ?? '',
+      email: normalizedEmail,
+      ...(normalizedSource ? { source: normalizedSource } : {}),
     },
-    body: params.toString(),
   })
 
   if (!session.url) {
@@ -101,6 +61,39 @@ export async function createStarterCheckoutSession({
   return session
 }
 
+export async function createStripeCustomer({
+  customerId,
+  email,
+  userId,
+  source,
+}: {
+  customerId?: string | null
+  email?: string | null
+  userId?: string | null
+  source?: string | null
+}) {
+  const normalizedCustomerId = String(customerId || '').trim()
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  const normalizedUserId = userId?.trim() ?? null
+  const normalizedSource = String(source || '').trim()
+
+  if (normalizedCustomerId) {
+    const existingCustomer = await stripe.customers.retrieve(normalizedCustomerId)
+
+    if (!existingCustomer.deleted) {
+      return existingCustomer
+    }
+  }
+
+  return stripe.customers.create({
+    ...(normalizedEmail ? { email: normalizedEmail } : {}),
+    metadata: {
+      user_id: normalizedUserId ?? '',
+      ...(normalizedSource ? { source: normalizedSource } : {}),
+    },
+  })
+}
+
 export async function getCheckoutSession(sessionId: string) {
   const normalizedSessionId = sessionId.trim()
 
@@ -108,12 +101,10 @@ export async function getCheckoutSession(sessionId: string) {
     throw new Error('Missing checkout session id')
   }
 
-  return stripeRequest<StripeCheckoutSession>(
-    `/checkout/sessions/${encodeURIComponent(normalizedSessionId)}`
-  )
+  return stripe.checkout.sessions.retrieve(normalizedSessionId)
 }
 
-export function getCheckoutEmail(session: StripeCheckoutSession) {
+export function getCheckoutEmail(session: Stripe.Checkout.Session) {
   return (
     session.customer_email?.trim().toLowerCase() ||
     session.customer_details?.email?.trim().toLowerCase() ||
@@ -121,7 +112,7 @@ export function getCheckoutEmail(session: StripeCheckoutSession) {
   )
 }
 
-export function isCheckoutUnlocked(session: StripeCheckoutSession) {
+export function isCheckoutUnlocked(session: Stripe.Checkout.Session) {
   return (
     session.mode === 'subscription' &&
     session.status === 'complete' &&

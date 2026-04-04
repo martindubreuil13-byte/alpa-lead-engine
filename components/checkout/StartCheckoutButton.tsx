@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
+import { supabase } from '@/lib/supabase'
 
 type StartCheckoutButtonProps = {
   label: string
@@ -22,28 +22,124 @@ export default function StartCheckoutButton({
   disabled = false,
   disabledLabel = label,
 }: StartCheckoutButtonProps) {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [emailInput, setEmailInput] = useState(() =>
+    String(email || getGuestCaptureEmail()).trim().toLowerCase()
+  )
+  const [showEmailInput, setShowEmailInput] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadUser() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (cancelled) return
+
+      setIsAuthenticated(Boolean(user?.id))
+
+      if (user?.email) {
+        setEmailInput((current) => current || user.email!.trim().toLowerCase())
+      }
+    }
+
+    void loadUser()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const authUser = session?.user ?? null
+      setIsAuthenticated(Boolean(authUser?.id))
+
+      if (authUser?.email) {
+        setEmailInput((current) => current || authUser.email!.trim().toLowerCase())
+      }
+    })
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (email) {
+      setEmailInput(String(email).trim().toLowerCase())
+    }
+  }, [email])
 
   async function handleCheckout() {
     if (loading || disabled) return
 
+    const normalizedEmail = String(email || emailInput || getGuestCaptureEmail()).trim().toLowerCase()
+
+    if (!isAuthenticated && !normalizedEmail) {
+      setShowEmailInput(true)
+      return
+    }
+
     setLoading(true)
-    const normalizedEmail = String(email || getGuestCaptureEmail()).trim().toLowerCase()
 
     if (normalizedEmail) {
       saveGuestCaptureEmail(normalizedEmail)
     }
 
-    const params = new URLSearchParams({ mock: 'true', source })
-    window.setTimeout(() => {
-      router.push(`/post-checkout?${params.toString()}`)
-    }, 450)
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: normalizedEmail || null,
+          source,
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || 'Unable to start checkout')
+      }
+
+      window.location.href = data.url
+    } catch (error) {
+      console.error('Checkout redirect failed:', error)
+      setLoading(false)
+    }
   }
 
   return (
-    <button type="button" onClick={() => void handleCheckout()} disabled={disabled || loading} className={className}>
-      {loading ? 'Redirecting...' : disabled ? disabledLabel : label}
-    </button>
+    <div className="space-y-3">
+      {showEmailInput && !isAuthenticated ? (
+        <div className="space-y-2">
+          <label className="text-sm text-gray-400">Email address</label>
+          <input
+            type="email"
+            placeholder="Enter your email to continue"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            autoComplete="email"
+            className="w-full rounded-lg border border-white/10 bg-[#020617] px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => void handleCheckout()}
+        disabled={disabled || loading}
+        className={className}
+      >
+        {loading
+          ? 'Redirecting...'
+          : disabled
+            ? disabledLabel
+            : !isAuthenticated && showEmailInput
+              ? 'Continue to Payment'
+              : label}
+      </button>
+    </div>
   )
 }

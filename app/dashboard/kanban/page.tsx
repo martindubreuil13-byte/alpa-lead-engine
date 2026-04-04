@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
-import EmailConfidenceBadge, { matchesConfidenceFilter } from '@/components/leads/EmailConfidenceBadge'
 import { getGuestLeads } from '@/lib/guest-session'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
@@ -17,8 +16,6 @@ type Lead = {
   city: string
   industry: string | null
   email: string | null
-  email_confidence: 'high' | 'medium' | 'low' | null
-  is_generic_email: boolean
   status: string
   pipeline_stage?: string | null
   close_reason?: string | null
@@ -104,15 +101,12 @@ export default function PipelinePage() {
   const [loading, setLoading] = useState(true)
   const [isGuest, setIsGuest] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
-  const [confidenceFilter, setConfidenceFilter] = useState<'recommended' | 'all' | 'high' | 'medium' | 'low'>('recommended')
   const [isSendModalOpen, setIsSendModalOpen] = useState(false)
   const [closeLead, setCloseLead] = useState<Lead | null>(null)
   const [closeReason, setCloseReason] = useState<CloseReason>('no_answer')
   const [closing, setClosing] = useState(false)
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
-  const visibleLeads = leads.filter((lead) =>
-    matchesConfidenceFilter(lead.email_confidence, confidenceFilter)
-  )
+  const visibleLeads = leads
   const sendableSelectedIds = selected.filter((id) => {
     const lead = visibleLeads.find((item) => item.id === id)
     return lead ? normalizePipelineStage(lead) !== 'closed' : false
@@ -138,13 +132,9 @@ export default function PipelinePage() {
   }, [])
 
   useEffect(() => {
-    const visibleIds = new Set(
-      leads
-        .filter((lead) => matchesConfidenceFilter(lead.email_confidence, confidenceFilter))
-        .map((lead) => lead.id)
-    )
+    const visibleIds = new Set(leads.map((lead) => lead.id))
     setSelected((prev) => prev.filter((id) => visibleIds.has(id)))
-  }, [confidenceFilter, leads])
+  }, [leads])
 
   async function fetchLeads() {
     setLoading(true)
@@ -170,7 +160,8 @@ export default function PipelinePage() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, city, industry, email, email_confidence, is_generic_email, status, pipeline_stage, close_reason, contacted_at')
+      .select('id, company_name, city, industry, email, status, pipeline_stage, close_reason, contacted_at')
+      .eq('user_id', user.id)
       .in('status', PIPELINE_RELEVANT_STATUSES)
 
     if (error) {
@@ -396,17 +387,6 @@ export default function PipelinePage() {
             <div className="text-sm text-white">
               {selected.length} selected
             </div>
-            <select
-              value={confidenceFilter}
-              onChange={(event) => setConfidenceFilter(event.target.value as typeof confidenceFilter)}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/40"
-            >
-              <option value="recommended">High + Medium</option>
-              <option value="all">All Confidence</option>
-              <option value="high">High Only</option>
-              <option value="medium">Medium Only</option>
-              <option value="low">Low Only</option>
-            </select>
           </div>
 
           <div className="flex gap-3">
@@ -612,14 +592,6 @@ function Card({
           </div>
           <div className="text-xs text-slate-400 mt-1">
             {lead.industry || 'Business'} • {lead.city}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <EmailConfidenceBadge confidence={lead.email_confidence} />
-            {lead.is_generic_email && (
-              <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-                Generic
-              </span>
-            )}
           </div>
           <div className="mt-2 text-xs text-slate-300">
             {lead.email || 'No Email'}

@@ -8,24 +8,14 @@ import { clearGuestTrial, getGuestCaptureEmail, getGuestLeads } from '@/lib/gues
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { supabase } from '@/lib/supabase'
 
-type GuestClaimResult = {
-  success: boolean
-  imported: number
-  skipped_invalid: number
-  skipped_duplicate: number
-}
-
-function getClaimRouteError(data: unknown) {
-  return typeof data === 'object' && data && 'error' in data && typeof data.error === 'string' ? data.error : ''
-}
-
 export default function PostCheckoutAccountForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id') || ''
-  const isMockCheckout = searchParams.get('mock') === 'true'
+  const storedGuestEmail = getGuestCaptureEmail()
 
   const [email, setEmail] = useState('')
+  const [stripeCheckoutEmail, setStripeCheckoutEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [verified, setVerified] = useState(false)
@@ -33,6 +23,7 @@ export default function PostCheckoutAccountForm() {
   const [existingUser, setExistingUser] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const emailToUse = stripeCheckoutEmail || storedGuestEmail || email
 
   useEffect(() => {
     void initialize()
@@ -43,9 +34,8 @@ export default function PostCheckoutAccountForm() {
     setErrorMessage('')
 
     try {
-      const fallbackEmail = getGuestCaptureEmail()
-      if (fallbackEmail) {
-        setEmail(fallbackEmail)
+      if (storedGuestEmail) {
+        setEmail(storedGuestEmail)
       }
 
       const {
@@ -57,29 +47,26 @@ export default function PostCheckoutAccountForm() {
         setEmail(user.email)
       }
 
-      if (isMockCheckout) {
-        setVerified(true)
-      } else {
-        if (!sessionId) {
-          throw new Error('Missing checkout session id')
-        }
-
-        const res = await fetch(`/api/checkout/session?session_id=${encodeURIComponent(sessionId)}`)
-        const data = await res.json().catch(() => null)
-
-        if (!res.ok || !data?.verified) {
-          throw new Error(data?.error || 'We could not verify your checkout')
-        }
-
-        if (data.email) {
-          setEmail(data.email)
-        }
-
-        setVerified(true)
+      if (!sessionId) {
+        throw new Error('Missing checkout session id')
       }
 
+      const res = await fetch(`/api/checkout/session?session_id=${encodeURIComponent(sessionId)}`)
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.verified) {
+        throw new Error(data?.error || 'We could not verify your checkout')
+      }
+
+      if (data.email) {
+        setStripeCheckoutEmail(data.email)
+        setEmail(data.email)
+      }
+
+      setVerified(true)
+
       if (user?.id) {
-        await activateStarter(sessionId, isMockCheckout)
+        await activateStarter(sessionId, false)
         clearGuestTrialMode()
         router.replace('/dashboard')
         return
@@ -91,31 +78,15 @@ export default function PostCheckoutAccountForm() {
     }
   }
 
-  async function claimGuestTrialIfNeeded(): Promise<GuestClaimResult | null> {
-    const guestLeads = getGuestLeads()
-    if (guestLeads.length === 0) return null
-
-    const res = await fetch('/api/guest/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ leads: guestLeads }),
-    })
-
-    const data = (await res.json().catch(() => null)) as GuestClaimResult | null
-
-    if (!res.ok) {
-      throw new Error(getClaimRouteError(data) || 'Failed to import guest leads')
-    }
-
-    clearGuestTrial()
-    return data
-  }
-
-  async function activateStarter(currentSessionId: string, mock = false) {
+  async function activateStarter(currentSessionId: string, cleanWorkspace = false) {
     const res = await fetch('/api/post-checkout/activate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: currentSessionId, mock }),
+      body: JSON.stringify({
+        sessionId: currentSessionId,
+        cleanWorkspace,
+        leads: getGuestLeads(),
+      }),
     })
 
     const data = await res.json().catch(() => null)
@@ -123,12 +94,14 @@ export default function PostCheckoutAccountForm() {
     if (!res.ok) {
       throw new Error(data?.error || 'Unable to unlock your workspace')
     }
+
+    clearGuestTrial()
   }
 
   async function handleCreateAccount() {
     if (loading || !verified) return
 
-    if (!email.trim()) {
+    if (!emailToUse.trim()) {
       setErrorMessage('Enter your email to finish creating your account.')
       return
     }
@@ -147,7 +120,7 @@ export default function PostCheckoutAccountForm() {
     setErrorMessage('')
 
     try {
-      const normalizedEmail = email.trim().toLowerCase()
+      const normalizedEmail = emailToUse.trim().toLowerCase()
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -168,8 +141,7 @@ export default function PostCheckoutAccountForm() {
         }
       }
 
-      await activateStarter(sessionId, isMockCheckout)
-      await claimGuestTrialIfNeeded()
+      await activateStarter(sessionId, true)
       clearGuestTrialMode()
       router.replace('/dashboard')
     } catch (error) {
@@ -200,7 +172,7 @@ export default function PostCheckoutAccountForm() {
 
       {verifying ? (
         <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-slate-300">
-          {isMockCheckout ? 'Preparing your unlocked workspace...' : 'Verifying your checkout...'}
+          Verifying your checkout...
         </div>
       ) : errorMessage ? (
         <div className="mt-8 rounded-2xl border border-rose-400/25 bg-rose-500/10 px-4 py-4 text-sm leading-6 text-rose-100">
@@ -221,7 +193,7 @@ export default function PostCheckoutAccountForm() {
           <input
             type="email"
             autoComplete="email"
-            value={email}
+            value={emailToUse}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="Email address"
             className="h-14 w-full rounded-2xl border border-white/[0.10] bg-white/[0.06] px-4 text-[15px] text-white placeholder:text-slate-500 focus:border-cyan-300/45 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20"

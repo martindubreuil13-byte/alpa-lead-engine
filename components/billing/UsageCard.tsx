@@ -2,6 +2,7 @@ type UsageCardProps = {
   loading?: boolean
   plan?: string | null
   subscriptionStatus?: string | null
+  currentPeriodStart?: string | null
   currentPeriodEnd?: string | null
   leadsUsed?: number | null
   leadsLimit?: number | null
@@ -42,16 +43,14 @@ function getProgressTone(percent: number) {
 
 export default function UsageCard({
   loading = false,
-  plan = 'free',
+  plan = null,
   subscriptionStatus = null,
+  currentPeriodStart = null,
   currentPeriodEnd = null,
   leadsUsed = 0,
   leadsLimit = null,
   usageWarning = null,
 }: UsageCardProps) {
-  void subscriptionStatus
-  void leadsLimit
-
   if (loading) {
     return (
       <div className="rounded-xl border border-white/10 bg-[#0b1220] p-6 text-slate-300">
@@ -60,17 +59,21 @@ export default function UsageCard({
     )
   }
 
-  const normalizedPlan = String(plan || 'free').toLowerCase()
+  if (!plan) return null
+
+  const normalizedPlan = String(plan).toLowerCase()
   const isFreePlan = normalizedPlan === 'free'
   const safeUsed = Math.max(0, Number(leadsUsed || 0))
-  const safeLimit = Math.max(0, getPlanLeadLimit(normalizedPlan))
+  const safeLimit = Math.max(0, Number(leadsLimit ?? getPlanLeadLimit(normalizedPlan)))
   const remainingLeads = Math.max(safeLimit - safeUsed, 0)
   const usagePercent =
     safeLimit > 0 && Number.isFinite(safeLimit)
       ? Math.min(100, (safeUsed / safeLimit) * 100)
       : 0
+  const startedLabel = formatRenewalDate(currentPeriodStart)
   const renewalLabel = formatRenewalDate(currentPeriodEnd)
   void usageWarning
+  const statusLabel = subscriptionStatus === 'active' ? 'Active' : 'Active'
 
   return (
     <section className="rounded-xl border border-white/10 bg-[#0b1220] p-6 shadow-[0_18px_40px_rgba(2,8,23,0.24)]">
@@ -89,8 +92,14 @@ export default function UsageCard({
                 Plan: <span className="font-semibold text-white">{formatPlanLabel(normalizedPlan)}</span>
               </div>
               <div className="text-sm text-slate-300">
-                Status: <span className="font-semibold text-white">Active</span>
+                Status: <span className="font-semibold text-white">{statusLabel}</span>
               </div>
+              {startedLabel ? (
+                <div className="text-sm text-slate-400">Started on {startedLabel}</div>
+              ) : null}
+              {renewalLabel ? (
+                <div className="text-sm text-slate-400">Renews on {renewalLabel}</div>
+              ) : null}
             </>
           )}
         </div>
@@ -112,9 +121,6 @@ export default function UsageCard({
             <div className="text-sm text-slate-400">
               You have {remainingLeads} {remainingLeads === 1 ? 'lead' : 'leads'} left this month
             </div>
-            {renewalLabel ? (
-              <div className="text-sm text-slate-400">Renews on {renewalLabel}</div>
-            ) : null}
           </div>
         ) : null}
       </div>

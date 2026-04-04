@@ -8,6 +8,7 @@ export type UserProfile = {
   email: string;
   role: UserRole;
   plan: UserPlan;
+  stripe_customer_id?: string | null;
   subscription_status?: string | null;
   current_period_end?: string | null;
   created_at: string;
@@ -20,6 +21,7 @@ export interface Database {
         Row: {
           id: string;
           plan: UserPlan;
+          stripe_customer_id: string | null;
           subscription_status: string | null;
           current_period_end: string | null;
           created_at: string;
@@ -27,6 +29,7 @@ export interface Database {
         Insert: {
           id: string;
           plan?: UserPlan;
+          stripe_customer_id?: string | null;
           subscription_status?: string | null;
           current_period_end?: string | null;
           created_at?: string;

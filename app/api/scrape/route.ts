@@ -650,7 +650,6 @@ function createGuestLead(lead: DiscoveryLead): TrialLead {
     industry: lead.industry || null,
     email: lead.email,
     email_source: lead.email_source,
-    email_confidence: lead.email_confidence,
     is_generic_email: lead.is_generic_email,
     phone: lead.phone || null,
     website: lead.website || null,

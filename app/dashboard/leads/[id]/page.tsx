@@ -19,7 +19,6 @@ type Lead = {
   email: string | null
   phone: string | null
   website: string | null
-  email_confidence: 'high' | 'medium' | 'low' | null
   industry: string | null
   city: string | null
   status: string
@@ -84,7 +83,6 @@ export default function Page() {
           email: guestLead.email,
           phone: guestLead.phone,
           website: guestLead.website,
-          email_confidence: guestLead.email_confidence,
           industry: guestLead.industry,
           city: guestLead.city,
           status: guestLead.status,
@@ -96,8 +94,9 @@ export default function Page() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, email, phone, website, email_confidence, industry, city, status')
+      .select('id, company_name, email, phone, website, industry, city, status')
       .eq('id', leadId)
+      .eq('user_id', user.id)
       .single()
 
     if (!error && data) {

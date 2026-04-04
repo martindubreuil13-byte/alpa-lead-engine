@@ -54,9 +54,10 @@ export default async function BillingPage() {
       .or('email.not.is.null,phone.not.is.null'),
   ])
 
-  const usagePlan = profileData?.plan || 'free'
+  const usagePlan = profileData?.plan ?? user.plan
   const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'starter'
   const usageStatus = usagePlan === 'free' ? 'free' : 'active'
+  const usageStarted = isPaidUsagePlan ? usageData?.period_start ?? null : null
   const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
   const usageLimit = getPlanLeadLimit(usagePlan)
   const usageUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
@@ -103,6 +104,7 @@ export default async function BillingPage() {
       <UsageCard
         plan={usagePlan}
         subscriptionStatus={usageStatus}
+        currentPeriodStart={usageStarted}
         currentPeriodEnd={usageRenewal}
         leadsUsed={usageUsed}
         leadsLimit={usageLimit}
@@ -163,6 +165,12 @@ export default async function BillingPage() {
             <p className="max-w-2xl text-base leading-7 text-slate-300">
               Your workspace has paid access enabled. Billing controls and future plan actions will land here in the next phase.
             </p>
+            <button
+              type="button"
+              className="mt-4 inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.08]"
+            >
+              Cancel my plan
+            </button>
           </div>
         )}
       </section>

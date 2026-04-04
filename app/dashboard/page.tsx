@@ -33,6 +33,7 @@ type DateRange = '7d' | '30d' | '90d' | 'month' | 'all'
 type UsageSummary = {
   plan: string
   subscriptionStatus: string | null
+  currentPeriodStart: string | null
   currentPeriodEnd: string | null
   leadsUsed: number
   leadsLimit: number
@@ -65,7 +66,7 @@ function getRangeStart(dateRange: DateRange) {
 
 export default function Page() {
   const { profile, loading: profileLoading } = useClientUserProfile()
-  const plan = profileLoading ? null : profile?.plan || 'free'
+  const plan = profile?.plan ?? null
   const isFree = plan === 'free'
   const [stats, setStats] = useState<Stats>({
     saved: 0,
@@ -109,9 +110,10 @@ export default function Page() {
       setUsageSummary({
         plan: 'free',
         subscriptionStatus: null,
+        currentPeriodStart: null,
         currentPeriodEnd: null,
         leadsUsed: 0,
-        leadsLimit: 25,
+        leadsLimit: getPlanLeadLimit('free'),
         usageWarning: 'none',
       })
       setUsageLoading(false)
@@ -125,11 +127,11 @@ export default function Page() {
       .eq('user_id', user.id)
 
     setHasAnyLeads((count ?? 0) > 0)
-    const resolvedPlan = plan || 'free'
+    if (!plan) return
     await Promise.all([
       loadStats(user.id, dateRange),
       loadPipeline(user.id, dateRange),
-      loadUsage(user.id, resolvedPlan),
+      loadUsage(user.id, plan),
     ])
   }
 
@@ -251,7 +253,7 @@ export default function Page() {
           .or('email.not.is.null,phone.not.is.null'),
       ])
 
-      const plan = profileData?.plan || loadedPlan || 'free'
+      const plan = profileData?.plan ?? loadedPlan
       const isPaidUsagePlan = plan === 'admin' || plan === 'starter'
       const leadsLimit = getPlanLeadLimit(plan)
       const leadsUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
@@ -259,6 +261,7 @@ export default function Page() {
       setUsageSummary({
         plan,
         subscriptionStatus: plan === 'free' ? 'free' : 'active',
+        currentPeriodStart: isPaidUsagePlan ? usageData?.period_start ?? null : null,
         currentPeriodEnd: isPaidUsagePlan ? usageData?.period_end ?? null : null,
         leadsUsed,
         leadsLimit,
@@ -273,13 +276,13 @@ export default function Page() {
       })
     } catch (err) {
       console.error('Usage error:', err)
-      const plan = loadedPlan || 'free'
       setUsageSummary({
-        plan,
-        subscriptionStatus: plan === 'free' ? 'free' : 'active',
+        plan: loadedPlan,
+        subscriptionStatus: loadedPlan === 'free' ? 'free' : 'active',
+        currentPeriodStart: null,
         currentPeriodEnd: null,
         leadsUsed: 0,
-        leadsLimit: getPlanLeadLimit(plan),
+        leadsLimit: getPlanLeadLimit(loadedPlan),
         usageWarning: 'none',
       })
     } finally {
@@ -301,18 +304,23 @@ export default function Page() {
       ? Math.round((contacted / activePipeline) * 100)
       : 0
   const isFreeViewer = isGuest || (!profileLoading && isFree)
-  const freeLeadLimit = usageSummary?.leadsLimit ?? 25
+  const freeLeadLimit = usageSummary?.leadsLimit ?? getPlanLeadLimit('free')
 
-  if (!isGuest && (profileLoading || !plan)) {
-    return <div className="text-slate-400">Loading dashboard...</div>
+  if (!isGuest && !plan) {
+    return null
   }
 
   if (!hasAnyLeads) {
     return (
       <div className="space-y-10">
         <div className="glass rounded-[28px] p-10">
-          <h2 className="text-3xl font-semibold text-white">Start finding your first leads</h2>
-          <p className="mt-4 text-slate-400">Run your first search and we&apos;ll bring the next step into focus.</p>
+          <h2 className="text-3xl font-semibold text-white">Your system is ready.</h2>
+          <p className="mt-4 text-slate-400">Run your first search and start building your pipeline.</p>
+          <div className="mt-6 space-y-2 text-sm text-slate-300">
+            <div>• Find leads</div>
+            <div>• Contact them</div>
+            <div>• Close clients</div>
+          </div>
           <div className="mt-8">
             <Link
               href="/dashboard/scraper"
@@ -326,6 +334,7 @@ export default function Page() {
           loading={usageLoading}
           plan={usageSummary?.plan}
           subscriptionStatus={usageSummary?.subscriptionStatus}
+          currentPeriodStart={usageSummary?.currentPeriodStart}
           currentPeriodEnd={usageSummary?.currentPeriodEnd}
           leadsUsed={usageSummary?.leadsUsed}
           leadsLimit={usageSummary?.leadsLimit}
@@ -373,6 +382,7 @@ export default function Page() {
           loading={usageLoading}
           plan={usageSummary?.plan}
           subscriptionStatus={usageSummary?.subscriptionStatus}
+          currentPeriodStart={usageSummary?.currentPeriodStart}
           currentPeriodEnd={usageSummary?.currentPeriodEnd}
           leadsUsed={usageSummary?.leadsUsed}
           leadsLimit={usageSummary?.leadsLimit}
@@ -457,6 +467,7 @@ export default function Page() {
         loading={usageLoading}
         plan={usageSummary?.plan}
         subscriptionStatus={usageSummary?.subscriptionStatus}
+        currentPeriodStart={usageSummary?.currentPeriodStart}
         currentPeriodEnd={usageSummary?.currentPeriodEnd}
         leadsUsed={usageSummary?.leadsUsed}
         leadsLimit={usageSummary?.leadsLimit}

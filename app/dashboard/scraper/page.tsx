@@ -250,6 +250,7 @@ export default function Page() {
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [showValidation, setShowValidation] = useState(false)
+  const [usageLoading, setUsageLoading] = useState(false)
 
   const [elapsed, setElapsed] = useState(0)
   const [finalElapsed, setFinalElapsed] = useState<number | null>(null)
@@ -262,25 +263,18 @@ export default function Page() {
   const cityRef = useRef<HTMLInputElement | null>(null)
   const isGuest = viewerMode === 'guest_trial'
   const isAuthenticated = viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid'
-  const plan = isGuest ? 'free' : profile?.plan ?? null
-  const isPlanReady = Boolean(plan)
-  const isFree = plan === 'free'
+  const plan = profile?.plan ?? null
+  const resolvedPlan = plan || 'free'
+  const isFree = isGuest || plan === 'free'
+  const isPlanLoading = !isGuest && (viewerMode === 'resolving' || profileLoading || !plan)
   const requestedLeadCount = Number(maxLeads)
-  const freeUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
-  let leadLimit: number | null = null
-  let usageCount: number | null = null
-
-  if (plan) {
-    leadLimit = getLeadLimit(plan)
-    usageCount = isFree ? freeUsageCount : authenticatedLeadCount
-  }
-
-  const safeLeadLimit = leadLimit ?? 25
-  const safeUsageCount = usageCount ?? 0
-  const usageState = isPlanReady ? getUsageState(safeUsageCount, safeLeadLimit) : 'normal'
+  const resolvedLeadLimit = getLeadLimit(resolvedPlan)
+  const resolvedUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
+  const usageState =
+    !isPlanLoading ? getUsageState(resolvedUsageCount, resolvedLeadLimit) : 'normal'
   const usageBlocked = usageState === 'blocked'
   const usageWarning = usageState === 'warning'
-  const freeUsageWarning = isPlanReady && isFree && (usageWarning || usageBlocked)
+  const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
   const locationTarget = city.trim() || region.trim() || country.trim()
@@ -396,18 +390,11 @@ export default function Page() {
   }, [toastMessage])
 
   useEffect(() => {
-    console.log('PLAN UPDATED:', plan)
-  }, [plan])
-
-  useEffect(() => {
-    console.log('SCRAPER PLAN STATE:', {
+    console.log('SCRAPER LOAD:', {
       plan,
-      isPlanReady,
-      isFree,
-      leadLimit,
-      usageCount,
+      usage: isGuest ? guestLeadCount : authenticatedLeadCount,
     })
-  }, [isFree, isPlanReady, leadLimit, plan, usageCount])
+  }, [authenticatedLeadCount, guestLeadCount, isGuest, plan])
 
   useEffect(() => {
     if (displayedDiscovered === discovered) return
@@ -504,6 +491,7 @@ export default function Page() {
       setGuestLeadCount(nextGuestLeadCount)
       setSessionSavedLeads(getGuestLeads())
       setAuthenticatedLeadCount(0)
+      setUsageLoading(false)
       return
     }
 
@@ -545,6 +533,7 @@ export default function Page() {
   async function refreshAuthenticatedUsage(userId: string, planOverride?: string) {
     const effectivePlan = planOverride ?? profile?.plan
     if (!effectivePlan) return
+    setUsageLoading(true)
     const freePlan = effectivePlan === 'free'
 
     if (freePlan) {
@@ -556,6 +545,7 @@ export default function Page() {
 
       if (error) {
         console.error('Usage count failed:', error.message)
+        setUsageLoading(false)
         return
       }
 
@@ -567,6 +557,7 @@ export default function Page() {
       })
       setAuthenticatedLeadCount(nextCount)
       writeStoredUsage(userId, nextCount, effectivePlan)
+      setUsageLoading(false)
       return
     }
 
@@ -583,6 +574,7 @@ export default function Page() {
 
     if (error) {
       console.error('Usage lookup failed:', error.message)
+      setUsageLoading(false)
       return
     }
 
@@ -594,6 +586,7 @@ export default function Page() {
     })
     setAuthenticatedLeadCount(nextCount)
     writeStoredUsage(userId, nextCount, effectivePlan)
+    setUsageLoading(false)
   }
 
   function finish(customActivity?: string) {
@@ -646,7 +639,7 @@ export default function Page() {
       setShowSendLeadsModal(false)
       setToastMessage('')
       setActivity('Finding businesses...')
-      runStartUsageRef.current = safeUsageCount
+      runStartUsageRef.current = resolvedUsageCount
 
       const payload = {
         query: businessType.trim(),
@@ -817,10 +810,10 @@ export default function Page() {
         })
         setSessionSavedLeads(sessionLeads)
 
-        const nextUsage = Math.min(safeLeadLimit, runStartUsageRef.current + finalResult.addedCount)
-        const shouldShowLimitModal = nextUsage >= safeLeadLimit
+        const nextUsage = Math.min(resolvedLeadLimit, runStartUsageRef.current + finalResult.addedCount)
+        const shouldShowLimitModal = nextUsage >= resolvedLeadLimit
         const shouldShowPartialCompletionModal =
-          finalResult.addedCount > 0 && nextUsage < safeLeadLimit
+          finalResult.addedCount > 0 && nextUsage < resolvedLeadLimit
 
         if (
           !shouldShowPartialCompletionModal &&
@@ -886,20 +879,18 @@ export default function Page() {
         </div>
         <h1 className="mt-2 text-4xl font-bold text-white">Prospector Engine</h1>
         <p className="mt-2 text-slate-400">
-          {plan
-            ? isFree
-              ? 'Discover and enrich businesses instantly. Your free plan stores up to 25 leads.'
-              : `Discover and enrich businesses instantly. Your plan allows up to ${leadLimit} leads per month.`
-            : 'Loading your plan...'}
+          {isPlanLoading
+            ? 'Loading your plan...'
+            : isFree
+            ? 'Discover and enrich businesses instantly. Your free plan stores up to 25 leads.'
+            : `Discover and enrich businesses instantly. Your plan allows up to ${resolvedLeadLimit} leads per month.`}
         </p>
-        {!isPlanReady ? (
-          <p className="mt-2 text-sm text-slate-500">Preparing your workspace...</p>
-        ) : null}
+        {isPlanLoading ? <div className="mt-2 text-sm text-slate-500">Preparing your workspace...</div> : null}
       </div>
 
       {freeUsageWarning ? (
         <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-cyan-100">
-          {getUsageWarningMessage(safeUsageCount, safeLeadLimit)}
+          {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
         </div>
       ) : null}
 
@@ -985,7 +976,11 @@ export default function Page() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-          <span>{plan ? `Usage: ${safeUsageCount} / ${formatLeadLimit(safeLeadLimit)} leads this month` : 'Loading usage...'}</span>
+          <span>
+            {isPlanLoading || usageLoading
+              ? 'Loading usage...'
+              : `Usage: ${resolvedUsageCount} / ${formatLeadLimit(resolvedLeadLimit)} leads this month`}
+          </span>
         </div>
 
         {validationMessage ? (

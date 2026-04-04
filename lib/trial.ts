@@ -11,7 +11,7 @@ export type TrialLead = {
   industry: string | null
   email: string | null
   email_source: string | null
-  email_confidence: 'high' | 'medium' | 'low' | null
+  email_confidence?: 'high' | 'medium' | 'low' | null
   is_generic_email: boolean
   phone: string | null
   website: string | null
