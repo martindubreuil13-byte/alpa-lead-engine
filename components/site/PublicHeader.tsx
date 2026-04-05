@@ -7,6 +7,8 @@ type PublicHeaderProps = {
 }
 
 const navItems = [
+  { href: '/about', label: 'About' },
+  { href: '/resources', label: 'Resources' },
   { href: '/plans', label: 'Plans' },
 ]
 

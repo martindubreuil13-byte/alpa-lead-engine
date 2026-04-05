@@ -152,6 +152,16 @@ export default function LeadGenerationToolsPage() {
             workflows that are too complex to sustain.
           </p>
 
+          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
+            Choosing a lead generation tool is not about features. It&apos;s about finding
+            something that fits the way you actually prospect.
+          </p>
+
+          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
+            This page focuses on how to evaluate tools and avoid adding unnecessary complexity to
+            your workflow.
+          </p>
+
           <div className="mt-10 space-y-10 sm:mt-12 sm:space-y-12">
             <Section title="Types of lead generation tools">
               <ul className="space-y-4">

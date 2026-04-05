@@ -24,6 +24,20 @@ const howItWorks = [
   'Start reaching out',
 ]
 const heroSteps = ['Define your target', 'Select your location', 'Get verified leads in seconds']
+const startHereLinks = [
+  {
+    title: 'How to find business leads',
+    href: '/resources/how-to-find-business-leads',
+  },
+  {
+    title: 'How to qualify leads',
+    href: '/resources/how-to-qualify-leads',
+  },
+  {
+    title: 'Build a lead generation system',
+    href: '/resources/lead-generation-system',
+  },
+]
 const ctaBaseClass =
   'inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl px-6 text-base font-semibold tracking-[-0.01em] transition-all duration-200 sm:min-h-[58px] sm:px-7'
 const primaryCtaClass = `${ctaBaseClass} border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]`
@@ -110,6 +124,30 @@ export default function HomePage() {
                 <FloatingLeadShowcase />
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative px-4 py-12 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">
+            Start here
+          </h2>
+          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {startHereLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="group rounded-[28px] border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/15 hover:bg-white/[0.05]"
+              >
+                <h3 className="text-lg font-semibold tracking-[-0.02em] text-white transition group-hover:text-cyan-100">
+                  {item.title}
+                </h3>
+                <div className="mt-4 text-sm font-medium text-cyan-200 transition group-hover:text-white">
+                  Read guide →
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
       </section>
