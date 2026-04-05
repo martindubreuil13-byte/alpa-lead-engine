@@ -5,6 +5,7 @@ import FloatingLeadShowcase from '@/components/landing/FloatingLeadShowcase'
 import FreshStartCta from '@/components/landing/FreshStartCta'
 import LiveLogPanel from '@/components/landing/LiveLogPanel'
 import PublicHeader from '@/components/site/PublicHeader'
+import ResourcesFooter from '@/components/site/ResourcesFooter'
 
 export const metadata: Metadata = {
   title: {
@@ -69,28 +70,30 @@ export default function HomePage() {
               A modern lead generation platform designed to help freelancers, agencies, and sales teams discover and contact the right businesses faster.
             </p>
 
-            <div className="mt-8 grid w-full max-w-[34rem] gap-3 sm:mt-10 sm:grid-cols-2 sm:items-start">
-              <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
-              <Link href="/plans" className={secondaryCtaClass}>
-                View Plans
-              </Link>
-            </div>
+            <div className="mt-8 flex w-full max-w-3xl flex-col items-start gap-4 sm:mt-10">
+              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+                <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
+                <Link href="/plans" className={secondaryCtaClass}>
+                  View Plans
+                </Link>
+              </div>
 
-            <ul className="mt-6 flex flex-col items-start gap-2 text-sm text-slate-400 sm:mt-8 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-2">
-              {heroSteps.map((step, index) => (
-                <li key={step} className="flex items-center gap-3">
-                  <span>{step}</span>
-                  {index < heroSteps.length - 1 ? (
-                    <span className="text-slate-600" aria-hidden="true">
-                      →
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+              <ul className="flex w-full max-w-3xl flex-col items-start gap-2 text-left text-sm text-slate-400 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-2">
+                {heroSteps.map((step, index) => (
+                  <li key={step} className="flex items-center gap-3">
+                    <span>{step}</span>
+                    {index < heroSteps.length - 1 ? (
+                      <span className="text-slate-600" aria-hidden="true">
+                        →
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
 
-            <div className="mt-4 text-center text-xs text-slate-500">
-              No signup required • No credit card required
+              <p className="text-left text-sm text-slate-400">
+                No signup required • No credit card required
+              </p>
             </div>
           </div>
 
@@ -170,19 +173,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="relative px-4 pb-14 pt-2 sm:px-6 sm:pb-16 lg:px-10 lg:pb-20">
-        <div className="mx-auto max-w-5xl border-t border-white/8 pt-6">
-          <h2 className="text-sm font-medium tracking-tight text-slate-300">Resources</h2>
-          <div className="mt-3">
-            <Link
-              href="/resources/lead-generation-for-freelancers"
-              className="text-sm text-slate-400 transition hover:text-white"
-            >
-              Lead generation for freelancers →
-            </Link>
-          </div>
-        </div>
-      </section>
+      <ResourcesFooter />
     </main>
   )
 }

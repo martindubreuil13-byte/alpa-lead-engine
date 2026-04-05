@@ -7,68 +7,74 @@ import PublicHeader from '@/components/site/PublicHeader'
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lead Generation for Freelancers | ALPA',
+    absolute: 'Find Local Business Leads | ALPA',
   },
   description:
-    'Learn how lead generation for freelancers works, why finding clients is difficult, and how to find verified business leads faster.',
+    'Learn how to find local business leads in a specific city or region, why manual local lead generation is slow, and how to speed it up.',
   alternates: {
-    canonical: '/resources/lead-generation-for-freelancers',
+    canonical: '/resources/find-local-business-leads',
   },
 }
 
-const leadSources = [
+const leadMethods = [
   {
-    title: 'Job platforms',
+    title: 'Google Maps',
     description:
-      'Job platforms put active demand in one place. They are easy to start with, but competition is high and pricing pressure is common.',
+      'Google Maps is one of the most common starting points for local lead generation. It shows businesses by location, but it still leaves a lot of manual checking to do.',
   },
   {
-    title: 'Cold outreach',
+    title: 'Business directories',
     description:
-      'Cold outreach gives freelancers more control over who they contact. The hard part is finding relevant businesses quickly enough.',
+      'Directories can help surface local companies quickly. The downside is that listings are often outdated, broad, or missing useful contact details.',
+  },
+  {
+    title: 'Manual searches',
+    description:
+      'Manual searches give you control over niche and location. They also slow the process down because every result still needs review.',
   },
   {
     title: 'Referrals',
     description:
-      'Referrals often bring strong-fit leads. The problem is that referrals are inconsistent and hard to scale on their own.',
+      'Referrals can uncover strong local opportunities, especially in service-based markets. They are valuable, but they are difficult to scale consistently.',
   },
   {
-    title: 'Lead generation tools',
+    title: 'Tools',
     description:
-      'Lead generation tools help freelancers discover businesses and contact details faster. That makes outreach more consistent and less manual.',
+      'Lead generation tools help you narrow by market and location faster. That reduces the time spent hunting through raw search results.',
   },
 ]
 
-const clientChallenges = [
-  'Inconsistent demand makes it hard to rely on one source of work.',
-  'Manual searching takes time away from paid client work.',
-  'Low-quality leads create wasted outreach and weak reply rates.',
+const inefficiencies = [
+  'Manual filtering becomes repetitive when every business has to be checked one by one.',
+  'Contact data is often incomplete, unclear, or spread across different pages.',
+  'The process is slow, which delays outreach and weakens consistency.',
 ]
 
 const faqItems = [
   {
-    question: 'What is ALPA?',
+    question: 'What are local business leads?',
     answer:
-      'ALPA is a lead generation platform that helps you find verified business contacts quickly.',
+      'Local business leads are companies within a specific city, region, or service area that may realistically need your service.',
   },
   {
-    question: 'How does ALPA find leads?',
+    question: 'How do you find leads in a specific city?',
     answer:
-      'ALPA scans and aggregates business data, then filters and verifies usable contact details.',
+      'The clearest way is to combine a target market with a target location, then build a list of businesses that match both filters.',
   },
   {
-    question: 'What is a verified lead?',
+    question: 'Is Google Maps enough for finding leads?',
     answer:
-      'A verified lead includes confirmed business information with usable contact details such as email or website.',
+      'Google Maps is useful, but it usually requires too much manual filtering if you need a repeatable lead generation process.',
   },
   {
-    question: 'Do I need to create an account?',
-    answer: 'No, you can start with 25 free leads without signing up.',
+    question: 'How can I target businesses by location?',
+    answer:
+      'You can target by city, region, or service area, then narrow further by niche so your outreach is more relevant.',
   },
   {
-    question: 'Who is ALPA best for?',
+    question: 'What makes a good local lead?',
     answer:
-      'Freelancers, agencies, and small teams looking to find and contact potential clients faster.',
+      'A good local lead matches your niche, falls inside your target area, and includes usable contact details so you can act on it quickly.',
   },
 ]
 
@@ -94,7 +100,7 @@ function Section({
   )
 }
 
-export default function LeadGenerationForFreelancersPage() {
+export default function FindLocalBusinessLeadsPage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
       <script
@@ -129,24 +135,24 @@ export default function LeadGenerationForFreelancersPage() {
           </div>
 
           <h1 className="mt-6 text-[2.25rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:mt-8 sm:text-[3.5rem] lg:text-[4.4rem]">
-            Lead Generation for Freelancers
+            Find Local Business Leads
           </h1>
 
           <p className="mt-6 text-lg leading-8 text-slate-100 sm:text-2xl sm:leading-9">
-            Most freelancers don&apos;t struggle to get work.
+            Finding local business leads isn&apos;t difficult.
             <br />
-            They struggle to get clients consistently.
+            Finding the right businesses in the right location quickly is.
           </p>
 
           <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            Lead generation for freelancers is the process of finding and connecting with
-            potential clients who need your services.
+            Finding local business leads is the process of identifying companies within a
+            specific city, region, or area that are likely to need your services.
           </p>
 
           <div className="mt-10 space-y-10 sm:mt-12 sm:space-y-12">
-            <Section title="How freelancers get leads">
+            <Section title="How people find local leads in practice">
               <ul className="space-y-4">
-                {leadSources.map((item) => (
+                {leadMethods.map((item) => (
                   <li key={item.title}>
                     <h3 className="text-lg font-semibold tracking-[-0.02em] text-white">{item.title}</h3>
                     <p className="mt-2 text-sm leading-7 text-slate-300 sm:text-base">{item.description}</p>
@@ -155,9 +161,24 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="Why finding clients is difficult">
+            <Section title="The local search problem">
+              <p>
+                Local searches often return too many businesses that are technically nearby but not
+                actually relevant to your offer.
+              </p>
+              <p>
+                Most search tools also do a poor job of filtering by real buying intent, so you
+                still have to judge whether each company is worth contacting.
+              </p>
+              <p>
+                That means time gets lost checking websites, categories, and contact pages one by
+                one before outreach can even begin.
+              </p>
+            </Section>
+
+            <Section title="Why local lead generation is inefficient">
               <ul className="list-outside list-disc space-y-3 pl-5 marker:text-slate-500">
-                {clientChallenges.map((item) => (
+                {inefficiencies.map((item) => (
                   <li key={item} className="text-sm leading-7 text-slate-300 sm:text-base">
                     {item}
                   </li>
@@ -165,43 +186,48 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="A faster way to find business leads">
+            <Section title="A better way to find local business leads">
               <p>
-                Manual prospecting is slow because freelancers have to search for businesses,
-                check websites, and decide whether the contact details are worth using.
+                The old model is slow: search, scroll, filter, then verify. Every result needs
+                more manual work before it becomes usable.
               </p>
               <p>
-                Lead generation tools are faster because they reduce the amount of manual research
-                needed before outreach starts.
+                The newer model is simpler: define location, generate leads, then contact. That
+                reduces the time spent sorting through irrelevant businesses.
               </p>
               <p>
-                ALPA gives freelancers a simpler way to find business leads with verified contact
-                details, so less time goes into searching and more time goes into reaching out.
+                ALPA fits that workflow. You choose the target, select the location, and generate
+                leads quickly instead of checking businesses one by one.
               </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"
                   className="text-sm font-medium text-cyan-200 transition hover:text-white"
                 >
-                  Start with 25 free leads and see how quickly you can build a pipeline →
+                  Start with 25 free leads and find businesses in your target location →
                 </Link>
               </p>
             </Section>
 
-            <Section title="What is a verified lead?">
+            <Section title="How location targeting changes lead generation">
               <p>
-                A verified lead is a business contact with confirmed company information and usable
-                contact details, such as an email address, website, or another valid way to get in touch.
+                Location targeting helps you work from a smaller and more relevant pool of businesses.
               </p>
               <p>
-                Better lead quality means freelancers spend less time chasing bad data and more
-                time talking to real prospects.
+                Combining niche plus location makes outreach more specific, whether you are targeting
+                restaurants in one city or contractors in one region.
+              </p>
+              <p>
+                That usually leads to faster prospecting, clearer messaging, and a more focused
+                pipeline.
               </p>
             </Section>
 
             <section className="border-t border-white/8 pt-12 sm:pt-16">
               <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white sm:text-3xl">
-                Stop searching for leads. Start building a pipeline.
+                Stop searching for local businesses one by one.
+                <br />
+                Start building a pipeline in your target location.
               </h2>
 
               <div className="mt-6 flex flex-col gap-3">

@@ -7,42 +7,42 @@ import PublicHeader from '@/components/site/PublicHeader'
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lead Generation for Freelancers | ALPA',
+    absolute: 'Lead Generation for Agencies | ALPA',
   },
   description:
-    'Learn how lead generation for freelancers works, why finding clients is difficult, and how to find verified business leads faster.',
+    'Learn how lead generation for agencies works, why consistent client acquisition is difficult, and how to find verified business leads faster.',
   alternates: {
-    canonical: '/resources/lead-generation-for-freelancers',
+    canonical: '/resources/lead-generation-for-agencies',
   },
 }
 
 const leadSources = [
   {
-    title: 'Job platforms',
-    description:
-      'Job platforms put active demand in one place. They are easy to start with, but competition is high and pricing pressure is common.',
-  },
-  {
-    title: 'Cold outreach',
-    description:
-      'Cold outreach gives freelancers more control over who they contact. The hard part is finding relevant businesses quickly enough.',
-  },
-  {
     title: 'Referrals',
     description:
-      'Referrals often bring strong-fit leads. The problem is that referrals are inconsistent and hard to scale on their own.',
+      'Many agencies grow through referrals because trust is already established. The problem is that referrals are difficult to predict and rarely create steady pipeline coverage.',
+  },
+  {
+    title: 'Outbound outreach',
+    description:
+      'Outbound gives agencies more control over who they target. It works best when the agency already has a clear niche and a strong list of businesses to contact.',
+  },
+  {
+    title: 'Partnerships and networks',
+    description:
+      'Partnerships can open warm introductions and repeat opportunities. They are valuable, but they still depend on other people sending the next lead.',
   },
   {
     title: 'Lead generation tools',
     description:
-      'Lead generation tools help freelancers discover businesses and contact details faster. That makes outreach more consistent and less manual.',
+      'Lead generation tools help agencies find businesses and contact details faster. That makes prospecting more repeatable and less dependent on one channel.',
   },
 ]
 
 const clientChallenges = [
-  'Inconsistent demand makes it hard to rely on one source of work.',
-  'Manual searching takes time away from paid client work.',
-  'Low-quality leads create wasted outreach and weak reply rates.',
+  'Referral-heavy growth creates uneven demand from month to month.',
+  'Manual research slows down outreach and takes time away from delivery.',
+  'Low-quality leads create wasted follow-up and poor-fit conversations.',
 ]
 
 const faqItems = [
@@ -57,18 +57,18 @@ const faqItems = [
       'ALPA scans and aggregates business data, then filters and verifies usable contact details.',
   },
   {
-    question: 'What is a verified lead?',
+    question: 'Who is ALPA best for?',
     answer:
-      'A verified lead includes confirmed business information with usable contact details such as email or website.',
+      'ALPA is best for freelancers, agencies, and small teams that need a more consistent flow of business leads.',
   },
   {
     question: 'Do I need to create an account?',
     answer: 'No, you can start with 25 free leads without signing up.',
   },
   {
-    question: 'Who is ALPA best for?',
+    question: 'What makes a lead valuable?',
     answer:
-      'Freelancers, agencies, and small teams looking to find and contact potential clients faster.',
+      'A valuable lead matches your target market and includes usable contact details so your outreach can start quickly.',
   },
 ]
 
@@ -94,7 +94,7 @@ function Section({
   )
 }
 
-export default function LeadGenerationForFreelancersPage() {
+export default function LeadGenerationForAgenciesPage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
       <script
@@ -129,22 +129,22 @@ export default function LeadGenerationForFreelancersPage() {
           </div>
 
           <h1 className="mt-6 text-[2.25rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:mt-8 sm:text-[3.5rem] lg:text-[4.4rem]">
-            Lead Generation for Freelancers
+            Lead Generation for Agencies
           </h1>
 
           <p className="mt-6 text-lg leading-8 text-slate-100 sm:text-2xl sm:leading-9">
-            Most freelancers don&apos;t struggle to get work.
+            Most agencies don&apos;t struggle to deliver results.
             <br />
-            They struggle to get clients consistently.
+            They struggle to maintain a consistent flow of new clients.
           </p>
 
           <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            Lead generation for freelancers is the process of finding and connecting with
-            potential clients who need your services.
+            Lead generation for agencies is the process of finding and connecting with businesses
+            that are likely to need your services before they actively start searching.
           </p>
 
           <div className="mt-10 space-y-10 sm:mt-12 sm:space-y-12">
-            <Section title="How freelancers get leads">
+            <Section title="How agencies get leads">
               <ul className="space-y-4">
                 {leadSources.map((item) => (
                   <li key={item.title}>
@@ -155,7 +155,7 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="Why finding clients is difficult">
+            <Section title="Why it&apos;s difficult">
               <ul className="list-outside list-disc space-y-3 pl-5 marker:text-slate-500">
                 {clientChallenges.map((item) => (
                   <li key={item} className="text-sm leading-7 text-slate-300 sm:text-base">
@@ -165,18 +165,18 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="A faster way to find business leads">
+            <Section title="A better way to find business leads">
               <p>
-                Manual prospecting is slow because freelancers have to search for businesses,
-                check websites, and decide whether the contact details are worth using.
+                Manual prospecting is slow because agencies have to define targets, search through
+                businesses, and decide whether the contact details are worth using.
               </p>
               <p>
-                Lead generation tools are faster because they reduce the amount of manual research
-                needed before outreach starts.
+                Lead generation tools are faster because they reduce the manual research needed
+                before outreach begins.
               </p>
               <p>
-                ALPA gives freelancers a simpler way to find business leads with verified contact
-                details, so less time goes into searching and more time goes into reaching out.
+                ALPA gives agencies a simpler way to find business leads with verified contact
+                details, so less time goes into searching and more time goes into building a healthy pipeline.
               </p>
               <p className="pt-2">
                 <Link
@@ -191,11 +191,11 @@ export default function LeadGenerationForFreelancersPage() {
             <Section title="What is a verified lead?">
               <p>
                 A verified lead is a business contact with confirmed company information and usable
-                contact details, such as an email address, website, or another valid way to get in touch.
+                details, such as an email address, website, or another clear way to get in touch.
               </p>
               <p>
-                Better lead quality means freelancers spend less time chasing bad data and more
-                time talking to real prospects.
+                Better lead quality means agencies spend less time cleaning bad data and more time
+                starting real conversations with relevant prospects.
               </p>
             </Section>
 

@@ -7,68 +7,74 @@ import PublicHeader from '@/components/site/PublicHeader'
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lead Generation for Freelancers | ALPA',
+    absolute: 'How to Find Business Leads | ALPA',
   },
   description:
-    'Learn how lead generation for freelancers works, why finding clients is difficult, and how to find verified business leads faster.',
+    'Learn practical ways to find business leads consistently, why manual lead generation takes so much time, and how to speed up the process.',
   alternates: {
-    canonical: '/resources/lead-generation-for-freelancers',
+    canonical: '/resources/how-to-find-business-leads',
   },
 }
 
-const leadSources = [
+const leadMethods = [
   {
     title: 'Job platforms',
     description:
-      'Job platforms put active demand in one place. They are easy to start with, but competition is high and pricing pressure is common.',
+      'Job platforms surface active demand quickly. They can work well, but competition is high and many opportunities are already crowded.',
   },
   {
-    title: 'Cold outreach',
+    title: 'Outreach',
     description:
-      'Cold outreach gives freelancers more control over who they contact. The hard part is finding relevant businesses quickly enough.',
+      'Direct outreach gives you more control over who you contact. The challenge is building a strong list before the outreach even begins.',
   },
   {
     title: 'Referrals',
     description:
-      'Referrals often bring strong-fit leads. The problem is that referrals are inconsistent and hard to scale on their own.',
+      'Referrals often bring high-trust opportunities. They are useful, but they rarely create a predictable system for finding leads every week.',
   },
   {
-    title: 'Lead generation tools',
+    title: 'Manual research',
     description:
-      'Lead generation tools help freelancers discover businesses and contact details faster. That makes outreach more consistent and less manual.',
+      'Manual research means searching through directories, websites, and maps to build your own list. It works, but it is slow and repetitive.',
+  },
+  {
+    title: 'Tools',
+    description:
+      'Lead generation tools help you move faster by reducing the time spent searching, filtering, and organizing contact data.',
   },
 ]
 
-const clientChallenges = [
-  'Inconsistent demand makes it hard to rely on one source of work.',
-  'Manual searching takes time away from paid client work.',
-  'Low-quality leads create wasted outreach and weak reply rates.',
+const inefficiencies = [
+  'The work is repetitive and hard to scale when you need leads every week.',
+  'Low-quality or incomplete data creates wasted follow-up and weak reply rates.',
+  'The overall process is slow, which means less time is left for outreach and closing.',
 ]
 
 const faqItems = [
   {
-    question: 'What is ALPA?',
+    question: 'What is a business lead?',
     answer:
-      'ALPA is a lead generation platform that helps you find verified business contacts quickly.',
+      'A business lead is a company or person that could realistically need your service and may be worth contacting.',
   },
   {
-    question: 'How does ALPA find leads?',
+    question: 'How do you find leads quickly?',
     answer:
-      'ALPA scans and aggregates business data, then filters and verifies usable contact details.',
+      'The fastest way is to define your target clearly, narrow by location or market, and use a structured process or tool to generate relevant contacts.',
   },
   {
-    question: 'What is a verified lead?',
+    question: 'What is the best method for finding leads?',
     answer:
-      'A verified lead includes confirmed business information with usable contact details such as email or website.',
+      'The best method is usually the one you can repeat consistently. For many teams, that means combining clear targeting with a faster lead generation workflow.',
   },
   {
-    question: 'Do I need to create an account?',
-    answer: 'No, you can start with 25 free leads without signing up.',
+    question: 'Do I need tools to find leads?',
+    answer:
+      'No, but tools can save a significant amount of time. Manual research works, though it often takes too much time to sustain consistently.',
   },
   {
-    question: 'Who is ALPA best for?',
+    question: 'What makes a lead valuable?',
     answer:
-      'Freelancers, agencies, and small teams looking to find and contact potential clients faster.',
+      'A valuable lead matches your target market and includes usable contact details so you can act on it quickly.',
   },
 ]
 
@@ -94,7 +100,7 @@ function Section({
   )
 }
 
-export default function LeadGenerationForFreelancersPage() {
+export default function HowToFindBusinessLeadsPage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
       <script
@@ -129,24 +135,24 @@ export default function LeadGenerationForFreelancersPage() {
           </div>
 
           <h1 className="mt-6 text-[2.25rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:mt-8 sm:text-[3.5rem] lg:text-[4.4rem]">
-            Lead Generation for Freelancers
+            How to Find Business Leads
           </h1>
 
           <p className="mt-6 text-lg leading-8 text-slate-100 sm:text-2xl sm:leading-9">
-            Most freelancers don&apos;t struggle to get work.
+            Finding business leads isn&apos;t the hardest part.
             <br />
-            They struggle to get clients consistently.
+            Finding the right leads consistently is.
           </p>
 
           <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            Lead generation for freelancers is the process of finding and connecting with
-            potential clients who need your services.
+            Finding business leads is the process of identifying companies or individuals that are
+            likely to need your product or service.
           </p>
 
           <div className="mt-10 space-y-10 sm:mt-12 sm:space-y-12">
-            <Section title="How freelancers get leads">
+            <Section title="How people find leads in practice">
               <ul className="space-y-4">
-                {leadSources.map((item) => (
+                {leadMethods.map((item) => (
                   <li key={item.title}>
                     <h3 className="text-lg font-semibold tracking-[-0.02em] text-white">{item.title}</h3>
                     <p className="mt-2 text-sm leading-7 text-slate-300 sm:text-base">{item.description}</p>
@@ -155,9 +161,24 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="Why finding clients is difficult">
+            <Section title="The time reality of manual lead generation">
+              <p>
+                For many freelancers, agencies, and small business owners, lead generation can
+                consume a large share of the week before any outreach starts.
+              </p>
+              <p>
+                In practice, it often takes up 20 to 40 percent of working time once searching,
+                filtering, and validating contacts are included.
+              </p>
+              <p>
+                That creates a real tradeoff: more time spent finding leads usually means less time
+                spent following up, closing deals, and serving paying clients.
+              </p>
+            </Section>
+
+            <Section title="Why this is inefficient">
               <ul className="list-outside list-disc space-y-3 pl-5 marker:text-slate-500">
-                {clientChallenges.map((item) => (
+                {inefficiencies.map((item) => (
                   <li key={item} className="text-sm leading-7 text-slate-300 sm:text-base">
                     {item}
                   </li>
@@ -165,18 +186,25 @@ export default function LeadGenerationForFreelancersPage() {
               </ul>
             </Section>
 
-            <Section title="A faster way to find business leads">
+            <Section title="Old vs new lead generation">
               <p>
-                Manual prospecting is slow because freelancers have to search for businesses,
-                check websites, and decide whether the contact details are worth using.
+                The old model is slow: search, filter, verify, then contact. Every step depends on
+                more manual work before you can send the first message.
               </p>
               <p>
-                Lead generation tools are faster because they reduce the amount of manual research
-                needed before outreach starts.
+                The newer model is simpler: define, generate, then contact. That reduces the time
+                spent preparing and increases the time spent actually reaching prospects.
+              </p>
+            </Section>
+
+            <Section title="A better way to find business leads">
+              <p>
+                ALPA is built around a simpler workflow. You define your target, select the
+                location you care about, and generate leads quickly.
               </p>
               <p>
-                ALPA gives freelancers a simpler way to find business leads with verified contact
-                details, so less time goes into searching and more time goes into reaching out.
+                That means less manual searching and a faster path to a list you can actually use
+                for outreach.
               </p>
               <p className="pt-2">
                 <Link
@@ -185,17 +213,6 @@ export default function LeadGenerationForFreelancersPage() {
                 >
                   Start with 25 free leads and see how quickly you can build a pipeline →
                 </Link>
-              </p>
-            </Section>
-
-            <Section title="What is a verified lead?">
-              <p>
-                A verified lead is a business contact with confirmed company information and usable
-                contact details, such as an email address, website, or another valid way to get in touch.
-              </p>
-              <p>
-                Better lead quality means freelancers spend less time chasing bad data and more
-                time talking to real prospects.
               </p>
             </Section>
 
