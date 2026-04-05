@@ -143,7 +143,7 @@ export default function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-[#0b1220] text-white">
-      <aside className="flex w-64 flex-col border-r border-white/5 bg-[#0f172a] p-6">
+      <aside className="hidden w-64 flex-col border-r border-white/5 bg-[#0f172a] p-6 md:flex">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-emerald-400 text-lg font-bold text-black shadow-lg shadow-cyan-500/20">
             A
@@ -234,7 +234,7 @@ export default function DashboardShell({
         </div>
       </aside>
 
-      <main className="flex flex-1 flex-col p-10">
+      <main className="flex flex-1 flex-col p-4 sm:p-6 md:p-10">
         <div className="mx-auto w-full max-w-7xl flex-1">{children}</div>
         <footer className="mx-auto mt-10 w-full max-w-5xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500">
           Need help or have a question? Reach us at{' '}
