@@ -87,8 +87,35 @@ function translateActivity(msg: string) {
   return null
 }
 
+function formatLeadWebsite(website: string | null) {
+  if (!website) return null
+
+  try {
+    const normalized = website.startsWith('http') ? website : `https://${website}`
+    return new URL(normalized).hostname.replace(/^www\./, '')
+  } catch {
+    return website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || null
+  }
+}
+
+function formatLeadDiscoveryLine(lead: TrialLead, fallbackLocation: string) {
+  const name = lead.company_name?.trim()
+  const city = lead.city?.trim()
+  const website = formatLeadWebsite(lead.website)
+
+  if (!name) {
+    const location = city || fallbackLocation || 'Unknown location'
+    return `✓ Business found — ${location}`
+  }
+
+  const base = city ? `✓ ${name} — ${city}` : `✓ ${name}`
+  return website ? `${base} (${website})` : base
+}
+
 function formatReadableLog(msg: string) {
   if (!msg || isHiddenSystemLog(msg) || msg === '🟢 stream started') return null
+
+  if (msg.startsWith('✓ ')) return msg
 
   const translated = translateActivity(msg)
   if (translated) return translated
@@ -103,8 +130,8 @@ function formatReadableLog(msg: string) {
     return `${enrichedMatch[1]} contacts enriched`
   }
 
-  if (msg.includes('📥')) return 'Business added to the results feed'
-  if (msg.includes('✨')) return 'Contact details enriched'
+  if (msg.includes('📥')) return null
+  if (msg.includes('✨')) return null
   if (msg.includes('🛑 Mission aborted')) return 'Search stopped'
   if (msg.startsWith('❌')) return msg.replace(/^❌\s*/, '')
 
@@ -283,6 +310,7 @@ export default function Page() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
 
   const [logs, setLogs] = useState<string[]>([])
+  const [displayedLogs, setDisplayedLogs] = useState<string[]>([])
   const [discovered, setDiscovered] = useState(0)
   const [displayedDiscovered, setDisplayedDiscovered] = useState(0)
   const [enriched, setEnriched] = useState(0)
@@ -305,6 +333,9 @@ export default function Page() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const completionModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const logDrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const logQueueRef = useRef<string[]>([])
+  const activityFeedRef = useRef<HTMLDivElement | null>(null)
   const runStartUsageRef = useRef(0)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
@@ -342,12 +373,11 @@ export default function Page() {
   const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
   const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
   const stepLabel = `Step ${currentStep} of 3`
-  const liveLogLines = logs
+  const liveLogLines = displayedLogs
     .map((entry) => formatReadableLog(entry))
     .filter((entry): entry is string => Boolean(entry))
     .filter((entry, index, entries) => entry !== entries[index - 1])
-    .slice(-8)
-  const showLivePanel = loading || Boolean(completionResult) || liveLogLines.length > 0
+    .slice(-25)
   const discoveryPercent = Math.min((displayedDiscovered / progressTarget) * 100, 100)
   const enrichmentPercent = Math.min((enriched / progressTarget) * 100, 100)
   const liveFoundCount = Math.min(requestedLeadCount, Math.max(displayedDiscovered, enriched))
@@ -506,6 +536,58 @@ export default function Page() {
     }
   }, [discovered, displayedDiscovered])
 
+  useEffect(() => {
+    return () => {
+      if (logDrainTimeoutRef.current) {
+        clearTimeout(logDrainTimeoutRef.current)
+        logDrainTimeoutRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activityFeedRef.current) return
+
+    activityFeedRef.current.scrollTo({
+      top: activityFeedRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [displayedLogs.length])
+
+  function drainLogQueue() {
+    if (logDrainTimeoutRef.current || logQueueRef.current.length === 0) return
+
+    logDrainTimeoutRef.current = setTimeout(() => {
+      const nextEntry = logQueueRef.current.shift()
+      logDrainTimeoutRef.current = null
+
+      if (nextEntry) {
+        setDisplayedLogs((prev) => [...prev, nextEntry])
+      }
+
+      drainLogQueue()
+    }, 80)
+  }
+
+  function enqueueLog(entry: string) {
+    if (!entry) return
+
+    setLogs((prev) => [...prev, entry])
+    logQueueRef.current.push(entry)
+    drainLogQueue()
+  }
+
+  function clearLogStream() {
+    if (logDrainTimeoutRef.current) {
+      clearTimeout(logDrainTimeoutRef.current)
+      logDrainTimeoutRef.current = null
+    }
+
+    logQueueRef.current = []
+    setLogs([])
+    setDisplayedLogs([])
+  }
+
   function resetProspectorUiState() {
     if (completionModalTimeoutRef.current) {
       clearTimeout(completionModalTimeoutRef.current)
@@ -513,7 +595,7 @@ export default function Page() {
     }
 
     setLoading(false)
-    setLogs([])
+    clearLogStream()
     setDiscovered(0)
     setDisplayedDiscovered(0)
     setEnriched(0)
@@ -690,7 +772,7 @@ export default function Page() {
             ? 'Please enter business type'
             : 'Please add a city, province/state, or country'
         )
-        setLogs([])
+        clearLogStream()
         setActivity('Missing required fields.')
         if (missingBusinessType) {
           businessTypeRef.current?.focus()
@@ -713,7 +795,7 @@ export default function Page() {
       }
 
       setLoading(true)
-      setLogs([])
+      clearLogStream()
       setDiscovered(0)
       setDisplayedDiscovered(0)
       setEnriched(0)
@@ -764,7 +846,7 @@ export default function Page() {
         if (!msg || msg === '🟢 stream started') return
         if (isHiddenSystemLog(msg)) return
 
-        setLogs((prev) => [...prev, msg])
+        enqueueLog(msg)
 
         const translated = translateActivity(msg)
         if (translated) setActivity(translated)
@@ -809,6 +891,12 @@ export default function Page() {
 
       const handleLead = (lead: TrialLead) => {
         upsertGuestLead(lead)
+        enqueueLog(formatLeadDiscoveryLine(lead, locationTarget))
+
+        if (lead.email || lead.phone) {
+          enqueueLog(`✓ Contact found for ${lead.company_name || 'business'}`)
+          enqueueLog(`✓ Verified contact — ${lead.company_name || 'business'}`)
+        }
       }
 
       while (true) {
@@ -938,7 +1026,8 @@ export default function Page() {
       const message =
         error instanceof Error ? error.message : 'Scrape failed'
 
-      setLogs([`❌ ${message}`])
+      clearLogStream()
+      enqueueLog(`❌ ${message}`)
       setActivity('Mission failed.')
       setLoading(false)
     }
@@ -950,7 +1039,7 @@ export default function Page() {
       abortRef.current = null
     }
 
-    setLogs((prev) => [...prev, '🛑 Mission aborted'])
+    enqueueLog('🛑 Mission aborted')
     setActivity('Mission aborted')
     setLoading(false)
   }
@@ -1012,7 +1101,9 @@ export default function Page() {
             Processing your leads
           </div>
           <div className="mt-2 text-lg font-semibold text-white">
-            {liveFoundCount} / {requestedLeadCount} leads found
+            {loading || completionResult
+              ? `${liveFoundCount} / ${requestedLeadCount} leads found`
+              : 'Ready when you are'}
           </div>
         </div>
 
@@ -1058,21 +1149,26 @@ export default function Page() {
     </section>
   )
 
-  const activityFeedSection = showLivePanel ? (
+  const activityFeedSection = (
     <section className="w-full rounded-[30px] border border-white/8 bg-white/[0.03] p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
           Activity feed
         </div>
-        <div className="text-xs text-slate-500">{activity}</div>
+        <div className="text-xs text-slate-500">
+          {logs.length > 0 ? `${logs.length} events` : activity}
+        </div>
       </div>
 
-      <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-white/8 bg-black/20 p-4 pr-3">
-        {(liveLogLines.length > 0 ? liveLogLines : ['Waiting to start your search...']).map(
+      <div
+        ref={activityFeedRef}
+        className="max-h-[220px] space-y-2 overflow-y-auto scroll-smooth rounded-2xl border border-white/8 bg-black/20 p-4 pr-3 select-text shadow-[0_0_0_1px_rgba(34,211,238,0.04)] sm:max-h-[260px] lg:max-h-[360px]"
+      >
+        {(liveLogLines.length > 0 ? liveLogLines : ['No activity yet']).map(
           (entry, index) => (
             <div
               key={`${entry}-${index}`}
-              className="font-mono text-sm leading-6 text-slate-200 transition-opacity duration-300"
+              className="font-mono text-sm leading-6 text-slate-200 transition-all duration-300"
             >
               <span className="mr-2 text-cyan-300">▸</span>
               {entry}
@@ -1081,32 +1177,32 @@ export default function Page() {
         )}
       </div>
     </section>
-  ) : null
+  )
 
   return (
     <>
       <FirstRunOverlay />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:gap-10">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-          <div>
-            <h1 className="text-[2.15rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:text-[2.8rem]">
-              Find your first leads
-            </h1>
-            <p className="mt-3 text-base leading-7 text-slate-300">
-              Start with 25 free leads. No setup needed.
-            </p>
-            {(isPlanLoading || usageLoading) && (
-              <div className="mt-3 text-sm text-slate-500">Preparing your workspace...</div>
-            )}
+        <div>
+          <h1 className="text-[2.15rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:text-[2.8rem]">
+            Find your first leads
+          </h1>
+          <p className="mt-3 text-base leading-7 text-slate-300">
+            Start with 25 free leads. No setup needed.
+          </p>
+          {(isPlanLoading || usageLoading) && (
+            <div className="mt-3 text-sm text-slate-500">Preparing your workspace...</div>
+          )}
+        </div>
+
+        {freeUsageWarning ? (
+          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-100">
+            {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
           </div>
+        ) : null}
 
-          {freeUsageWarning ? (
-            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-100">
-              {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
-            </div>
-          ) : null}
-
-          <div className="space-y-5 rounded-[28px] border border-white/8 bg-white/[0.03] p-5 transition-all duration-300 sm:p-6">
+        <section className="w-full space-y-8 rounded-[32px] border border-white/8 bg-white/[0.03] p-5 shadow-[0_20px_60px_rgba(2,8,23,0.28)] sm:p-6 lg:space-y-10 lg:p-8">
+          <div className="mx-auto w-full max-w-3xl space-y-5">
             <div className="text-sm font-medium text-slate-400">{stepLabel}</div>
 
             <div className="space-y-4 transition-all duration-300">
@@ -1259,10 +1355,9 @@ export default function Page() {
               ) : null}
             </div>
           </div>
+        </section>
 
-        </div>
-
-        {showLivePanel ? <div className="w-full">{liveLogPanel}</div> : null}
+        <div className="w-full">{liveLogPanel}</div>
 
         {activityFeedSection}
 
