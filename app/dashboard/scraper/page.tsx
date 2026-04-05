@@ -41,6 +41,23 @@ import {
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
+
+const COUNTRY_OPTIONS = [
+  'Canada',
+  'United States',
+  'United Kingdom',
+  'France',
+  'Australia',
+  'Germany',
+  'United Arab Emirates',
+  'Singapore',
+  'India',
+  'Mexico',
+  'Brazil',
+  'Other',
+]
+
+const LEAD_OPTIONS = ['10', '25', '50']
 const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
 
 function formatTime(s: number) {
@@ -49,11 +66,15 @@ function formatTime(s: number) {
   return m ? `${m}m ${r}s` : `${r}s`
 }
 
+function formatLeadLimit(limit: number) {
+  return Number.isFinite(limit) ? String(limit) : 'Unlimited'
+}
+
 function translateActivity(msg: string) {
   if (msg === 'Finding businesses') return 'Finding businesses...'
-  if (msg === 'Checking websites') return 'Verifying contacts...'
-  if (msg === 'Extracting contacts') return 'Verifying contacts...'
-  if (msg === 'Improving results') return 'Verifying contacts...'
+  if (msg === 'Checking websites') return 'Enriching contacts...'
+  if (msg === 'Extracting contacts') return 'Enriching contacts...'
+  if (msg === 'Improving results') return 'Validating leads...'
   if (msg.includes('starting scraper')) return 'Launching prospecting engines…'
   if (msg.includes('Google') || msg.includes('Serper')) return 'Scanning business sources…'
   if (msg.includes('🔎')) return 'Exploring search patterns…'
@@ -63,6 +84,30 @@ function translateActivity(msg: string) {
   if (msg.includes('🛑 discovery complete')) return 'Deep enrichment in progress...'
   if (msg.includes('🎉 Prospecting complete')) return 'Prospecting mission complete.'
   if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
+  return null
+}
+
+function formatReadableLog(msg: string) {
+  if (!msg || isHiddenSystemLog(msg) || msg === '🟢 stream started') return null
+
+  const translated = translateActivity(msg)
+  if (translated) return translated
+
+  const discoveredMatch = msg.match(/^📦 discovered: (\d+)/)
+  if (discoveredMatch) {
+    return `${discoveredMatch[1]} businesses found`
+  }
+
+  const enrichedMatch = msg.match(/^📦 enriched: (\d+)/)
+  if (enrichedMatch) {
+    return `${enrichedMatch[1]} contacts enriched`
+  }
+
+  if (msg.includes('📥')) return 'Business added to the results feed'
+  if (msg.includes('✨')) return 'Contact details enriched'
+  if (msg.includes('🛑 Mission aborted')) return 'Search stopped'
+  if (msg.startsWith('❌')) return msg.replace(/^❌\s*/, '')
+
   return null
 }
 
@@ -171,6 +216,54 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   )
 })
 
+type SelectProps = {
+  label: string
+  options: string[]
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+  invalid?: boolean
+  errorText?: string | null
+  placeholder?: string
+}
+
+function Select({
+  label,
+  options,
+  value,
+  onChange,
+  disabled = false,
+  invalid = false,
+  errorText = null,
+  placeholder,
+}: SelectProps) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm text-slate-400">{label}</label>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full rounded-xl border bg-[#0b1220] px-4 py-3 text-white disabled:opacity-60 ${
+          invalid ? 'border-red-500/70 focus:ring-2 focus:ring-red-500/20' : 'border-white/10'
+        }`}
+      >
+        {placeholder ? (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        ) : null}
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      {invalid && errorText ? <div className="text-xs text-red-400">{errorText}</div> : null}
+    </div>
+  )
+}
+
 export default function Page() {
   const router = useRouter()
   const { profile, loading: profileLoading } = useClientUserProfile()
@@ -183,7 +276,11 @@ export default function Page() {
   const [viewerEmail, setViewerEmail] = useState('')
 
   const [businessType, setBusinessType] = useState('')
-  const [location, setLocation] = useState('')
+  const [country, setCountry] = useState('')
+  const [region, setRegion] = useState('')
+  const [city, setCity] = useState('')
+  const [maxLeads, setMaxLeads] = useState('25')
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
 
   const [logs, setLogs] = useState<string[]>([])
   const [discovered, setDiscovered] = useState(0)
@@ -217,7 +314,7 @@ export default function Page() {
   const resolvedPlan = plan || 'free'
   const isFree = isGuest || plan === 'free'
   const isPlanLoading = !isGuest && (viewerMode === 'resolving' || profileLoading || !plan)
-  const requestedLeadCount = FREE_TRIAL_LEAD_LIMIT
+  const requestedLeadCount = Number(maxLeads)
   const resolvedLeadLimit = getLeadLimit(resolvedPlan)
   const resolvedUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
   const usageState =
@@ -227,14 +324,9 @@ export default function Page() {
   const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
-  const locationTarget = location.trim()
+  const locationTarget = city.trim() || region.trim() || country.trim()
   const missingLocation = !locationTarget
   const hasMissingRequiredFields = missingBusinessType || missingLocation
-  const validationCopy = missingBusinessType
-    ? missingLocation
-      ? 'Please enter business type and location'
-      : 'Please enter business type'
-    : 'Please enter a location'
   const isFinalizing = Boolean(completionResult) || activity === 'Prospecting mission complete.'
   const isEnriching =
     loading &&
@@ -249,6 +341,54 @@ export default function Page() {
   const skippedInvalidCount = guestClaimResult?.skipped_invalid ?? 0
   const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
   const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
+  const stepLabel = `Step ${currentStep} of 3`
+  const liveLogLines = logs
+    .map((entry) => formatReadableLog(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .filter((entry, index, entries) => entry !== entries[index - 1])
+    .slice(-8)
+  const showLivePanel = loading || Boolean(completionResult) || liveLogLines.length > 0
+  const discoveryPercent = Math.min((displayedDiscovered / progressTarget) * 100, 100)
+  const enrichmentPercent = Math.min((enriched / progressTarget) * 100, 100)
+  const liveFoundCount = Math.min(requestedLeadCount, Math.max(displayedDiscovered, enriched))
+  const overallProgressPercent = Math.min((liveFoundCount / Math.max(requestedLeadCount, 1)) * 100, 100)
+  const isValidating =
+    loading &&
+    !completionResult &&
+    (activity.includes('Validating') ||
+      activity.includes('Finalizing') ||
+      activity.includes('complete'))
+  const findingProgressPercent = Boolean(completionResult) || displayedDiscovered > 0 ? discoveryPercent : 0
+  const enrichingProgressPercent = Boolean(completionResult)
+    ? 100
+    : isEnriching || enriched > 0
+      ? enrichmentPercent
+      : 0
+  const validatingProgressPercent = completionResult
+    ? 100
+    : isValidating
+      ? Math.max(20, Math.min(92, overallProgressPercent))
+      : 0
+  const stageItems = [
+    {
+      label: 'Finding businesses',
+      active: loading && !isEnriching && !isValidating && !isFinalizing,
+      complete: displayedDiscovered > 0 || enriched > 0 || Boolean(completionResult),
+      progress: findingProgressPercent,
+    },
+    {
+      label: 'Enriching contacts',
+      active: isEnriching && !isValidating && !isFinalizing,
+      complete: enriched > 0 || Boolean(completionResult),
+      progress: enrichingProgressPercent,
+    },
+    {
+      label: 'Validating leads',
+      active: isValidating || isFinalizing,
+      complete: Boolean(completionResult),
+      progress: validatingProgressPercent,
+    },
+  ]
 
   useEffect(() => {
     if (loading) {
@@ -545,13 +685,19 @@ export default function Page() {
     try {
       if (hasMissingRequiredFields) {
         setShowValidation(true)
-        setValidationMessage(validationCopy)
+        setValidationMessage(
+          missingBusinessType
+            ? 'Please enter business type'
+            : 'Please add a city, province/state, or country'
+        )
         setLogs([])
         setActivity('Missing required fields.')
         if (missingBusinessType) {
           businessTypeRef.current?.focus()
-        } else if (missingLocation) {
+          setCurrentStep(1)
+        } else {
           cityRef.current?.focus()
+          setCurrentStep(2)
         }
         return
       }
@@ -586,9 +732,9 @@ export default function Page() {
 
       const payload = {
         query: businessType.trim(),
-        region: '',
+        region: region.trim(),
         defaultCity: locationTarget,
-        country: '',
+        country,
         maxLeads: requestedLeadCount,
         existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
@@ -809,9 +955,6 @@ export default function Page() {
     setLoading(false)
   }
 
-  const discoveryPercent = Math.min((displayedDiscovered / progressTarget) * 100, 100)
-  const enrichmentPercent = Math.min((enriched / progressTarget) * 100, 100)
-
   function downloadPreviewLeads() {
     if (!previewLeads.length) return
 
@@ -824,135 +967,309 @@ export default function Page() {
     URL.revokeObjectURL(link.href)
   }
 
+  function clearValidation() {
+    setShowValidation(false)
+    setValidationMessage('')
+  }
+
+  function goToNextStep() {
+    if (currentStep === 1) {
+      if (missingBusinessType) {
+        setShowValidation(true)
+        setValidationMessage('Please enter business type')
+        businessTypeRef.current?.focus()
+        return
+      }
+
+      clearValidation()
+      setCurrentStep(2)
+      return
+    }
+
+    if (currentStep === 2) {
+      if (missingLocation) {
+        setShowValidation(true)
+        setValidationMessage('Please add a city, province/state, or country')
+        cityRef.current?.focus()
+        return
+      }
+
+      clearValidation()
+      setCurrentStep(3)
+    }
+  }
+
+  function goToPreviousStep() {
+    clearValidation()
+    setCurrentStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3) : current))
+  }
+
+  const liveLogPanel = (
+    <section className="space-y-6 rounded-[30px] border border-cyan-300/10 bg-[linear-gradient(180deg,rgba(14,24,42,0.92),rgba(11,18,32,0.96))] p-5 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/80">
+            Processing your leads
+          </div>
+          <div className="mt-2 text-lg font-semibold text-white">
+            {liveFoundCount} / {requestedLeadCount} leads found
+          </div>
+        </div>
+
+        <div className="rounded-full border border-cyan-300/12 bg-cyan-300/8 px-3 py-1 text-xs text-cyan-100/80">
+          {formatTime(finalElapsed ?? elapsed)}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {stageItems.map((item) => (
+          <div key={item.label} className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-4">
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    item.complete
+                      ? 'bg-emerald-400'
+                      : item.active
+                        ? 'animate-pulse bg-cyan-300'
+                        : 'bg-white/15'
+                  }`}
+                />
+                <span
+                  className={`text-sm ${
+                    item.complete || item.active ? 'text-white' : 'text-slate-500'
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </div>
+              <span className="text-xs text-slate-500">{Math.round(item.progress)}%</span>
+            </div>
+
+            <div className="h-2 overflow-hidden rounded-full bg-white/10 shadow-[inset_0_1px_2px_rgba(15,23,42,0.4)]">
+              <div
+                className="h-full bg-[linear-gradient(90deg,#3B82F6_0%,#22D3EE_55%,#10B981_100%)] shadow-[0_0_14px_rgba(34,211,238,0.28)] transition-all duration-500"
+                style={{ width: `${item.progress}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+
+  const activityFeedSection = showLivePanel ? (
+    <section className="w-full rounded-[30px] border border-white/8 bg-white/[0.03] p-5 sm:p-6">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          Activity feed
+        </div>
+        <div className="text-xs text-slate-500">{activity}</div>
+      </div>
+
+      <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-white/8 bg-black/20 p-4 pr-3">
+        {(liveLogLines.length > 0 ? liveLogLines : ['Waiting to start your search...']).map(
+          (entry, index) => (
+            <div
+              key={`${entry}-${index}`}
+              className="font-mono text-sm leading-6 text-slate-200 transition-opacity duration-300"
+            >
+              <span className="mr-2 text-cyan-300">▸</span>
+              {entry}
+            </div>
+          )
+        )}
+      </div>
+    </section>
+  ) : null
+
   return (
     <>
       <FirstRunOverlay />
-      <div className="mx-auto flex w-full max-w-screen-sm flex-col gap-8">
-        <div>
-          <h1 className="text-[2.15rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:text-[2.8rem]">
-            Find your first leads
-          </h1>
-          <p className="mt-3 text-base leading-7 text-slate-300">
-            Start with 25 free leads. No setup needed.
-          </p>
-          {(isPlanLoading || usageLoading) && (
-            <div className="mt-3 text-sm text-slate-500">Preparing your workspace...</div>
-          )}
-        </div>
-
-        {freeUsageWarning ? (
-          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-100">
-            {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:gap-10">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+          <div>
+            <h1 className="text-[2.15rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:text-[2.8rem]">
+              Find your first leads
+            </h1>
+            <p className="mt-3 text-base leading-7 text-slate-300">
+              Start with 25 free leads. No setup needed.
+            </p>
+            {(isPlanLoading || usageLoading) && (
+              <div className="mt-3 text-sm text-slate-500">Preparing your workspace...</div>
+            )}
           </div>
-        ) : null}
 
-        <div className="space-y-5">
-          <Input
-            ref={businessTypeRef}
-            label="Type of business"
-            value={businessType}
-            onChange={(value) => {
-              setBusinessType(value)
-              if (showValidation) {
-                const nextMissingBusinessType = !value.trim()
-                if (!nextMissingBusinessType && !missingLocation) {
-                  setValidationMessage('')
-                }
-              }
-            }}
-            placeholder="e.g. restaurants, gyms"
-            disabled={loading}
-            invalid={showValidation && missingBusinessType}
-            errorText="Required field"
-          />
-
-          <Input
-            ref={cityRef}
-            label="Location"
-            value={location}
-            onChange={(value) => {
-              setLocation(value)
-              if (showValidation) {
-                const nextMissingLocation = !value.trim()
-                if (!missingBusinessType && !nextMissingLocation) {
-                  setValidationMessage('')
-                }
-              }
-            }}
-            placeholder="e.g. New York"
-            disabled={loading}
-            invalid={showValidation && missingLocation}
-            errorText="Required field"
-          />
-
-          {validationMessage ? (
-            <div className="text-sm text-red-400">{validationMessage}</div>
+          {freeUsageWarning ? (
+            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-100">
+              {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
+            </div>
           ) : null}
 
-          <button
-            onClick={runScrape}
-            disabled={loading || hasMissingRequiredFields}
-            className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? 'Generating leads...' : 'Generate Leads'}
-          </button>
+          <div className="space-y-5 rounded-[28px] border border-white/8 bg-white/[0.03] p-5 transition-all duration-300 sm:p-6">
+            <div className="text-sm font-medium text-slate-400">{stepLabel}</div>
 
-          <div className="text-center text-sm text-slate-400">
-            No signup required • Results in seconds
+            <div className="space-y-4 transition-all duration-300">
+              {currentStep === 1 ? (
+                <>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
+                      What are you looking for?
+                    </h2>
+                  </div>
+
+                  <Input
+                    ref={businessTypeRef}
+                    label="Type of business"
+                    value={businessType}
+                    onChange={(value) => {
+                      setBusinessType(value)
+                      if (showValidation && value.trim()) {
+                        clearValidation()
+                      }
+                    }}
+                    placeholder="e.g. restaurants, gyms"
+                    disabled={loading}
+                    invalid={showValidation && missingBusinessType}
+                    errorText="Required field"
+                  />
+                </>
+              ) : null}
+
+              {currentStep === 2 ? (
+                <>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">Where?</h2>
+                  </div>
+
+                  <Select
+                    label="Country"
+                    options={COUNTRY_OPTIONS}
+                    value={country}
+                    onChange={(value) => {
+                      setCountry(value)
+                      if (showValidation && (city.trim() || region.trim() || value.trim())) {
+                        clearValidation()
+                      }
+                    }}
+                    disabled={loading}
+                    placeholder="Required"
+                  />
+
+                  <Input
+                    label="Province / State"
+                    value={region}
+                    onChange={(value) => {
+                      setRegion(value)
+                      if (showValidation && (city.trim() || value.trim() || country.trim())) {
+                        clearValidation()
+                      }
+                    }}
+                    placeholder="Optional"
+                    disabled={loading}
+                  />
+
+                  <Input
+                    ref={cityRef}
+                    label="City"
+                    value={city}
+                    onChange={(value) => {
+                      setCity(value)
+                      if (showValidation && (value.trim() || region.trim() || country.trim())) {
+                        clearValidation()
+                      }
+                    }}
+                    placeholder="Optional (more precise results)"
+                    disabled={loading}
+                  />
+                </>
+              ) : null}
+
+              {currentStep === 3 ? (
+                <>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
+                      How many leads?
+                    </h2>
+                  </div>
+
+                  <Select
+                    label="Number of leads"
+                    options={LEAD_OPTIONS}
+                    value={maxLeads}
+                    onChange={setMaxLeads}
+                    disabled={loading}
+                  />
+
+                  <div className="rounded-2xl border border-white/8 bg-[#0b1220] px-4 py-4 text-sm text-slate-300">
+                    {isPlanLoading || usageLoading
+                      ? 'Loading usage...'
+                      : `Usage: ${resolvedUsageCount} / ${formatLeadLimit(resolvedLeadLimit)} leads this month`}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {validationMessage ? <div className="text-sm text-red-400">{validationMessage}</div> : null}
+
+            <div className="flex flex-col gap-3">
+              {currentStep > 1 ? (
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  disabled={loading}
+                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-5 text-base font-medium text-white transition hover:bg-white/[0.06] disabled:opacity-60"
+                >
+                  Back
+                </button>
+              ) : null}
+
+              {currentStep < 3 ? (
+                <button
+                  type="button"
+                  onClick={goToNextStep}
+                  disabled={loading}
+                  className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition disabled:opacity-60"
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  onClick={runScrape}
+                  disabled={loading || hasMissingRequiredFields}
+                  className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? 'Generating leads...' : 'Generate Leads'}
+                </button>
+              )}
+
+              {currentStep === 3 ? (
+                <div className="text-center text-sm text-slate-400">
+                  No signup required • Results in seconds
+                </div>
+              ) : null}
+
+              {loading ? (
+                <button
+                  onClick={abortMission}
+                  className="w-full rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-medium text-red-300 transition hover:bg-red-500/15"
+                >
+                  Stop search
+                </button>
+              ) : null}
+            </div>
           </div>
 
-          {loading ? (
-            <button
-              onClick={abortMission}
-              className="w-full rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-medium text-red-300 transition hover:bg-red-500/15"
-            >
-              Stop search
-            </button>
-          ) : null}
         </div>
 
-        {loading || completionResult ? (
-          <div className="space-y-5 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
-                  <span>Finding businesses...</span>
-                  <span>{displayedDiscovered}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300"
-                    style={{ width: `${discoveryPercent}%` }}
-                  />
-                </div>
-              </div>
+        {showLivePanel ? <div className="w-full">{liveLogPanel}</div> : null}
 
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
-                  <span>Verifying contacts...</span>
-                  <span>{enriched}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-400 to-green-500 transition-all duration-300"
-                    style={{ width: `${enrichmentPercent}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-500">
-              {activity} • {formatTime(finalElapsed ?? elapsed)}
-            </div>
-          </div>
-        ) : null}
+        {activityFeedSection}
 
         {completionResult ? (
-          <div className="space-y-5 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
+          <section className="w-full space-y-5 rounded-[30px] border border-white/8 bg-white/[0.03] p-5 sm:p-6">
             <div>
-              <div className="text-2xl font-semibold text-white">
-                {requestedLeadCount} leads found
-              </div>
+              <div className="text-2xl font-semibold text-white">{requestedLeadCount} leads found</div>
               <div className="mt-2 text-sm leading-6 text-slate-400">
                 {normalizeSummaryLine(completionResult.summaryLine)}
               </div>
@@ -998,7 +1315,7 @@ export default function Page() {
             >
               Download leads
             </button>
-          </div>
+          </section>
         ) : null}
       </div>
 
