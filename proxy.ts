@@ -2,6 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  const PUBLIC_SEO_ROUTES = ['/robots.txt', '/sitemap.xml']
+
+  if (PUBLIC_SEO_ROUTES.includes(request.nextUrl.pathname)) {
+    return NextResponse.next()
+  }
+
   let response = NextResponse.next({
     request,
   })

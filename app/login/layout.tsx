@@ -1,7 +1,5 @@
 import type { Metadata } from 'next'
 
-import DashboardShell from '@/components/dashboard/DashboardShell'
-
 export const metadata: Metadata = {
   robots: {
     index: false,
@@ -9,10 +7,10 @@ export const metadata: Metadata = {
   },
 }
 
-export default function DashboardLayout({
+export default function LoginLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return <DashboardShell>{children}</DashboardShell>
+  return children
 }

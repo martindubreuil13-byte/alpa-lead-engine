@@ -7,7 +7,14 @@ import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
 
 export const metadata: Metadata = {
-  title: 'Plans | ALPA',
+  title: {
+    absolute: 'Pricing & Plans for Lead Generation | ALPA',
+  },
+  description:
+    'Explore ALPA pricing and plans to start finding and contacting business leads efficiently.',
+  alternates: {
+    canonical: '/plans',
+  },
 }
 
 const plans: PlanCardProps[] = [

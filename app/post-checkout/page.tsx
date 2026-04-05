@@ -1,6 +1,14 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 
 import PostCheckoutAccountForm from '@/components/auth/PostCheckoutAccountForm'
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+}
 
 function LoadingState() {
   return (
