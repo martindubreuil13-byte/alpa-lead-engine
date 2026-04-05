@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LifeBuoy, Lock, Mail } from 'lucide-react'
+import { LifeBuoy, Lock, Mail, Menu, X } from 'lucide-react'
 
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
@@ -27,6 +27,7 @@ export default function DashboardShell({
     description: string
     benefit: string
   } | null>(null)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const { profile, loading: profileLoading } = useClientUserProfile()
 
@@ -63,6 +64,26 @@ export default function DashboardShell({
       profileLoading,
     })
   }, [forcedGuestTrial, profile?.plan, profileLoading, viewerMode])
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [mobileMenuOpen])
 
   const navItems: Array<{
     href: string
@@ -140,6 +161,18 @@ export default function DashboardShell({
 
     return item.href
   }
+
+  const mobileNavItems = navItems.filter((item) =>
+    [
+      'Dashboard',
+      'Leads Inbox',
+      'Prospector',
+      'Lead Library',
+      'Templates',
+      'Plan & Billing',
+      'Settings',
+    ].includes(item.label)
+  )
 
   return (
     <div className="flex min-h-screen bg-[#0b1220] text-white">
@@ -235,6 +268,23 @@ export default function DashboardShell({
       </aside>
 
       <main className="flex flex-1 flex-col p-4 sm:p-6 md:p-10">
+        <div className="mb-6 flex items-center justify-between md:hidden">
+          <div>
+            <div className="text-base font-semibold tracking-tight text-white">ALPA</div>
+            <div className="text-xs text-slate-500">Navigate your workspace</div>
+          </div>
+
+          <button
+            type="button"
+            aria-label="Open menu"
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen(true)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+
         <div className="mx-auto w-full max-w-7xl flex-1">{children}</div>
         <footer className="mx-auto mt-10 w-full max-w-5xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500">
           Need help or have a question? Reach us at{' '}
@@ -247,6 +297,78 @@ export default function DashboardShell({
           — we typically reply within 24 hours.
         </footer>
       </main>
+
+      {mobileMenuOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div
+            className="flex min-h-screen flex-col bg-[#020617] px-6 pb-8 pt-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-base font-semibold tracking-tight text-white">ALPA</div>
+                <div className="text-xs text-slate-500">Choose where to go next</div>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close menu"
+                onClick={() => setMobileMenuOpen(false)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="mt-10 space-y-3">
+              {mobileNavItems.map((item) => {
+                const locked = isLocked(item)
+                const href = locked ? '/plans' : getItemHref(item)
+                const active = !locked && isActive(href)
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex min-h-[60px] items-center justify-between rounded-2xl border px-5 py-4 text-base transition ${
+                      locked
+                        ? 'border-white/6 bg-white/[0.02] text-slate-500'
+                        : active
+                          ? 'border-white/12 bg-white/10 text-white'
+                          : 'border-white/8 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                    {locked ? (
+                      <Lock className="h-4 w-4 text-amber-200" />
+                    ) : active ? (
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    ) : null}
+                  </Link>
+                )
+              })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false)
+                  setSupportOpen(true)
+                }}
+                className="flex min-h-[60px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-5 py-4 text-base text-slate-200 transition hover:bg-white/[0.06]"
+              >
+                <span className="flex items-center gap-3">
+                  <LifeBuoy className="h-4 w-4 text-cyan-300" />
+                  <span>Support</span>
+                </span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      ) : null}
 
       <FeatureLockModal
         isOpen={Boolean(lockedFeature)}

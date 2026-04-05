@@ -1093,6 +1093,17 @@ export default function Page() {
     setCurrentStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3) : current))
   }
 
+  function resetSearchFlow() {
+    resetProspectorUiState()
+    setBusinessType('')
+    setCountry('')
+    setRegion('')
+    setCity('')
+    setMaxLeads('25')
+    setCurrentStep(1)
+    setSessionSavedLeads([])
+  }
+
   const liveLogPanel = (
     <section className="space-y-6 rounded-[30px] border border-cyan-300/10 bg-[linear-gradient(180deg,rgba(14,24,42,0.92),rgba(11,18,32,0.96))] p-5 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1410,6 +1421,36 @@ export default function Page() {
             >
               Download leads
             </button>
+
+            <div className="space-y-4 rounded-[26px] border border-cyan-300/10 bg-[linear-gradient(180deg,rgba(14,24,42,0.84),rgba(11,18,32,0.94))] p-5">
+              <div>
+                <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">
+                  Your leads are ready
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  You can review, download, or start outreach from your inbox.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  requestInboxFocus()
+                  router.push('/dashboard/leads')
+                }}
+                className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition hover:opacity-95"
+              >
+                View my leads
+              </button>
+
+              <button
+                type="button"
+                onClick={resetSearchFlow}
+                className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-5 text-base font-medium text-white transition hover:bg-white/[0.06]"
+              >
+                Run another search
+              </button>
+            </div>
           </section>
         ) : null}
       </div>
