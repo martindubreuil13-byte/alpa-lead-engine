@@ -169,6 +169,17 @@ export default function ColdOutreachForLeadGenerationPage() {
               <p>
                 A strong lead makes a simple message work. A weak lead makes even a good message fail.
               </p>
+              <p>
+                That is why strong outreach usually starts with{' '}
+                <Link href="/resources/how-to-qualify-leads" className="text-cyan-200 transition hover:text-white">
+                  better lead qualification
+                </Link>{' '}
+                and a clearer understanding of{' '}
+                <Link href="/resources/b2b-lead-generation" className="text-cyan-200 transition hover:text-white">
+                  B2B lead generation
+                </Link>
+                .
+              </p>
             </Section>
 
             <Section title="A simple outreach workflow">
@@ -188,6 +199,13 @@ export default function ColdOutreachForLeadGenerationPage() {
               <p>
                 Better targeting improves outreach quality because your message is built around a
                 stronger fit from the start.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
               </p>
               <p className="pt-2">
                 <Link

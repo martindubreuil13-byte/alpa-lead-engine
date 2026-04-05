@@ -188,6 +188,13 @@ export default function HowToQualifyLeadsPage() {
                 The better method is simpler: define, generate qualified leads, contact. That
                 pushes qualification earlier, where it saves more time.
               </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
+              </p>
             </Section>
 
             <Section title="A better lead-first approach">
@@ -198,6 +205,16 @@ export default function HowToQualifyLeadsPage() {
               <p>
                 That means more effort goes into outreach and conversations, and less effort goes
                 into sorting through leads that were never likely to convert.
+              </p>
+              <p>
+                Once the list is tighter, the next step is to improve{' '}
+                <Link
+                  href="/resources/cold-outreach-for-lead-generation"
+                  className="text-cyan-200 transition hover:text-white"
+                >
+                  cold outreach
+                </Link>
+                .
               </p>
               <p className="pt-2">
                 <Link

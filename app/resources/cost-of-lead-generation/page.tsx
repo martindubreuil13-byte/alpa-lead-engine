@@ -184,6 +184,17 @@ export default function CostOfLeadGenerationPage() {
                 ALPA supports that shift. It helps generate leads faster, reduces wasted time on
                 filtering, and frees up more hours for outreach and closing.
               </p>
+              <p>
+                If you are comparing options, look at both{' '}
+                <Link href="/resources/lead-generation-tools" className="text-cyan-200 transition hover:text-white">
+                  lead generation tools
+                </Link>{' '}
+                and the repeatable workflow behind them →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
+              </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"

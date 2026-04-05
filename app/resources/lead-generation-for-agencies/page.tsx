@@ -178,6 +178,20 @@ export default function LeadGenerationForAgenciesPage() {
                 ALPA gives agencies a simpler way to find business leads with verified contact
                 details, so less time goes into searching and more time goes into building a healthy pipeline.
               </p>
+              <p>
+                For agencies selling to other businesses, this guide to{' '}
+                <Link href="/resources/b2b-lead-generation" className="text-cyan-200 transition hover:text-white">
+                  B2B lead generation
+                </Link>{' '}
+                helps sharpen who should enter the pipeline.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
+              </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"

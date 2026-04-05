@@ -216,6 +216,13 @@ export default function LeadGenerationToolsPage() {
                 ALPA fits that workflow. You define who you want to reach, generate leads quickly,
                 and move into outreach without stitching together a complicated stack.
               </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
+              </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"

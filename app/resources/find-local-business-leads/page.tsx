@@ -174,6 +174,13 @@ export default function FindLocalBusinessLeadsPage() {
                 That means time gets lost checking websites, categories, and contact pages one by
                 one before outreach can even begin.
               </p>
+              <p>
+                If you want the broader workflow behind this, start with{' '}
+                <Link href="/resources/how-to-find-business-leads" className="text-cyan-200 transition hover:text-white">
+                  how to find business leads
+                </Link>
+                .
+              </p>
             </Section>
 
             <Section title="Why local lead generation is inefficient">
@@ -198,6 +205,13 @@ export default function FindLocalBusinessLeadsPage() {
               <p>
                 ALPA fits that workflow. You choose the target, select the location, and generate
                 leads quickly instead of checking businesses one by one.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
               </p>
               <p className="pt-2">
                 <Link

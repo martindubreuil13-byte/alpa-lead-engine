@@ -200,6 +200,13 @@ export default function B2BLeadGenerationPage() {
                 In B2B, quality matters more than quantity because each conversation can represent
                 a larger deal and a longer buying process.
               </p>
+              <p>
+                Once companies are identified, the next step is to{' '}
+                <Link href="/resources/how-to-qualify-leads" className="text-cyan-200 transition hover:text-white">
+                  qualify leads more carefully
+                </Link>{' '}
+                so the pipeline stays relevant.
+              </p>
             </Section>
 
             <Section title="A better way to build a B2B pipeline">
@@ -214,6 +221,13 @@ export default function B2BLeadGenerationPage() {
               <p>
                 ALPA fits that workflow. You define the niche, select the company type or location,
                 and generate leads quickly instead of building every list by hand.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
               </p>
               <p className="pt-2">
                 <Link

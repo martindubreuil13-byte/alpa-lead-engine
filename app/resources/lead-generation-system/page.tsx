@@ -212,6 +212,24 @@ export default function LeadGenerationSystemPage() {
                 ALPA supports that approach with faster generation, better targeting, and less
                 manual effort between defining the market and starting outreach.
               </p>
+              <p>
+                If you want to strengthen each part of the system, choose better{' '}
+                <Link href="/resources/lead-generation-tools" className="text-cyan-200 transition hover:text-white">
+                  lead generation tools
+                </Link>
+                , improve{' '}
+                <Link
+                  href="/resources/cold-outreach-for-lead-generation"
+                  className="text-cyan-200 transition hover:text-white"
+                >
+                  cold outreach
+                </Link>
+                , and tighten{' '}
+                <Link href="/resources/how-to-qualify-leads" className="text-cyan-200 transition hover:text-white">
+                  lead qualification
+                </Link>
+                .
+              </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"

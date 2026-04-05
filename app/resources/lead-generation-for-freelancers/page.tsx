@@ -178,6 +178,20 @@ export default function LeadGenerationForFreelancersPage() {
                 ALPA gives freelancers a simpler way to find business leads with verified contact
                 details, so less time goes into searching and more time goes into reaching out.
               </p>
+              <p>
+                If you want a broader starting point, this guide on{' '}
+                <Link href="/resources/how-to-find-business-leads" className="text-cyan-200 transition hover:text-white">
+                  how to find business leads
+                </Link>{' '}
+                breaks down the full workflow.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
+              </p>
               <p className="pt-2">
                 <Link
                   href="/dashboard/scraper"

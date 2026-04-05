@@ -195,6 +195,20 @@ export default function HowToFindBusinessLeadsPage() {
                 The newer model is simpler: define, generate, then contact. That reduces the time
                 spent preparing and increases the time spent actually reaching prospects.
               </p>
+              <p>
+                Once you have leads, you still need to{' '}
+                <Link href="/resources/how-to-qualify-leads" className="text-cyan-200 transition hover:text-white">
+                  qualify them properly
+                </Link>{' '}
+                and move into{' '}
+                <Link
+                  href="/resources/cold-outreach-for-lead-generation"
+                  className="text-cyan-200 transition hover:text-white"
+                >
+                  cold outreach with a clearer list
+                </Link>
+                .
+              </p>
             </Section>
 
             <Section title="A better way to find business leads">
@@ -205,6 +219,13 @@ export default function HowToFindBusinessLeadsPage() {
               <p>
                 That means less manual searching and a faster path to a list you can actually use
                 for outreach.
+              </p>
+              <p>
+                To make this consistent, you need a repeatable system →{' '}
+                <Link href="/resources/lead-generation-system" className="text-cyan-200 transition hover:text-white">
+                  Build a lead generation system
+                </Link>
+                .
               </p>
               <p className="pt-2">
                 <Link
