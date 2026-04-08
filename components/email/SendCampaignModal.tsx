@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
@@ -29,6 +29,8 @@ type SenderSettings = {
   logo_url: string | null
 }
 
+type ViewMode = 'details' | 'preview'
+
 export default function SendCampaignModal({
   isOpen,
   onClose,
@@ -50,9 +52,13 @@ export default function SendCampaignModal({
   const [testLoading, setTestLoading] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
   const [testStatusMessage, setTestStatusMessage] = useState('')
+  const [viewMode, setViewMode] = useState<ViewMode>('details')
 
   useEffect(() => {
-    if (isOpen) fetchEmailSetup()
+    if (isOpen) {
+      void fetchEmailSetup()
+      setViewMode('details')
+    }
   }, [isOpen])
 
   useEffect(() => {
@@ -68,9 +74,13 @@ export default function SendCampaignModal({
     }
   }, [templates, selectedTemplateId])
 
-  const selectedTemplate =
-    templates.find((template) => template.id === selectedTemplateId) || null
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
+
+  const previewHtml = useMemo(() => {
+    if (!selectedTemplate || !senderSettings) return ''
+    return buildFinalEmailHtml(selectedTemplate.body, senderSettings)
+  }, [selectedTemplate, senderSettings])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -131,7 +141,7 @@ export default function SendCampaignModal({
     setLoading(true)
     setTestStatusMessage('')
 
-    const res = await fetch('/api/send-email', {
+    const response = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -140,10 +150,10 @@ export default function SendCampaignModal({
       }),
     })
 
-    const result = await res.json().catch(() => null)
+    const result = await response.json().catch(() => null)
     setLoading(false)
 
-    if (res.ok) {
+    if (response.ok) {
       onSent(result?.sentIds || [])
       alert(
         `Sent ${result?.sent || 0} email(s). ` +
@@ -176,7 +186,7 @@ export default function SendCampaignModal({
       return
     }
 
-    const res = await fetch('/api/send-email', {
+    const response = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -186,10 +196,10 @@ export default function SendCampaignModal({
       }),
     })
 
-    const result = await res.json().catch(() => null)
+    const result = await response.json().catch(() => null)
     setTestLoading(false)
 
-    if (res.ok) {
+    if (response.ok) {
       setTestStatusMessage('Test email sent')
     } else {
       setTestStatusMessage(result?.error || 'Failed to send test email')
@@ -200,26 +210,27 @@ export default function SendCampaignModal({
 
   if (emailLocked) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="glass w-full max-w-xl space-y-5 p-8">
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4">
+        <div className="glass w-full rounded-t-[32px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-xl sm:rounded-[32px] sm:p-8">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
             Available on Starter plan
           </div>
-          <h2 className="text-2xl font-semibold text-white">Email sending is locked on Free</h2>
-          <p className="text-sm leading-6 text-slate-300">
+          <h2 className="mt-4 text-2xl font-semibold text-white">Email sending is locked on Free</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
             Upgrade to Starter to open templates, send test emails, and launch outreach directly from ALPA.
           </p>
-          <div className="flex gap-3">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/plans"
               onClick={onClose}
-              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
+              className="btn-primary"
             >
               Upgrade
             </Link>
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-2xl bg-white/10 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/20"
+              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.08]"
             >
               Close
             </button>
@@ -229,140 +240,176 @@ export default function SendCampaignModal({
     )
   }
 
-  const previewHtml =
-    selectedTemplate && senderSettings
-      ? buildFinalEmailHtml(selectedTemplate.body, senderSettings)
-      : ''
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="glass w-full max-w-2xl space-y-6 p-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-white">
-              Send Campaign
-            </h2>
-            {testStatusMessage && (
-              <p className="mt-2 text-sm text-slate-300">{testStatusMessage}</p>
-            )}
-          </div>
-
-          <button
-            onClick={sendTestEmail}
-            disabled={testLoading || loadingPreview || loading}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-              testLoading || loadingPreview || loading
-                ? 'cursor-not-allowed bg-white/10 text-slate-500'
-                : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-            }`}
-          >
-            {testLoading ? 'Sending Test...' : 'Send Test Email'}
-          </button>
-        </div>
-
-        <div className="text-sm text-slate-400">
-          {selectedIds.length} lead{selectedIds.length > 1 && 's'} selected
-        </div>
-
-        {loadingPreview ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
-            Loading your saved templates and sender settings...
-          </div>
-        ) : templates.length > 0 && senderSettings ? (
-          <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.04] p-5">
-            <div className="space-y-2">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
-                Template
-              </div>
-              <select
-                value={selectedTemplateId || ''}
-                onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-gray-900 px-3 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name || 'Untitled'}
-                    {template.tag ? ` • ${template.tag}` : ''}
-                  </option>
-                ))}
-              </select>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="glass flex h-[min(92vh,860px)] w-full flex-col rounded-t-[32px] sm:max-w-3xl sm:rounded-[32px]">
+        <div className="border-b border-white/8 px-5 pb-4 pt-5 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-white">Send Campaign</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                {selectedIds.length} lead{selectedIds.length === 1 ? '' : 's'} selected
+              </p>
+              {testStatusMessage ? (
+                <p className="mt-2 text-sm text-slate-300">{testStatusMessage}</p>
+              ) : null}
             </div>
 
-            {selectedTemplate && (
-              <>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-slate-500">
-                    Subject
-                  </div>
-                  <div className="mt-1 rounded-lg border border-white/10 bg-gray-900 p-3 text-white">
-                    {selectedTemplate.subject}
-                  </div>
-                </div>
+            <div className="flex flex-col gap-3 sm:items-end">
+              <button
+                type="button"
+                onClick={sendTestEmail}
+                disabled={testLoading || loadingPreview || loading}
+                className={`inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+                  testLoading || loadingPreview || loading
+                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                    : 'border border-emerald-300/18 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
+                }`}
+              >
+                {testLoading ? 'Sending test...' : 'Send test email'}
+              </button>
 
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-slate-500">
-                    HTML Preview
+              <div className="inline-flex rounded-2xl border border-white/10 bg-[#081120]/80 p-1">
+                {(['details', 'preview'] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    className={`min-h-[38px] rounded-xl px-4 text-sm font-medium transition ${
+                      viewMode === mode
+                        ? 'bg-cyan-400/12 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {mode === 'details' ? 'Details' : 'Preview'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          {loadingPreview ? (
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
+              Loading your saved templates and sender settings...
+            </div>
+          ) : templates.length > 0 && senderSettings ? (
+            <div className="space-y-4">
+              {viewMode === 'details' ? (
+                <div className="space-y-4">
+                  <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Template
+                    </div>
+                    <select
+                      value={selectedTemplateId || ''}
+                      onChange={(event) => setSelectedTemplateId(event.target.value)}
+                      className="input mt-3"
+                    >
+                      {templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name || 'Untitled'}
+                          {template.tag ? ` • ${template.tag}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedTemplate ? (
+                    <>
+                      <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Subject
+                        </div>
+                        <div className="mt-3 text-base font-medium text-white">
+                          {selectedTemplate.subject}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Sender profile
+                        </div>
+                        <div className="mt-3 space-y-1 text-sm text-slate-300">
+                          <div>{senderSettings.sender_name || 'Unnamed sender'}</div>
+                          <div>{senderSettings.sender_email || 'No sender email saved'}</div>
+                          <div>{senderSettings.company_name || 'No company name saved'}</div>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-[28px] border border-white/8 bg-[#081120]/80 p-4">
+                  <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Mobile preview
                   </div>
                   <div
-                    className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-white/10 bg-gray-900 p-4 text-sm text-white"
-                    style={{ backgroundColor: '#020617', color: '#ffffff' }}
+                    className="rounded-[24px] bg-white p-5 text-sm leading-7 text-slate-800 shadow-[0_24px_48px_rgba(15,23,42,0.2)]"
                     dangerouslySetInnerHTML={{ __html: previewHtml }}
                   />
                 </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
-            <div>{templateMessage}</div>
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              {templates.length === 0 && (
-                <button
-                  onClick={() => {
-                    onClose()
-                    router.push('/dashboard/templates')
-                  }}
-                  className="rounded-lg bg-blue-500/20 px-4 py-2 font-medium text-blue-300 transition hover:bg-blue-500/30"
-                >
-                  Open Templates
-                </button>
-              )}
-
-              {!senderSettings && (
-                <button
-                  onClick={() => {
-                    onClose()
-                    router.push('/dashboard/settings')
-                  }}
-                  className="rounded-lg bg-emerald-500/20 px-4 py-2 font-medium text-emerald-300 transition hover:bg-emerald-500/30"
-                >
-                  Open Sender Settings
-                </button>
               )}
             </div>
+          ) : (
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
+              <div>{templateMessage}</div>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                {templates.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      router.push('/dashboard/templates')
+                    }}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 font-medium text-cyan-100 transition hover:bg-cyan-400/16"
+                  >
+                    Open templates
+                  </button>
+                ) : null}
+
+                {!senderSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      router.push('/dashboard/settings')
+                    }}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
+                  >
+                    Open sender settings
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/8 px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-6">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-300 transition hover:bg-white/[0.08]"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              disabled={!selectedTemplateId || !senderSettings || loading}
+              onClick={sendCampaign}
+              className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
+                !selectedTemplateId || !senderSettings || loading
+                  ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
+                  : 'btn-primary'
+              }`}
+            >
+              {loading ? 'Sending...' : 'Send emails'}
+            </button>
           </div>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg bg-white/10 px-4 py-2 text-slate-300 transition hover:bg-white/20"
-          >
-            Cancel
-          </button>
-
-          <button
-            disabled={!selectedTemplateId || !senderSettings || loading}
-            onClick={sendCampaign}
-            className={`rounded-lg px-6 py-2 text-white transition ${
-              !selectedTemplateId || !senderSettings || loading
-                ? 'cursor-not-allowed bg-blue-900/40'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {loading ? 'Sending...' : 'Send Emails'}
-          </button>
         </div>
       </div>
     </div>

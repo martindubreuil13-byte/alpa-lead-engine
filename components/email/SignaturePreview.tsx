@@ -21,8 +21,7 @@ export default function SignaturePreview({
   logoUrl,
   senderEmail,
 }: Props) {
-  const hasContent =
-    senderName || jobTitle || companyName || phone || website || senderEmail
+  const hasContent = senderName || jobTitle || companyName || phone || website || senderEmail
   const signatureHtml = buildSignatureHtml({
     sender_name: senderName,
     job_title: jobTitle,
@@ -34,29 +33,29 @@ export default function SignaturePreview({
   })
 
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
-      <div className="mb-4 text-xs uppercase tracking-wide text-slate-400">
-        Signature Preview
+    <div className="space-y-4">
+      <div className="rounded-[24px] border border-white/8 bg-[#081120]/80 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+          Signature preview
+        </div>
+        <p className="mt-2 text-sm text-slate-400">
+          Review the exact signature block that ALPA appends to your emails.
+        </p>
       </div>
 
-      {/* Email canvas */}
-      <div
-        className="mx-auto max-w-md rounded-lg p-6 shadow-2xl"
-        style={{
-          background: '#ffffff',
-          color: '#1f2937',
-        }}
-      >
-        {hasContent ? (
-          <div
-            className="text-sm leading-7"
-            dangerouslySetInnerHTML={{ __html: signatureHtml }}
-          />
-        ) : (
-          <div style={{ fontStyle: 'italic', opacity: 0.5 }}>
-            Fill in your details to preview your signature
-          </div>
-        )}
+      <div className="overflow-hidden rounded-[28px] border border-white/8 bg-[#081120]/80 p-3 sm:p-4">
+        <div className="rounded-[24px] bg-white p-5 shadow-[0_24px_48px_rgba(15,23,42,0.2)] sm:p-6">
+          {hasContent ? (
+            <div
+              className="break-words text-sm leading-7 text-slate-800"
+              dangerouslySetInnerHTML={{ __html: signatureHtml }}
+            />
+          ) : (
+            <div className="text-sm italic text-slate-400">
+              Fill in your details to preview your signature.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

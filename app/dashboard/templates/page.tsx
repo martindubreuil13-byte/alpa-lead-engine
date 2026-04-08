@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import { buildTemplateBodyHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
 
 type TemplateRow = {
@@ -16,6 +17,8 @@ type TemplateRow = {
   body: string
   created_at: string
 }
+
+type ComposerView = 'editor' | 'preview'
 
 function emptyForm() {
   return {
@@ -35,11 +38,14 @@ export default function TemplatesPage() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
+  const [composerView, setComposerView] = useState<ComposerView>('editor')
   const templatesLocked = !profileLoading && !canAccessFeature('templates', profile)
 
   useEffect(() => {
-    fetchTemplates()
+    void fetchTemplates()
   }, [])
+
+  const previewHtml = useMemo(() => buildTemplateBodyHtml(form.body), [form.body])
 
   async function fetchTemplates() {
     setLoading(true)
@@ -82,6 +88,7 @@ export default function TemplatesPage() {
     setEditingTemplateId(null)
     setForm(emptyForm())
     setStatusMessage('')
+    setComposerView('editor')
   }
 
   function startEdit(template: TemplateRow) {
@@ -93,6 +100,7 @@ export default function TemplatesPage() {
       body: template.body,
     })
     setStatusMessage('')
+    setComposerView('editor')
   }
 
   async function saveTemplate() {
@@ -135,7 +143,6 @@ export default function TemplatesPage() {
         return
       }
 
-      console.log('Template updated')
       setStatusMessage('Template updated successfully.')
       await fetchTemplates()
       return
@@ -158,7 +165,6 @@ export default function TemplatesPage() {
       return
     }
 
-    console.log('Template saved')
     setStatusMessage('Template saved successfully.')
     setForm(emptyForm())
     await fetchTemplates()
@@ -216,162 +222,234 @@ export default function TemplatesPage() {
   }
 
   return (
-    <div className="max-w-6xl space-y-8">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-semibold text-white">Templates</h1>
-        <p className="text-slate-400">
-          Create reusable templates for first-touch outreach, follow-ups, and language-specific campaigns.
-        </p>
-      </div>
-
-      <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <section className="glass rounded-3xl p-8">
-          <div className="mb-6 flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-white">
-                {editingTemplateId ? 'Edit Template' : 'Create Template'}
-              </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Save as many templates as you need and choose the right one when sending.
-              </p>
+    <div className="space-y-6 pb-4">
+      <header className="glass p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+              Template system
             </div>
-
-            {editingTemplateId && (
-              <button
-                onClick={startCreate}
-                className="rounded-lg bg-white/10 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/20"
-              >
-                New Template
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm text-slate-300">Template name</span>
-                <input
-                  value={form.name}
-                  onChange={(e) => updateField('name', e.target.value)}
-                  placeholder="FR Follow-up"
-                  className="input"
-                />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm text-slate-300">Type / tag</span>
-                <input
-                  value={form.tag}
-                  onChange={(e) => updateField('tag', e.target.value)}
-                  placeholder="Follow-up"
-                  className="input"
-                />
-              </label>
-            </div>
-
-            <label className="space-y-2">
-              <span className="text-sm text-slate-300">Subject</span>
-              <input
-                value={form.subject}
-                onChange={(e) => updateField('subject', e.target.value)}
-                placeholder="Quick question about your business"
-                className="input"
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm text-slate-300">Body</span>
-              <textarea
-                rows={14}
-                value={form.body}
-                onChange={(e) => updateField('body', e.target.value)}
-                placeholder={`Hi there,\n\nI wanted to reach out because...`}
-                className="input min-h-[320px] resize-y leading-7"
-              />
-            </label>
-
-            <div className="flex flex-wrap items-center gap-4">
-              <button
-                onClick={saveTemplate}
-                disabled={saving}
-                className="rounded-xl bg-blue-600 px-6 py-3 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : editingTemplateId ? 'Save Changes' : 'Save Template'}
-              </button>
-
-              {statusMessage && (
-                <p className="text-sm text-slate-300">{statusMessage}</p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="glass rounded-3xl p-8">
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-white">Saved Templates</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Reopen any saved template to edit it or delete templates you no longer need.
+            <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              Templates
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+              Write outreach once, preview it comfortably on mobile, and keep your best sequences ready for the inbox or pipeline.
             </p>
           </div>
 
-          {loading ? (
-            <p className="text-slate-400">Loading templates...</p>
-          ) : templates.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-sm text-slate-300">
-              No templates saved yet.
+          <button
+            type="button"
+            onClick={startCreate}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08]"
+          >
+            New template
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <StatCard label="Saved templates" value={templates.length} />
+          <StatCard label="Current mode" value={editingTemplateId ? 'Editing' : 'Creating'} />
+          <StatCard label="Preview ready" value={form.body.trim() ? 'Yes' : 'No'} />
+        </div>
+      </header>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <div className="space-y-4">
+          <section className="glass p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-white">
+                  {editingTemplateId ? 'Edit template' : 'Create template'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Keep the form single-column on mobile, then switch to preview when you want to review it.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-2xl border border-white/10 bg-[#081120]/80 p-1">
+                {(['editor', 'preview'] as ComposerView[]).map((view) => (
+                  <button
+                    key={view}
+                    type="button"
+                    onClick={() => setComposerView(view)}
+                    className={`min-h-[40px] rounded-xl px-4 text-sm font-medium transition ${
+                      composerView === view
+                        ? 'bg-cyan-400/12 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {view === 'editor' ? 'Editor' : 'Preview'}
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {templates.map((template) => (
+
+            {composerView === 'editor' ? (
+              <div className="mt-6 space-y-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm text-slate-300">Template name</span>
+                    <input
+                      value={form.name}
+                      onChange={(event) => updateField('name', event.target.value)}
+                      placeholder="FR Follow-up"
+                      className="input"
+                    />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm text-slate-300">Type / tag</span>
+                    <input
+                      value={form.tag}
+                      onChange={(event) => updateField('tag', event.target.value)}
+                      placeholder="Follow-up"
+                      className="input"
+                    />
+                  </label>
+                </div>
+
+                <label className="space-y-2">
+                  <span className="text-sm text-slate-300">Subject</span>
+                  <input
+                    value={form.subject}
+                    onChange={(event) => updateField('subject', event.target.value)}
+                    placeholder="Quick question about your business"
+                    className="input"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm text-slate-300">Body</span>
+                  <textarea
+                    rows={14}
+                    value={form.body}
+                    onChange={(event) => updateField('body', event.target.value)}
+                    placeholder={`Hi there,\n\nI wanted to reach out because...`}
+                    className="input min-h-[340px] resize-y leading-7"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Subject</div>
+                  <div className="mt-3 text-base font-medium text-white">
+                    {form.subject.trim() || 'Your subject will appear here'}
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-white/8 bg-[#081120]/80 p-4">
+                  <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Mobile preview
+                  </div>
+                  <div className="rounded-[24px] bg-white p-5 text-sm leading-7 text-slate-800 shadow-[0_20px_45px_rgba(15,23,42,0.2)]">
+                    {previewHtml ? (
+                      <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                    ) : (
+                      <div className="italic text-slate-400">
+                        Start typing your message in the editor to preview it here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:bottom-6">
+            <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-white">
+                  {editingTemplateId ? 'Ready to update this template' : 'Ready to save a new template'}
+                </div>
+                {statusMessage ? (
+                  <p className="mt-1 text-sm text-slate-300">{statusMessage}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Save from here and keep the action button reachable while you type.
+                  </p>
+                )}
+              </div>
+
+              <button type="button" onClick={saveTemplate} disabled={saving} className="btn-primary w-full sm:w-auto">
+                {saving ? 'Saving...' : editingTemplateId ? 'Save changes' : 'Save template'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <section className="glass p-5 sm:p-6">
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-white">Saved templates</h2>
+            <p className="text-sm text-slate-400">
+              Reopen any saved template to edit it, or remove templates you no longer need.
+            </p>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {loading ? (
+              <p className="text-slate-400">Loading templates...</p>
+            ) : templates.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] p-6 text-sm text-slate-300">
+                No templates saved yet.
+              </div>
+            ) : (
+              templates.map((template) => (
                 <article
                   key={template.id}
-                  className="rounded-2xl border border-white/10 bg-white/[0.04] p-5"
+                  className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4"
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-base font-semibold text-white">
-                          {template.name}
-                        </h3>
-                        {template.tag && (
-                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] uppercase tracking-wide text-cyan-300">
-                            {template.tag}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="mt-2 truncate text-sm text-slate-300">
-                        {template.subject}
-                      </p>
-
-                      <p className="mt-2 text-xs text-slate-500">
-                        {new Date(template.created_at).toLocaleString()}
-                      </p>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="min-w-0 flex-1 truncate text-base font-semibold text-white">
+                        {template.name}
+                      </h3>
+                      {template.tag ? (
+                        <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] uppercase tracking-wide text-cyan-300">
+                          {template.tag}
+                        </span>
+                      ) : null}
                     </div>
 
-                    <div className="flex shrink-0 gap-2">
+                    <p className="text-sm text-slate-300">{template.subject}</p>
+                    <p className="text-xs text-slate-500">
+                      {new Date(template.created_at).toLocaleString()}
+                    </p>
+
+                    <div className="flex flex-col gap-3 sm:flex-row">
                       <button
+                        type="button"
                         onClick={() => startEdit(template)}
-                        className="rounded-lg bg-white/10 px-3 py-2 text-sm text-slate-200 transition hover:bg-white/20"
+                        className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08]"
                       >
                         Edit
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => deleteTemplate(template.id)}
                         disabled={deletingId === template.id}
-                        className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300 transition hover:bg-red-500/25 disabled:opacity-50"
+                        className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-rose-300/14 bg-rose-400/10 px-4 text-sm font-medium text-rose-200 transition hover:bg-rose-400/16 disabled:opacity-60"
                       >
                         {deletingId === template.id ? 'Deleting...' : 'Delete'}
                       </button>
                     </div>
                   </div>
                 </article>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </section>
       </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-3 text-lg font-semibold text-white">{value}</div>
     </div>
   )
 }

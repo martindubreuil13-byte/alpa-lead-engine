@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, ChevronUp, Mail, Phone } from 'lucide-react'
+
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
+import SendCampaignModal from '@/components/email/SendCampaignModal'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
-import { supabase } from '@/lib/supabase'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import SendCampaignModal from '@/components/email/SendCampaignModal'
 import { getGuestLeads } from '@/lib/guest-session'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
+import { supabase } from '@/lib/supabase'
 
 type Lead = {
   id: string
@@ -16,6 +18,7 @@ type Lead = {
   city: string
   industry: string | null
   email: string | null
+  phone: string | null
   status: string
   pipeline_stage?: string | null
   close_reason?: string | null
@@ -25,12 +28,13 @@ type Lead = {
 type CloseReason = 'no_answer' | 'not_interested' | 'wrong_contact' | 'bounce' | 'other'
 type PipelineStage = 'ready' | 'followup' | 'final_attempt' | 'closed'
 
-const STAGES: Array<{ key: PipelineStage; title: string }> = [
-  { key: 'ready', title: 'Ready' },
-  { key: 'followup', title: 'Follow-up' },
-  { key: 'final_attempt', title: 'Final Attempt' },
-  { key: 'closed', title: 'Closed' },
+const STAGES: Array<{ key: PipelineStage; title: string; description: string }> = [
+  { key: 'ready', title: 'Ready', description: 'Fresh leads that are ready for first outreach.' },
+  { key: 'followup', title: 'Follow-up', description: 'Leads that need the next nudge or reply.' },
+  { key: 'final_attempt', title: 'Final Attempt', description: 'Last-touch leads before you close the loop.' },
+  { key: 'closed', title: 'Closed', description: 'Finished opportunities with a recorded outcome.' },
 ]
+
 const OPEN_STAGES = STAGES.filter((stage) => stage.key !== 'closed')
 
 const STATUS_META: Record<string, { label: string; badge: string }> = {
@@ -73,6 +77,7 @@ const PIPELINE_RELEVANT_STATUSES = [
   'rejected',
   'invalid',
 ]
+
 const CLOSE_REASON_OPTIONS: Array<{ value: CloseReason; label: string }> = [
   { value: 'no_answer', label: 'No Answer' },
   { value: 'not_interested', label: 'Not Interested' },
@@ -103,17 +108,21 @@ export default function PipelinePage() {
   const [showFeatureLock, setShowFeatureLock] = useState(false)
   const [isSendModalOpen, setIsSendModalOpen] = useState(false)
   const [closeLead, setCloseLead] = useState<Lead | null>(null)
+  const [moveLead, setMoveLead] = useState<Lead | null>(null)
+  const [moveTarget, setMoveTarget] = useState<PipelineStage>('ready')
   const [closeReason, setCloseReason] = useState<CloseReason>('no_answer')
   const [closing, setClosing] = useState(false)
-  const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
-  const visibleLeads = leads
-  const sendableSelectedIds = selected.filter((id) => {
-    const lead = visibleLeads.find((item) => item.id === id)
-    return lead ? normalizePipelineStage(lead) !== 'closed' : false
+  const [moving, setMoving] = useState(false)
+  const [expandedStages, setExpandedStages] = useState<Record<PipelineStage, boolean>>({
+    ready: true,
+    followup: true,
+    final_attempt: true,
+    closed: true,
   })
+  const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
 
   useEffect(() => {
-    fetchLeads()
+    void fetchLeads()
 
     const syncGuestLeads = () => {
       const guestLeads = getGuestLeads().map((lead) => ({
@@ -135,6 +144,23 @@ export default function PipelinePage() {
     const visibleIds = new Set(leads.map((lead) => lead.id))
     setSelected((prev) => prev.filter((id) => visibleIds.has(id)))
   }, [leads])
+
+  const stageMap = useMemo(() => {
+    return STAGES.reduce<Record<PipelineStage, Lead[]>>(
+      (accumulator, stage) => {
+        accumulator[stage.key] = leads.filter((lead) => normalizePipelineStage(lead) === stage.key)
+        return accumulator
+      },
+      { ready: [], followup: [], final_attempt: [], closed: [] }
+    )
+  }, [leads])
+
+  const sendableSelectedIds = useMemo(() => {
+    return selected.filter((id) => {
+      const lead = leads.find((item) => item.id === id)
+      return lead ? normalizePipelineStage(lead) !== 'closed' : false
+    })
+  }, [leads, selected])
 
   async function fetchLeads() {
     setLoading(true)
@@ -160,7 +186,7 @@ export default function PipelinePage() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, city, industry, email, status, pipeline_stage, close_reason, contacted_at')
+      .select('id, company_name, city, industry, email, phone, status, pipeline_stage, close_reason, contacted_at')
       .eq('user_id', user.id)
       .in('status', PIPELINE_RELEVANT_STATUSES)
 
@@ -185,7 +211,7 @@ export default function PipelinePage() {
       return
     }
 
-    const payload: any = {
+    const payload = {
       pipeline_stage: newStage,
       status_updated_at: new Date().toISOString(),
     }
@@ -200,12 +226,7 @@ export default function PipelinePage() {
       return
     }
 
-    // optimistic update
-    setLeads(prev =>
-      prev
-        .map(l => (l.id === id ? { ...l, ...payload } : l))
-        .filter(l => PIPELINE_RELEVANT_STATUSES.includes(l.status))
-    )
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, ...payload } : lead)))
   }
 
   async function batchMarkContacted(ids: string[]) {
@@ -220,23 +241,29 @@ export default function PipelinePage() {
     }
 
     const now = new Date().toISOString()
+    const payload = {
+      status: 'contacted',
+      contacted_at: now,
+      pipeline_stage: 'followup',
+      status_updated_at: now,
+    }
 
-    // optimistic update
-    setLeads(prev =>
-      prev.map(l =>
-        ids.includes(l.id)
-          ? { ...l, status: 'contacted', contacted_at: now, pipeline_stage: 'followup' }
-          : l
-      )
-    )
+    const { error } = await supabase
+      .from('leads')
+      .update(payload)
+      .in('id', ids)
 
-    setSelected(prev => prev.filter(id => !ids.includes(id)))
+    if (error) {
+      console.error('Error updating contacted leads:', error)
+      return
+    }
+
+    setLeads((prev) => prev.map((lead) => (ids.includes(lead.id) ? { ...lead, ...payload } : lead)))
+    setSelected((prev) => prev.filter((id) => !ids.includes(id)))
   }
 
   function toggleSelect(id: string) {
-    setSelected(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    )
+    setSelected((prev) => (prev.includes(id) ? prev.filter((current) => current !== id) : [...prev, id]))
   }
 
   function clearSelection() {
@@ -244,13 +271,21 @@ export default function PipelinePage() {
   }
 
   function toggleColumn(leadsInColumn: Lead[], checked: boolean) {
-    const ids = leadsInColumn.map(l => l.id)
+    const ids = leadsInColumn.map((lead) => lead.id)
 
     if (checked) {
-      setSelected(prev => Array.from(new Set([...prev, ...ids])))
-    } else {
-      setSelected(prev => prev.filter(id => !ids.includes(id)))
+      setSelected((prev) => Array.from(new Set([...prev, ...ids])))
+      return
     }
+
+    setSelected((prev) => prev.filter((id) => !ids.includes(id)))
+  }
+
+  function toggleStage(stage: PipelineStage) {
+    setExpandedStages((prev) => ({
+      ...prev,
+      [stage]: !prev[stage],
+    }))
   }
 
   function openCloseModal(lead: Lead) {
@@ -263,10 +298,34 @@ export default function PipelinePage() {
     setCloseReason('no_answer')
   }
 
-  function closeModal() {
+  function closeCloseModal() {
     if (closing) return
     setCloseLead(null)
     setCloseReason('no_answer')
+  }
+
+  function openMoveStageModal(lead: Lead) {
+    if (isGuest) {
+      setShowFeatureLock(true)
+      return
+    }
+
+    setMoveLead(lead)
+    setMoveTarget(normalizePipelineStage(lead))
+  }
+
+  function closeMoveModal() {
+    if (moving) return
+    setMoveLead(null)
+  }
+
+  async function confirmMoveLead() {
+    if (!moveLead) return
+
+    setMoving(true)
+    await moveLeadStage(moveLead.id, moveTarget)
+    setMoving(false)
+    setMoveLead(null)
   }
 
   async function confirmCloseLead() {
@@ -277,23 +336,13 @@ export default function PipelinePage() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    const statusMap: Record<string, string> = {
+
+    const statusMap: Record<CloseReason, string> = {
       no_answer: 'no_response',
       not_interested: 'rejected',
       wrong_contact: 'invalid',
       bounce: 'invalid',
       other: 'rejected',
-    }
-    const mappedStatus = statusMap[selectedReason]
-
-    if (!leadId) {
-      console.error('Missing leadId')
-      return
-    }
-
-    if (!selectedReason) {
-      console.error('Missing close reason')
-      return
     }
 
     if (!user?.id) {
@@ -301,24 +350,12 @@ export default function PipelinePage() {
       return
     }
 
-    if (!mappedStatus) {
-      console.error('Invalid status mapping')
-      return
-    }
-
-    console.log('Closing lead payload:', {
-      leadId,
-      userId: user.id,
-      selectedReason,
-      mappedStatus,
-    })
-
     setClosing(true)
 
     const payload = {
       pipeline_stage: 'closed',
       close_reason: selectedReason,
-      status: mappedStatus,
+      status: statusMap[selectedReason],
       status_updated_at: new Date().toISOString(),
     }
 
@@ -329,31 +366,26 @@ export default function PipelinePage() {
       .eq('user_id', user.id)
       .select()
 
-    console.log('Close result:', data)
-    console.log('Close error FULL:', JSON.stringify(error, null, 2))
-
-    if (error) {
+    if (error || !data || data.length === 0) {
       console.error('Error closing lead:', error)
       setClosing(false)
       return
     }
 
-    if (!data || data.length === 0) {
-      console.error('Close failed: no rows updated')
-      setClosing(false)
+    setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ...payload } : lead)))
+
+    setClosing(false)
+    closeCloseModal()
+  }
+
+  function openSendForLead(leadId: string) {
+    if (isGuest) {
+      setShowFeatureLock(true)
       return
     }
 
-    setLeads((prev) =>
-      prev.map((lead) =>
-        lead.id === leadId
-          ? { ...lead, ...payload }
-          : lead
-      )
-    )
-
-    setClosing(false)
-    closeModal()
+    setSelected([leadId])
+    setIsSendModalOpen(true)
   }
 
   if (profileLoading) {
@@ -369,125 +401,154 @@ export default function PipelinePage() {
     )
   }
 
+  const totalLeads = leads.length
+  const activeLeads = totalLeads - stageMap.closed.length
+
   return (
     <>
-      <div className="space-y-10">
-
-        {/* Header */}
-        <div>
-          <h1 className="text-4xl font-bold text-white">Pipeline</h1>
-          <p className="text-slate-400 mt-2">
-            Execute prospecting and manage active leads
-          </p>
-        </div>
-
-        {/* Batch Toolbar */}
-        <div className="glass p-4 flex items-center justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="text-sm text-white">
-              {selected.length} selected
+      <div className="space-y-6 pb-4">
+        <header className="glass overflow-hidden p-5 sm:p-6">
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+              Mobile pipeline
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                Pipeline
+              </h1>
+              <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+                Review every active lead, take action without zooming, and move prospects forward with tap-based stage management.
+              </p>
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={() => {
-                if (isGuest) {
-                  setShowFeatureLock(true)
-                  return
-                }
-                setIsSendModalOpen(true)
-              }}
-              disabled={sendableSelectedIds.length === 0}
-              className={`px-4 py-2 rounded-lg transition ${
-                sendableSelectedIds.length === 0
-                  ? 'bg-white/5 text-slate-500 cursor-not-allowed'
-                  : 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30'
-              }`}
-            >
-              📧 Send Email
-            </button>
-
-            <button
-              onClick={clearSelection}
-              disabled={selected.length === 0}
-              className={`px-4 py-2 rounded-lg transition ${
-                selected.length === 0
-                  ? 'bg-white/5 text-slate-500 cursor-not-allowed'
-                  : 'bg-white/10 text-slate-300 hover:bg-white/20'
-              }`}
-            >
-              Clear
-            </button>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <MetricCard label="Total leads" value={totalLeads} />
+            <MetricCard label="Active pipeline" value={activeLeads} />
+            <MetricCard label="Ready to send" value={sendableSelectedIds.length} />
           </div>
-        </div>
+        </header>
 
-        {/* Loading */}
-        {loading && (
-          <div className="text-slate-400">Loading pipeline...</div>
-        )}
+        <section className="glass space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{selected.length} selected</div>
+              <div className="mt-1 text-xs text-slate-500">
+                Select leads to send template emails in one batch.
+              </div>
+            </div>
 
-        {/* Columns */}
-        {!loading && (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {STAGES.map(stage => {
-              const stageLeads = visibleLeads.filter(
-                (lead) => normalizePipelineStage(lead) === stage.key
-              )
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isGuest) {
+                    setShowFeatureLock(true)
+                    return
+                  }
+                  setIsSendModalOpen(true)
+                }}
+                disabled={sendableSelectedIds.length === 0}
+                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+                  sendableSelectedIds.length === 0
+                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                    : 'border border-cyan-300/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
+                }`}
+              >
+                Send template email
+              </button>
 
-              const allSelected =
-                stageLeads.length > 0 &&
-                stageLeads.every(l => selected.includes(l.id))
+              <button
+                type="button"
+                onClick={clearSelection}
+                disabled={selected.length === 0}
+                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+                  selected.length === 0
+                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+                    : 'border border-white/10 bg-white/[0.05] text-slate-200 hover:bg-white/[0.08]'
+                }`}
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {loading ? (
+          <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-5 text-sm text-slate-300">
+            Loading pipeline...
+          </div>
+        ) : (
+          <div className="space-y-4 xl:grid xl:grid-cols-4 xl:gap-4 xl:space-y-0">
+            {STAGES.map((stage) => {
+              const stageLeads = stageMap[stage.key]
+              const allSelected = stageLeads.length > 0 && stageLeads.every((lead) => selected.includes(lead.id))
+              const isExpanded = expandedStages[stage.key]
 
               return (
-                <div key={stage.key} className="glass p-5 space-y-4">
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={(e) =>
-                          toggleColumn(stageLeads, e.target.checked)
-                        }
-                      />
-                      <h2 className="font-semibold text-white">
-                        {stage.title}
-                      </h2>
+                <section key={stage.key} className="glass overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleStage(stage.key)}
+                    className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left sm:px-5"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs font-medium text-slate-200">
+                          {stageLeads.length}
+                        </div>
+                        <h2 className="text-base font-semibold text-white">{stage.title}</h2>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">{stage.description}</p>
                     </div>
 
-                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-slate-300">
-                      {stageLeads.length}
-                    </span>
-                  </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {stageLeads.length > 0 ? (
+                        <label className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={(event) => {
+                              event.stopPropagation()
+                              toggleColumn(stageLeads, event.target.checked)
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                          Select all
+                        </label>
+                      ) : null}
+                      {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                    </div>
+                  </button>
 
-                  <div className="space-y-4">
-                    {stageLeads.length === 0 && (
-                      <div className="text-xs text-slate-500 italic">
-                        No leads
-                      </div>
-                    )}
+                  {isExpanded ? (
+                    <div className="space-y-3 border-t border-white/6 px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
+                      {stageLeads.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm text-slate-500">
+                          No leads in this stage yet.
+                        </div>
+                      ) : null}
 
-                    {stageLeads.map(lead => (
-                      <Card
-                        key={lead.id}
-                        lead={lead}
-                        moveLeadStage={moveLeadStage}
-                        openCloseModal={openCloseModal}
-                        selected={selected.includes(lead.id)}
-                        toggleSelect={toggleSelect}
-                        isGuest={isGuest}
-                      />
-                    ))}
-                  </div>
-                </div>
+                      {stageLeads.map((lead) => (
+                        <PipelineLeadCard
+                          key={lead.id}
+                          lead={lead}
+                          selected={selected.includes(lead.id)}
+                          toggleSelect={toggleSelect}
+                          openCloseModal={openCloseModal}
+                          openMoveStageModal={openMoveStageModal}
+                          openSendForLead={openSendForLead}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
               )
             })}
           </div>
         )}
       </div>
 
-      {/* Email Modal */}
       <SendCampaignModal
         isOpen={isSendModalOpen}
         onClose={() => setIsSendModalOpen(false)}
@@ -495,21 +556,74 @@ export default function PipelinePage() {
         onSent={batchMarkContacted}
       />
 
-      {closeLead && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-          <div className="glass w-full max-w-md space-y-5 rounded-2xl p-6">
-            <div>
-              <h2 className="text-xl font-semibold text-white">Close Lead</h2>
-              <p className="mt-2 text-sm text-slate-400">
-                Choose a close reason for {closeLead.company_name}.
+      {moveLead ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-0 backdrop-blur-sm sm:items-center sm:px-4">
+          <div className="glass w-full rounded-t-[32px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-[32px]">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold text-white">Move lead</h2>
+              <p className="text-sm leading-6 text-slate-300">
+                Pick the next stage for {moveLead.company_name}.
               </p>
             </div>
 
-            <div className="space-y-3">
+            <div className="mt-5 space-y-3">
+              {OPEN_STAGES.map((stage) => (
+                <button
+                  key={stage.key}
+                  type="button"
+                  onClick={() => setMoveTarget(stage.key)}
+                  className={`flex min-h-[52px] w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition ${
+                    moveTarget === stage.key
+                      ? 'border-cyan-300/28 bg-cyan-400/12 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-slate-200'
+                  }`}
+                >
+                  <span>{stage.title}</span>
+                  {moveTarget === stage.key ? <span className="h-2.5 w-2.5 rounded-full bg-cyan-300" /> : null}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeMoveModal}
+                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-300 transition hover:bg-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmMoveLead}
+                disabled={moving}
+                className="btn-primary"
+              >
+                {moving ? 'Moving...' : 'Move to stage'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {closeLead ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-0 backdrop-blur-sm sm:items-center sm:px-4">
+          <div className="glass w-full rounded-t-[32px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-[32px]">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold text-white">Close lead</h2>
+              <p className="text-sm leading-6 text-slate-300">
+                Record why {closeLead.company_name} is leaving the active pipeline.
+              </p>
+            </div>
+
+            <div className="mt-5 space-y-3">
               {CLOSE_REASON_OPTIONS.map((option) => (
                 <label
                   key={option.value}
-                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200"
+                  className={`flex min-h-[52px] items-center gap-3 rounded-2xl border px-4 text-sm transition ${
+                    closeReason === option.value
+                      ? 'border-rose-300/24 bg-rose-400/10 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-slate-200'
+                  }`}
                 >
                   <input
                     type="radio"
@@ -523,28 +637,30 @@ export default function PipelinePage() {
               ))}
             </div>
 
-            <div className="flex justify-end gap-3">
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
-                onClick={closeModal}
-                className="rounded-lg bg-white/10 px-4 py-2 text-slate-300 transition hover:bg-white/20"
+                type="button"
+                onClick={closeCloseModal}
+                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-300 transition hover:bg-white/[0.08]"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={confirmCloseLead}
                 disabled={closing}
-                className={`rounded-lg px-5 py-2 text-sm font-semibold transition ${
+                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
                   closing
-                    ? 'cursor-not-allowed bg-red-900/40 text-red-200'
-                    : 'bg-red-500/20 text-red-300 hover:bg-red-500/30'
+                    ? 'cursor-not-allowed bg-rose-950/40 text-rose-200'
+                    : 'bg-rose-500/20 text-rose-200 hover:bg-rose-500/28'
                 }`}
               >
-                {closing ? 'Closing...' : 'Confirm Close'}
+                {closing ? 'Closing...' : 'Confirm close'}
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <FeatureLockModal
         isOpen={showFeatureLock}
@@ -558,85 +674,143 @@ export default function PipelinePage() {
   )
 }
 
-function Card({
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[24px] border border-white/8 bg-white/[0.04] p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{value}</div>
+    </div>
+  )
+}
+
+function PipelineLeadCard({
   lead,
-  moveLeadStage,
-  openCloseModal,
   selected,
   toggleSelect,
-  isGuest,
+  openCloseModal,
+  openMoveStageModal,
+  openSendForLead,
 }: {
   lead: Lead
-  moveLeadStage: (id: string, stage: PipelineStage) => void
-  openCloseModal: (lead: Lead) => void
   selected: boolean
   toggleSelect: (id: string) => void
-  isGuest: boolean
+  openCloseModal: (lead: Lead) => void
+  openMoveStageModal: (lead: Lead) => void
+  openSendForLead: (id: string) => void
 }) {
-  return (
-    <div className={`glass p-4 space-y-4 border ${
-      selected ? 'border-blue-400/40' : 'border-white/5'
-    }`}>
+  const currentStage = normalizePipelineStage(lead)
 
+  return (
+    <article
+      className={`rounded-[24px] border p-4 transition ${
+        selected
+          ? 'border-cyan-300/22 bg-cyan-400/8 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]'
+          : 'border-white/10 bg-white/[0.03]'
+      }`}
+    >
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
           checked={selected}
           onChange={() => toggleSelect(lead.id)}
-          className="mt-1"
+          className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-cyan-300"
         />
 
-        <div>
-          <div className="font-semibold text-white text-sm">
-            {lead.company_name}
-          </div>
-          <div className="text-xs text-slate-400 mt-1">
-            {lead.industry || 'Business'} • {lead.city}
-          </div>
-          <div className="mt-2 text-xs text-slate-300">
-            {lead.email || 'No Email'}
-          </div>
-          <div className="mt-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-semibold text-white">{lead.company_name}</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                {[lead.industry || 'Business', lead.city].filter(Boolean).join(' • ')}
+              </p>
+            </div>
+
             <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_META[lead.status]?.badge || STATUS_META.pipeline.badge}`}
+              className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                STATUS_META[lead.status]?.badge || STATUS_META.pipeline.badge
+              }`}
             >
               {STATUS_META[lead.status]?.label || lead.status}
             </span>
           </div>
-          {lead.close_reason && (
-            <div className="mt-2 text-[11px] uppercase tracking-wide text-slate-500">
-              Close Reason: {lead.close_reason.replace(/_/g, ' ')}
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl border border-white/8 bg-[#081120]/80 px-3 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Email</div>
+              <div className="mt-2 break-words text-sm text-slate-200">{lead.email || 'No email saved'}</div>
             </div>
-          )}
+            <div className="rounded-2xl border border-white/8 bg-[#081120]/80 px-3 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Phone</div>
+              <div className="mt-2 break-words text-sm text-slate-200">{lead.phone || 'No phone saved'}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Stage</div>
+            <div className="mt-2 text-sm text-white">
+              {STAGES.find((stage) => stage.key === currentStage)?.title || 'Ready'}
+            </div>
+            {lead.close_reason ? (
+              <div className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+                Close reason: {lead.close_reason.replace(/_/g, ' ')}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => openSendForLead(lead.id)}
+              disabled={!lead.email}
+              className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-medium transition ${
+                lead.email
+                  ? 'border border-cyan-300/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/16'
+                  : 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+              }`}
+            >
+              <Mail className="h-4 w-4" />
+              <span>Send email</span>
+            </button>
+
+            {lead.phone ? (
+              <a
+                href={`tel:${lead.phone}`}
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/16"
+              >
+                <Phone className="h-4 w-4" />
+                <span>Call</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-slate-500"
+              >
+                <Phone className="h-4 w-4" />
+                <span>No phone</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => openMoveStageModal(lead)}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08]"
+            >
+              Move stage
+            </button>
+
+            {currentStage !== 'closed' ? (
+              <button
+                type="button"
+                onClick={() => openCloseModal(lead)}
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-rose-300/16 bg-rose-400/10 px-4 text-sm font-medium text-rose-100 transition hover:bg-rose-400/16"
+              >
+                Close lead
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
-
-      <div className="space-y-2">
-        <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Pipeline Stage
-        </label>
-        <select
-          value={normalizePipelineStage(lead)}
-          onChange={(event) => moveLeadStage(lead.id, event.target.value as PipelineStage)}
-          disabled={isGuest || normalizePipelineStage(lead) === 'closed'}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400/40"
-        >
-          {normalizePipelineStage(lead) === 'closed' && (
-            <option value="closed">Closed</option>
-          )}
-          {OPEN_STAGES.map((stage) => (
-            <option key={stage.key} value={stage.key}>
-              {stage.title}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => openCloseModal(lead)}
-          className="w-full rounded-lg bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/25"
-        >
-          {isGuest ? 'Unlock to Close' : 'Close'}
-        </button>
-      </div>
-    </div>
+    </article>
   )
 }

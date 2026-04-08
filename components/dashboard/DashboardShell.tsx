@@ -1,25 +1,87 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LifeBuoy, Lock, Mail, Menu, X } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import {
+  BookOpenText,
+  Columns3,
+  CreditCard,
+  FileText,
+  Home,
+  Inbox,
+  LifeBuoy,
+  Lock,
+  LogOut,
+  Menu,
+  Rocket,
+  Settings,
+  X,
+} from 'lucide-react'
 
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import { supabase } from '@/lib/supabase'
 import { getOrCreateGuestSessionId } from '@/lib/guest-session'
+import { supabase } from '@/lib/supabase'
 import { isGuestTrialModeForced } from '@/lib/session/guest-trial-mode'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
 type ViewerMode = 'resolving' | 'guest_trial' | 'authenticated_free' | 'authenticated_paid'
 
-export default function DashboardShell({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+type NavItem = {
+  href: string
+  label: string
+  icon: LucideIcon
+  feature?: string
+  lockedOnFree?: boolean
+  description?: string
+  benefit?: string
+  mobilePrimary?: boolean
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { href: '/dashboard', label: 'Dashboard', icon: Home, mobilePrimary: true },
+  { href: '/dashboard/leads', label: 'Leads Inbox', icon: Inbox, mobilePrimary: true },
+  {
+    href: '/dashboard/kanban',
+    label: 'Pipeline',
+    icon: Columns3,
+    feature: 'pipeline',
+    description: 'Track every lead through outreach stages, follow-ups, and outcomes.',
+    benefit: 'Pipeline turns lead generation into a repeatable sales system instead of a list that goes stale.',
+    mobilePrimary: true,
+  },
+  { href: '/dashboard/scraper', label: 'Prospector', icon: Rocket, mobilePrimary: true },
+  {
+    href: '/dashboard/library',
+    label: 'Lead Library',
+    icon: BookOpenText,
+    lockedOnFree: true,
+    description: 'Search and revisit your full lead history from one organized workspace.',
+    benefit: 'A lead library keeps great prospects reusable long after the first scrape ends.',
+  },
+  {
+    href: '/dashboard/templates',
+    label: 'Templates',
+    icon: FileText,
+    feature: 'templates',
+    description: 'Save proven outreach messages so your follow-up stays fast and consistent.',
+    benefit: 'Templates shorten response time and help your team scale without rewriting from scratch.',
+  },
+  { href: '/dashboard/billing', label: 'Plan & Billing', icon: CreditCard },
+  {
+    href: '/dashboard/settings',
+    label: 'Settings',
+    icon: Settings,
+    lockedOnFree: true,
+    description: 'Configure sender identity, workspace defaults, and the advanced controls behind your system.',
+    benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
+  },
+]
+
+export default function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [forcedGuestTrial, setForcedGuestTrial] = useState(() => isGuestTrialModeForced())
   const [lockedFeature, setLockedFeature] = useState<{
@@ -57,16 +119,7 @@ export default function DashboardShell({
   }, [])
 
   useEffect(() => {
-    console.log('NAV LOCK STATE UPDATED', {
-      viewerMode,
-      forcedGuestTrial,
-      plan: profile?.plan ?? null,
-      profileLoading,
-    })
-  }, [forcedGuestTrial, profile?.plan, profileLoading, viewerMode])
-
-  useEffect(() => {
-    if (!mobileMenuOpen) return
+    if (!mobileMenuOpen && !supportOpen) return
 
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -74,6 +127,7 @@ export default function DashboardShell({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMobileMenuOpen(false)
+        setSupportOpen(false)
       }
     }
 
@@ -83,61 +137,28 @@ export default function DashboardShell({
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [mobileMenuOpen])
+  }, [mobileMenuOpen, supportOpen])
 
-  const navItems: Array<{
-    href: string
-    label: string
-    feature?: string
-    lockedOnFree?: boolean
-    description?: string
-    benefit?: string
-  }> = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/dashboard/leads', label: 'Leads Inbox' },
-    {
-      href: '/dashboard/kanban',
-      label: 'Pipeline',
-      feature: 'pipeline',
-      description: 'Track every lead through outreach stages, follow-ups, and outcomes.',
-      benefit: 'Pipeline turns lead generation into a repeatable sales system instead of a list that goes stale.',
-    },
-    { href: '/dashboard/scraper', label: 'Prospector' },
-    {
-      href: '/dashboard/library',
-      label: 'Lead Library',
-      lockedOnFree: true,
-      description: 'Search and revisit your full lead history from one organized workspace.',
-      benefit: 'A lead library keeps great prospects reusable long after the first scrape ends.',
-    },
-    {
-      href: '/dashboard/templates',
-      label: 'Templates',
-      feature: 'templates',
-      description: 'Save proven outreach messages so your follow-up stays fast and consistent.',
-      benefit: 'Templates shorten response time and help your team scale without rewriting from scratch.',
-    },
-    { href: '/dashboard/billing', label: 'Plan & Billing' },
-    {
-      href: '/dashboard/settings',
-      label: 'Settings',
-      lockedOnFree: true,
-      description: 'Configure sender identity, workspace defaults, and the advanced controls behind your system.',
-      benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
-    },
-  ]
+  const mobilePrimaryItems = useMemo(
+    () => NAV_ITEMS.filter((item) => item.mobilePrimary),
+    []
+  )
 
-  function isActive(href: string) {
-    if (href === '/dashboard') return pathname === href
-    return pathname.startsWith(href)
-  }
+  const activeItem = useMemo(() => {
+    return (
+      NAV_ITEMS.find((item) => {
+        const href = getItemHref(item, viewerMode)
+        return isActivePath(pathname, href)
+      }) ?? null
+    )
+  }, [pathname, viewerMode])
 
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
   }
 
-  function isLocked(item: (typeof navItems)[number]) {
+  function isLocked(item: NavItem) {
     if (viewerMode === 'resolving') {
       return Boolean(item.feature || item.lockedOnFree)
     }
@@ -154,63 +175,195 @@ export default function DashboardShell({
     return false
   }
 
-  function getItemHref(item: (typeof navItems)[number]) {
-    if (item.label === 'Plan & Billing' && viewerMode !== 'authenticated_free' && viewerMode !== 'authenticated_paid') {
-      return '/plans'
-    }
-
-    return item.href
+  function openLockedItem(item: NavItem) {
+    setMobileMenuOpen(false)
+    setLockedFeature({
+      title: item.label,
+      description: item.description || 'This feature unlocks more control inside ALPA.',
+      benefit: item.benefit || 'Upgrade to unlock the full product workflow.',
+    })
   }
 
-  const mobileNavItems = navItems.filter((item) =>
-    [
-      'Dashboard',
-      'Leads Inbox',
-      'Prospector',
-      'Lead Library',
-      'Templates',
-      'Plan & Billing',
-      'Settings',
-    ].includes(item.label)
-  )
-
   return (
-    <div className="flex min-h-screen bg-[#0b1220] text-white">
-      <aside className="hidden w-64 flex-col border-r border-white/5 bg-[#0f172a] p-6 md:flex">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-emerald-400 text-lg font-bold text-black shadow-lg shadow-cyan-500/20">
-            A
-          </div>
-          <div>
-            <div className="text-lg font-semibold tracking-tight">ALPA</div>
-            <div className="text-xs text-slate-500">Autonomous Lead Engine</div>
-          </div>
-        </div>
+    <div className="min-h-screen bg-transparent text-white">
+      <div className="mx-auto flex min-h-screen max-w-[1600px]">
+        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 border-r border-white/6 bg-[#060c18]/90 px-6 py-8 backdrop-blur-xl lg:flex lg:flex-col">
+          <Link href="/dashboard" className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[linear-gradient(135deg,#22d3ee,#34d399)] text-xl font-bold text-slate-950 shadow-[0_18px_40px_rgba(34,211,238,0.25)]">
+              A
+            </div>
+            <div>
+              <div className="text-lg font-semibold tracking-tight text-white">ALPA</div>
+              <div className="text-xs uppercase tracking-[0.28em] text-slate-500">
+                Autonomous Lead Engine
+              </div>
+            </div>
+          </Link>
 
-        <nav className="mt-12 space-y-2">
-          {navItems.map((item) => {
-            const itemHref = getItemHref(item)
-            const active = isActive(itemHref)
+          <div className="mt-8 rounded-[28px] border border-cyan-300/12 bg-cyan-400/8 p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/80">
+              Workspace
+            </div>
+            <div className="mt-3 text-sm text-slate-200">
+              {viewerMode === 'authenticated_paid'
+                ? 'Paid access active across pipeline, templates, and outreach.'
+                : viewerMode === 'authenticated_free'
+                  ? 'Free access active. Upgrade when you are ready to unlock paid workflow tools.'
+                  : 'Trial mode active. Explore the dashboard and upgrade when you want full execution tools.'}
+            </div>
+          </div>
+
+          <nav className="mt-8 space-y-2">
+            {NAV_ITEMS.map((item) => {
+              const href = getItemHref(item, viewerMode)
+              const active = isActivePath(pathname, href)
+              const locked = isLocked(item)
+              const Icon = item.icon
+
+              if (locked) {
+                return (
+                  <button
+                    key={item.href}
+                    type="button"
+                    onClick={() => openLockedItem(item)}
+                    className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-left text-sm text-slate-300 transition hover:border-white/12 hover:bg-white/[0.05] hover:text-white"
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/[0.04] text-slate-300">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span>{item.label}</span>
+                    </span>
+                    <Lock className="h-4 w-4 text-amber-200" />
+                  </button>
+                )
+              }
+
+              return (
+                <Link
+                  key={item.href}
+                  href={href}
+                  className={`flex min-h-[52px] items-center justify-between rounded-2xl px-4 py-3 text-sm transition ${
+                    active
+                      ? 'border border-cyan-300/18 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(34,211,238,0.1)]'
+                      : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <span
+                      className={`flex h-9 w-9 items-center justify-center rounded-2xl ${
+                        active ? 'bg-cyan-400/14 text-cyan-100' : 'bg-white/[0.04] text-slate-300'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span>{item.label}</span>
+                  </span>
+                  {active ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
+                </Link>
+              )
+            })}
+          </nav>
+
+          <div className="mt-auto space-y-3 pt-8">
+            <button
+              type="button"
+              onClick={() => setSupportOpen(true)}
+              className="flex min-h-[48px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-slate-200 transition hover:bg-white/[0.06]"
+            >
+              <span className="flex items-center gap-3">
+                <LifeBuoy className="h-4 w-4 text-cyan-200" />
+                <span>Support</span>
+              </span>
+            </button>
+
+            {viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid' ? (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="flex min-h-[48px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-rose-200 transition hover:bg-white/[0.06]"
+              >
+                <span className="flex items-center gap-3">
+                  <LogOut className="h-4 w-4" />
+                  <span>Logout</span>
+                </span>
+              </button>
+            ) : (
+              <Link
+                href="/plans"
+                className="btn-primary w-full"
+              >
+                Unlock full access
+              </Link>
+            )}
+
+            <div className="px-1 text-xs text-slate-500">
+              Need help fast? Reach us at{' '}
+              <a href="mailto:info@mindrasolutions.com" className="text-cyan-200 hover:text-white">
+                info@mindrasolutions.com
+              </a>
+              .
+            </div>
+          </div>
+        </aside>
+
+        <main className="flex min-h-screen min-w-0 flex-1 flex-col px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10 lg:pt-8">
+          <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-white/6 bg-[#020617]/88 px-4 pb-4 pt-1 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:hidden">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+                  ALPA Workspace
+                </div>
+                <div className="truncate text-lg font-semibold text-white">
+                  {activeItem?.label || 'Dashboard'}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Open navigation"
+                aria-expanded={mobileMenuOpen}
+                onClick={() => setMobileMenuOpen(true)}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col">{children}</div>
+
+          <footer className="mx-auto mt-10 hidden w-full max-w-6xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500 lg:block">
+            Need help or have a question? Reach us at{' '}
+            <a
+              href="mailto:info@mindrasolutions.com"
+              className="font-medium text-sky-300 transition hover:text-white hover:underline"
+            >
+              info@mindrasolutions.com
+            </a>
+            . We typically reply within 24 hours.
+          </footer>
+        </main>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/8 bg-[#050b17]/92 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden">
+        <div className="mx-auto grid max-w-3xl grid-cols-5 gap-2">
+          {mobilePrimaryItems.map((item) => {
             const locked = isLocked(item)
+            const href = getItemHref(item, viewerMode)
+            const active = !locked && isActivePath(pathname, href)
+            const Icon = item.icon
 
             if (locked) {
               return (
                 <button
                   key={item.href}
                   type="button"
-                  onClick={() =>
-                    setLockedFeature({
-                      title: item.label,
-                      description: item.description || 'This feature unlocks more control inside ALPA.',
-                      benefit: item.benefit || 'Upgrade to unlock the full product workflow.',
-                    })
-                  }
-                  className="group flex w-full items-center justify-between rounded-xl border border-white/6 px-4 py-3 text-sm text-slate-400 transition hover:border-white/12 hover:bg-white/[0.03] hover:text-white"
+                  onClick={() => openLockedItem(item)}
+                  className="flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl border border-white/8 bg-white/[0.03] px-2 text-[11px] font-medium text-slate-300"
                 >
-                  <div className="flex items-center gap-2">
-                    <span>{item.label}</span>
-                  </div>
-                  <Lock className="h-4 w-4 text-amber-200" />
+                  <Icon className="h-4 w-4" />
+                  <span className="truncate">Locked</span>
                 </button>
               )
             }
@@ -218,154 +371,145 @@ export default function DashboardShell({
             return (
               <Link
                 key={item.href}
-                href={itemHref}
-                className={`group flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-all ${
+                href={href}
+                className={`flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl px-2 text-[11px] font-medium transition ${
                   active
-                    ? 'border border-white/10 bg-white/10 text-white shadow-inner'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    ? 'border border-cyan-300/20 bg-cyan-400/12 text-white'
+                    : 'border border-transparent bg-white/[0.03] text-slate-300'
                 }`}
               >
-                <span>{item.label}</span>
-                {active && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+                <Icon className="h-4 w-4" />
+                <span className="truncate">{shortMobileLabel(item.label)}</span>
               </Link>
             )
           })}
 
           <button
             type="button"
-            onClick={() => setSupportOpen(true)}
-            className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
-          >
-            <span className="flex items-center gap-2">
-              <LifeBuoy className="h-4 w-4 text-cyan-300" />
-              <span>Support</span>
-            </span>
-          </button>
-
-          <div className="my-4 border-t border-white/10" />
-
-          {viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid' ? (
-            <button
-              onClick={handleLogout}
-              className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-red-400 transition hover:bg-white/5 hover:text-red-300"
-            >
-              <span>Logout</span>
-            </button>
-          ) : (
-            <Link
-              href="/plans"
-              className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm text-cyan-300 transition hover:bg-white/5 hover:text-white"
-            >
-              <span>Unlock full access</span>
-            </Link>
-          )}
-        </nav>
-
-        <div className="mt-auto space-y-4 pt-8">
-          <div className="text-xs text-slate-500">ALPA • Intelligence System</div>
-          <div className="text-xs text-slate-600">Build v1.1</div>
-        </div>
-      </aside>
-
-      <main className="flex flex-1 flex-col p-4 sm:p-6 md:p-10">
-        <div className="mb-6 flex items-center justify-between md:hidden">
-          <div>
-            <div className="text-base font-semibold tracking-tight text-white">ALPA</div>
-            <div className="text-xs text-slate-500">Navigate your workspace</div>
-          </div>
-
-          <button
-            type="button"
-            aria-label="Open menu"
-            aria-expanded={mobileMenuOpen}
             onClick={() => setMobileMenuOpen(true)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+            className="flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl bg-white/[0.03] px-2 text-[11px] font-medium text-slate-300"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-4 w-4" />
+            <span>More</span>
           </button>
         </div>
-
-        <div className="mx-auto w-full max-w-7xl flex-1">{children}</div>
-        <footer className="mx-auto mt-10 w-full max-w-5xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500">
-          Need help or have a question? Reach us at{' '}
-          <a
-            href="mailto:info@mindrasolutions.com"
-            className="font-medium text-sky-300 transition hover:underline"
-          >
-            info@mindrasolutions.com
-          </a>{' '}
-          — we typically reply within 24 hours.
-        </footer>
-      </main>
+      </div>
 
       {mobileMenuOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/82 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         >
           <div
-            className="flex min-h-screen flex-col bg-[#020617] px-6 pb-8 pt-6"
+            className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col bg-[linear-gradient(180deg,#081120_0%,#030712_100%)] px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-5 shadow-[0_25px_90px_rgba(2,8,23,0.6)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <div className="text-base font-semibold tracking-tight text-white">ALPA</div>
-                <div className="text-xs text-slate-500">Choose where to go next</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+                  Navigate
+                </div>
+                <div className="text-lg font-semibold text-white">Workspace menu</div>
               </div>
 
               <button
                 type="button"
-                aria-label="Close menu"
+                aria-label="Close navigation"
                 onClick={() => setMobileMenuOpen(false)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-100"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <nav className="mt-10 space-y-3">
-              {mobileNavItems.map((item) => {
+            <nav className="mt-6 flex-1 space-y-3 overflow-y-auto pb-4">
+              {NAV_ITEMS.map((item) => {
                 const locked = isLocked(item)
-                const href = locked ? '/plans' : getItemHref(item)
-                const active = !locked && isActive(href)
+                const href = getItemHref(item, viewerMode)
+                const active = !locked && isActivePath(pathname, href)
+                const Icon = item.icon
+
+                if (locked) {
+                  return (
+                    <button
+                      key={item.href}
+                      type="button"
+                      onClick={() => openLockedItem(item)}
+                      className="flex min-h-[60px] w-full items-center justify-between rounded-3xl border border-white/8 bg-white/[0.03] px-4 py-3 text-left"
+                    >
+                      <span className="flex items-center gap-3">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.04]">
+                          <Icon className="h-5 w-5 text-slate-200" />
+                        </span>
+                        <span>
+                          <span className="block text-sm font-medium text-white">{item.label}</span>
+                          <span className="mt-1 block text-xs text-slate-500">Upgrade to access</span>
+                        </span>
+                      </span>
+                      <Lock className="h-4 w-4 text-amber-200" />
+                    </button>
+                  )
+                }
 
                 return (
                   <Link
                     key={item.href}
                     href={href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex min-h-[60px] items-center justify-between rounded-2xl border px-5 py-4 text-base transition ${
-                      locked
-                        ? 'border-white/6 bg-white/[0.02] text-slate-500'
-                        : active
-                          ? 'border-white/12 bg-white/10 text-white'
-                          : 'border-white/8 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'
+                    className={`flex min-h-[60px] items-center justify-between rounded-3xl px-4 py-3 transition ${
+                      active
+                        ? 'border border-cyan-300/20 bg-cyan-400/12 text-white'
+                        : 'border border-white/8 bg-white/[0.03] text-slate-200'
                     }`}
                   >
-                    <span>{item.label}</span>
-                    {locked ? (
-                      <Lock className="h-4 w-4 text-amber-200" />
-                    ) : active ? (
-                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    ) : null}
+                    <span className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.04]">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </span>
+                    {active ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
                   </Link>
                 )
               })}
+            </nav>
 
+            <div className="space-y-3 border-t border-white/6 pt-4">
               <button
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false)
                   setSupportOpen(true)
                 }}
-                className="flex min-h-[60px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-5 py-4 text-base text-slate-200 transition hover:bg-white/[0.06]"
+                className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-slate-200"
               >
                 <span className="flex items-center gap-3">
-                  <LifeBuoy className="h-4 w-4 text-cyan-300" />
+                  <LifeBuoy className="h-4 w-4 text-cyan-200" />
                   <span>Support</span>
                 </span>
               </button>
-            </nav>
+
+              {viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid' ? (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-rose-200"
+                >
+                  <span className="flex items-center gap-3">
+                    <LogOut className="h-4 w-4" />
+                    <span>Logout</span>
+                  </span>
+                </button>
+              ) : (
+                <Link
+                  href="/plans"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="btn-primary w-full"
+                >
+                  Unlock full access
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       ) : null}
@@ -380,17 +524,15 @@ export default function DashboardShell({
       />
 
       {supportOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
-          <div className="glass w-full max-w-lg rounded-3xl p-8 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/80 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="glass w-full rounded-t-[32px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-lg sm:rounded-[32px] sm:p-8">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/12 text-cyan-200">
                     <LifeBuoy className="h-5 w-5" />
                   </div>
-                  <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
-                    Need help?
-                  </h2>
+                  <h2 className="text-2xl font-semibold tracking-tight text-white">Need help?</h2>
                 </div>
                 <p className="max-w-md text-sm leading-7 text-slate-300">
                   If you have any issue with your account, billing, or leads, reach us directly at{' '}
@@ -413,12 +555,12 @@ export default function DashboardShell({
               </button>
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center gap-3">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <a
                 href="mailto:info@mindrasolutions.com"
-                className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl border border-sky-300/20 bg-sky-300/10 px-5 text-sm font-medium text-sky-100 transition hover:bg-sky-300/15"
+                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-sky-300/20 bg-sky-300/10 px-5 text-sm font-medium text-sky-100 transition hover:bg-sky-300/15"
               >
-                <Mail className="h-4 w-4" />
+                <LifeBuoy className="h-4 w-4" />
                 Email Support
               </a>
             </div>
@@ -427,4 +569,28 @@ export default function DashboardShell({
       ) : null}
     </div>
   )
+}
+
+function isActivePath(pathname: string, href: string) {
+  if (href === '/dashboard') return pathname === href
+  return pathname.startsWith(href)
+}
+
+function getItemHref(item: NavItem, viewerMode: ViewerMode) {
+  if (item.label === 'Plan & Billing' && viewerMode !== 'authenticated_free' && viewerMode !== 'authenticated_paid') {
+    return '/plans'
+  }
+
+  return item.href
+}
+
+function shortMobileLabel(label: string) {
+  switch (label) {
+    case 'Leads Inbox':
+      return 'Leads'
+    case 'Plan & Billing':
+      return 'Billing'
+    default:
+      return label
+  }
 }

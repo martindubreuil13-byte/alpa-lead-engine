@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
@@ -10,8 +10,8 @@ import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { buildFinalEmailHtml } from '@/lib/email/signature'
 import { getGuestLeads } from '@/lib/guest-session'
-import { supabase } from '@/lib/supabase'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
+import { supabase } from '@/lib/supabase'
 
 type Lead = {
   id: string
@@ -44,6 +44,8 @@ type SenderSettings = {
   logo_url: string | null
 }
 
+type ViewMode = 'details' | 'preview'
+
 export default function Page() {
   const params = useParams()
   const leadId = params.id as string
@@ -57,17 +59,22 @@ export default function Page() {
   const [setupLoading, setSetupLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('details')
   const plan = profile?.plan || 'free'
   const isFree = plan === 'free'
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   useEffect(() => {
-    fetchLead()
-    fetchEmailSetup()
-  }, [])
+    void fetchLead()
+    void fetchEmailSetup()
+  }, [leadId])
 
-  const selectedTemplate =
-    templates.find((template) => template.id === selectedTemplateId) || null
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
+
+  const previewHtml = useMemo(() => {
+    if (!selectedTemplate || !senderSettings) return ''
+    return buildFinalEmailHtml(selectedTemplate.body, senderSettings)
+  }, [selectedTemplate, senderSettings])
 
   async function fetchLead() {
     const {
@@ -168,7 +175,7 @@ export default function Page() {
     try {
       setSending(true)
 
-      const res = await fetch('/api/send-email', {
+      const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -177,9 +184,9 @@ export default function Page() {
         }),
       })
 
-      const data = await res.json().catch(() => null)
+      const data = await response.json().catch(() => null)
 
-      if (!res.ok) {
+      if (!response.ok) {
         alert('Failed to send email: ' + (data?.error || 'Unknown error'))
         return
       }
@@ -205,53 +212,53 @@ export default function Page() {
     return <div className="text-red-400">Lead not found.</div>
   }
 
-  const previewHtml =
-    selectedTemplate && senderSettings
-      ? buildFinalEmailHtml(selectedTemplate.body, senderSettings)
-      : ''
-
   return (
-    <div className="max-w-5xl space-y-10">
-      <div>
-        <h1 className="text-4xl font-bold tracking-tight text-white">
-          Email Composer
-        </h1>
-        <p className="mt-2 text-slate-400">
-          Choose the template you want to send and review the final HTML email before it goes out.
-        </p>
-      </div>
-
-      <div className="glass flex items-center justify-between p-6">
-        <div>
-          <div className="text-lg font-semibold text-white">
-            {lead.company_name}
+    <div className="space-y-6 pb-4">
+      <header className="glass p-5 sm:p-6">
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+            Lead composer
           </div>
-          <div className="mt-1 text-sm text-slate-400">
-            {[lead.industry, lead.city].filter(Boolean).join(' • ') || 'Lead details'}
-          </div>
-          <div className="mt-2 space-y-1 text-sm">
-            <div className="text-cyan-300">{lead.email || 'No email found'}</div>
-            <div className="text-slate-400">{lead.phone || 'No phone found'}</div>
-            {lead.website ? (
-              <a
-                href={lead.website}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex text-cyan-200 transition hover:text-white"
-              >
-                {lead.website}
-              </a>
-            ) : null}
-          </div>
+          <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            Email Composer
+          </h1>
+          <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+            Choose a saved template, review the final email, and send it from the same mobile-first composer.
+          </p>
         </div>
 
-        <div className="rounded-full bg-slate-400/10 px-4 py-2 text-xs font-medium text-slate-300">
-          {lead.status}
+        <div className="mt-5 rounded-[28px] border border-white/8 bg-white/[0.04] p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <div className="text-lg font-semibold text-white">{lead.company_name}</div>
+              <div className="text-sm text-slate-400">
+                {[lead.industry, lead.city].filter(Boolean).join(' • ') || 'Lead details'}
+              </div>
+              <div className="space-y-1 text-sm text-slate-300">
+                <div>{lead.email || 'No email found'}</div>
+                <div>{lead.phone || 'No phone found'}</div>
+                {lead.website ? (
+                  <a
+                    href={lead.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex text-cyan-200 transition hover:text-white"
+                  >
+                    {lead.website}
+                  </a>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-slate-300">
+              {lead.status}
+            </div>
+          </div>
         </div>
-      </div>
+      </header>
 
       {setupLoading ? (
-        <div className="glass p-6 text-slate-400">
+        <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6 text-slate-400">
           Loading your saved templates and sender settings...
         </div>
       ) : emailLocked ? (
@@ -265,78 +272,137 @@ export default function Page() {
             {templates.length === 0 && !senderSettings
               ? 'Save templates and sender settings before sending.'
               : templates.length === 0
-              ? 'Save a template before sending.'
-              : 'Save sender settings before sending.'}
+                ? 'Save a template before sending.'
+                : 'Save sender settings before sending.'}
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            {templates.length === 0 && (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {templates.length === 0 ? (
               <Link
                 href="/dashboard/templates"
-                className="rounded-lg bg-blue-500/20 px-4 py-2 font-medium text-blue-300 transition hover:bg-blue-500/30"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 font-medium text-cyan-100 transition hover:bg-cyan-400/16"
               >
-                Open Templates
+                Open templates
               </Link>
-            )}
+            ) : null}
 
-            {!senderSettings && (
+            {!senderSettings ? (
               <Link
                 href="/dashboard/settings"
-                className="rounded-lg bg-emerald-500/20 px-4 py-2 font-medium text-emerald-300 transition hover:bg-emerald-500/30"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
               >
-                Open Sender Settings
+                Open sender settings
               </Link>
-            )}
+            ) : null}
           </div>
         </div>
       ) : (
-        <div className="glass space-y-6 p-8">
-          <div className="space-y-2">
-            <div className="text-sm text-slate-400">Template</div>
-            <select
-              value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="input"
-            >
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                  {template.tag ? ` • ${template.tag}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedTemplate && (
-            <>
-              <div className="space-y-2">
-                <div className="text-sm text-slate-400">Subject</div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-white">
-                  {selectedTemplate.subject}
-                </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.95fr)]">
+          <section className="glass p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Compose</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Switch between setup details and preview without leaving the page.
+                </p>
               </div>
 
-              <div className="space-y-2">
-                <div className="text-sm text-slate-400">HTML Preview</div>
+              <div className="inline-flex rounded-2xl border border-white/10 bg-[#081120]/80 p-1">
+                {(['details', 'preview'] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    className={`min-h-[40px] rounded-xl px-4 text-sm font-medium transition ${
+                      viewMode === mode
+                        ? 'bg-cyan-400/12 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {mode === 'details' ? 'Details' : 'Preview'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {viewMode === 'details' ? (
+              <div className="mt-6 space-y-4">
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Template
+                  </div>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(event) => setSelectedTemplateId(event.target.value)}
+                    className="input mt-3"
+                  >
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                        {template.tag ? ` • ${template.tag}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedTemplate ? (
+                  <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Subject
+                    </div>
+                    <div className="mt-3 text-base font-medium text-white">{selectedTemplate.subject}</div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-6 rounded-[28px] border border-white/8 bg-[#081120]/80 p-4">
+                <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Final preview
+                </div>
                 <div
-                  className="rounded-xl border border-white/10 bg-white px-6 py-5 text-sm leading-7 text-slate-800"
+                  className="rounded-[24px] bg-white p-5 text-sm leading-7 text-slate-800 shadow-[0_24px_48px_rgba(15,23,42,0.2)]"
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               </div>
-            </>
-          )}
+            )}
+
+            <div className="mt-6 sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:hidden">
+              <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-slate-300">Ready to send this template to {lead.company_name}.</div>
+                <button
+                  type="button"
+                  onClick={sendEmail}
+                  disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
+                  className="btn-primary w-full sm:w-auto"
+                >
+                  {emailLocked ? 'Email sending locked' : sending ? 'Sending...' : 'Send email'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <aside className="hidden xl:block">
+            <div className="glass sticky top-6 p-5">
+              <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                Send action
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm text-slate-300">
+                  Review the selected template and send it directly to {lead.company_name}.
+                </p>
+                <button
+                  type="button"
+                  onClick={sendEmail}
+                  disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
+                  className="btn-primary w-full"
+                >
+                  {emailLocked ? 'Email sending locked' : sending ? 'Sending...' : 'Send email'}
+                </button>
+              </div>
+            </div>
+          </aside>
         </div>
       )}
-
-      <div className="flex justify-end">
-        <button
-          onClick={sendEmail}
-          disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
-          className="btn-primary px-8 py-3 text-lg disabled:opacity-50"
-        >
-          {emailLocked ? 'Email Sending Locked' : sending ? 'Sending…' : 'Send Email'}
-        </button>
-      </div>
 
       <FeatureLockModal
         isOpen={showFeatureLock}
