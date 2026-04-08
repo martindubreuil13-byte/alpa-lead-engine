@@ -201,7 +201,7 @@ export default function SettingsPage() {
     <div className="space-y-6 pb-4">
       <header className="glass p-5 sm:p-6">
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
             Signature setup
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
@@ -238,7 +238,7 @@ export default function SettingsPage() {
                     onClick={() => setViewMode(mode)}
                     className={`min-h-[40px] rounded-xl px-4 text-sm font-medium transition ${
                       viewMode === mode
-                        ? 'bg-cyan-400/12 text-white'
+                        ? 'bg-emerald-400/12 text-white'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
@@ -343,7 +343,7 @@ export default function SettingsPage() {
                     {logoFileName || 'Upload logo image'}
                   </span>
 
-                  <span className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-3 text-xs font-medium text-cyan-100">
+                  <span className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-3 text-xs font-medium text-emerald-100">
                     {uploading ? 'Uploading...' : 'Browse'}
                   </span>
 

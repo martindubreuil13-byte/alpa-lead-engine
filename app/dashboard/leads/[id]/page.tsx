@@ -216,7 +216,7 @@ export default function Page() {
     <div className="space-y-6 pb-4">
       <header className="glass p-5 sm:p-6">
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
             Lead composer
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
@@ -242,7 +242,7 @@ export default function Page() {
                     href={lead.website}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex text-cyan-200 transition hover:text-white"
+                    className="inline-flex text-emerald-200 transition hover:text-white"
                   >
                     {lead.website}
                   </a>
@@ -280,7 +280,7 @@ export default function Page() {
             {templates.length === 0 ? (
               <Link
                 href="/dashboard/templates"
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 font-medium text-cyan-100 transition hover:bg-cyan-400/16"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
               >
                 Open templates
               </Link>
@@ -315,7 +315,7 @@ export default function Page() {
                     onClick={() => setViewMode(mode)}
                     className={`min-h-[40px] rounded-xl px-4 text-sm font-medium transition ${
                       viewMode === mode
-                        ? 'bg-cyan-400/12 text-white'
+                        ? 'bg-emerald-400/12 text-white'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >

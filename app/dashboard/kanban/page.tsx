@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, Mail, Phone } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronUp, Columns3, Mail, Phone } from 'lucide-react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
@@ -40,7 +40,7 @@ const OPEN_STAGES = STAGES.filter((stage) => stage.key !== 'closed')
 const STATUS_META: Record<string, { label: string; badge: string }> = {
   pipeline: {
     label: 'Pipeline',
-    badge: 'bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/30',
+    badge: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30',
   },
   contacted: {
     label: 'Contacted',
@@ -409,7 +409,7 @@ export default function PipelinePage() {
       <div className="space-y-6 pb-4">
         <header className="glass overflow-hidden p-5 sm:p-6">
           <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
               Mobile pipeline
             </div>
             <div className="space-y-2">
@@ -452,7 +452,7 @@ export default function PipelinePage() {
                 className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
                   sendableSelectedIds.length === 0
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-cyan-300/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
+                    : 'border border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15'
                 }`}
               >
                 Send template email
@@ -479,7 +479,7 @@ export default function PipelinePage() {
             Loading pipeline...
           </div>
         ) : (
-          <div className="space-y-4 xl:grid xl:grid-cols-4 xl:gap-4 xl:space-y-0">
+          <div className="space-y-4 xl:grid xl:grid-cols-3 xl:gap-4 xl:space-y-0 2xl:grid-cols-4">
             {STAGES.map((stage) => {
               const stageLeads = stageMap[stage.key]
               const allSelected = stageLeads.length > 0 && stageLeads.every((lead) => selected.includes(lead.id))
@@ -574,12 +574,12 @@ export default function PipelinePage() {
                   onClick={() => setMoveTarget(stage.key)}
                   className={`flex min-h-[52px] w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition ${
                     moveTarget === stage.key
-                      ? 'border-cyan-300/28 bg-cyan-400/12 text-white'
+                      ? 'border-emerald-300/28 bg-emerald-400/12 text-white'
                       : 'border-white/10 bg-white/[0.03] text-slate-200'
                   }`}
                 >
                   <span>{stage.title}</span>
-                  {moveTarget === stage.key ? <span className="h-2.5 w-2.5 rounded-full bg-cyan-300" /> : null}
+                  {moveTarget === stage.key ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" /> : null}
                 </button>
               ))}
             </div>
@@ -704,7 +704,7 @@ function PipelineLeadCard({
     <article
       className={`rounded-[24px] border p-4 transition ${
         selected
-          ? 'border-cyan-300/22 bg-cyan-400/8 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]'
+          ? 'border-emerald-300/22 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(52,211,153,0.08)]'
           : 'border-white/10 bg-white/[0.03]'
       }`}
     >
@@ -713,15 +713,15 @@ function PipelineLeadCard({
           type="checkbox"
           checked={selected}
           onChange={() => toggleSelect(lead.id)}
-          className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-cyan-300"
+          className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-emerald-300"
         />
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="truncate text-base font-semibold text-white">{lead.company_name}</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                {[lead.industry || 'Business', lead.city].filter(Boolean).join(' • ')}
+              <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-slate-400">
+                {lead.email || 'No email saved'}
               </p>
             </div>
 
@@ -734,83 +734,166 @@ function PipelineLeadCard({
             </span>
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <div className="rounded-2xl border border-white/8 bg-[#081120]/80 px-3 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Email</div>
-              <div className="mt-2 break-words text-sm text-slate-200">{lead.email || 'No email saved'}</div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-[#081120]/80 px-3 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Phone</div>
-              <div className="mt-2 break-words text-sm text-slate-200">{lead.phone || 'No phone saved'}</div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Stage</div>
-            <div className="mt-2 text-sm text-white">
-              {STAGES.find((stage) => stage.key === currentStage)?.title || 'Ready'}
-            </div>
-            {lead.close_reason ? (
-              <div className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">
-                Close reason: {lead.close_reason.replace(/_/g, ' ')}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <button
-              type="button"
-              onClick={() => openSendForLead(lead.id)}
-              disabled={!lead.email}
-              className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-medium transition ${
-                lead.email
-                  ? 'border border-cyan-300/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/16'
-                  : 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-              }`}
-            >
-              <Mail className="h-4 w-4" />
-              <span>Send email</span>
-            </button>
-
-            {lead.phone ? (
-              <a
-                href={`tel:${lead.phone}`}
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/16"
-              >
-                <Phone className="h-4 w-4" />
-                <span>Call</span>
-              </a>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-slate-500"
-              >
-                <Phone className="h-4 w-4" />
-                <span>No phone</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => openMoveStageModal(lead)}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08]"
-            >
-              Move stage
-            </button>
-
-            {currentStage !== 'closed' ? (
-              <button
-                type="button"
-                onClick={() => openCloseModal(lead)}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-rose-300/16 bg-rose-400/10 px-4 text-sm font-medium text-rose-100 transition hover:bg-rose-400/16"
-              >
-                Close lead
-              </button>
-            ) : null}
-          </div>
+          <CompactPipelineActions
+            lead={lead}
+            currentStage={currentStage}
+            openSendForLead={openSendForLead}
+            openMoveStageModal={openMoveStageModal}
+            openCloseModal={openCloseModal}
+          />
         </div>
       </div>
     </article>
+  )
+}
+
+function CompactPipelineActions({
+  lead,
+  currentStage,
+  openSendForLead,
+  openMoveStageModal,
+  openCloseModal,
+}: {
+  lead: Lead
+  currentStage: PipelineStage
+  openSendForLead: (id: string) => void
+  openMoveStageModal: (lead: Lead) => void
+  openCloseModal: (lead: Lead) => void
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
+  return (
+    <>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+          {STAGES.find((stage) => stage.key === currentStage)?.title || 'Ready'}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <IconActionButton
+            label={lead.email ? 'Send email' : 'No email available'}
+            disabled={!lead.email}
+            onClick={() => openSendForLead(lead.id)}
+          >
+            <Mail className="h-4 w-4" />
+          </IconActionButton>
+
+          <IconActionLink label={lead.phone ? 'Call lead' : 'No phone available'} href={lead.phone ? `tel:${lead.phone}` : undefined}>
+            <Phone className="h-4 w-4" />
+          </IconActionLink>
+
+          <IconActionButton label="Move stage" onClick={() => openMoveStageModal(lead)}>
+            <Columns3 className="h-4 w-4" />
+          </IconActionButton>
+
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((prev) => !prev)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/[0.07] hover:text-white"
+            aria-expanded={detailsOpen}
+            aria-label={detailsOpen ? 'Hide details' : 'Show details'}
+          >
+            {detailsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+
+      {detailsOpen ? (
+        <div className="mt-4 space-y-3 rounded-2xl border border-white/8 bg-[#081120]/80 p-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Phone</div>
+              <div className="mt-1 text-sm text-slate-200">{lead.phone || 'No phone saved'}</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Location</div>
+              <div className="mt-1 text-sm text-slate-200">
+                {[lead.industry || 'Business', lead.city].filter(Boolean).join(' • ')}
+              </div>
+            </div>
+          </div>
+
+          {lead.close_reason ? (
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Close reason: {lead.close_reason.replace(/_/g, ' ')}
+            </div>
+          ) : null}
+
+          {currentStage !== 'closed' ? (
+            <button
+              type="button"
+              onClick={() => openCloseModal(lead)}
+              className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-rose-300/16 bg-rose-400/10 px-3 text-xs font-medium text-rose-100 transition hover:bg-rose-400/16"
+            >
+              Close lead
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function IconActionButton({
+  children,
+  label,
+  disabled = false,
+  onClick,
+}: {
+  children: ReactNode
+  label: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+        disabled
+          ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
+          : 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
+      }`}
+      title={label}
+    >
+      {children}
+    </button>
+  )
+}
+
+function IconActionLink({
+  children,
+  label,
+  href,
+}: {
+  children: ReactNode
+  label: string
+  href?: string
+}) {
+  if (!href) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label={label}
+        className="inline-flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-500"
+        title={label}
+      >
+        {children}
+      </button>
+    )
+  }
+
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      title={label}
+      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.07] hover:text-white"
+    >
+      {children}
+    </a>
   )
 }

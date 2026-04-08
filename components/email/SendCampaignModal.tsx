@@ -212,7 +212,7 @@ export default function SendCampaignModal({
     return (
       <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4">
         <div className="glass w-full rounded-t-[32px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-xl sm:rounded-[32px] sm:p-8">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">
             Available on Starter plan
           </div>
           <h2 className="mt-4 text-2xl font-semibold text-white">Email sending is locked on Free</h2>
@@ -277,7 +277,7 @@ export default function SendCampaignModal({
                     onClick={() => setViewMode(mode)}
                     className={`min-h-[38px] rounded-xl px-4 text-sm font-medium transition ${
                       viewMode === mode
-                        ? 'bg-cyan-400/12 text-white'
+                        ? 'bg-emerald-400/12 text-white'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
@@ -364,10 +364,10 @@ export default function SendCampaignModal({
                       onClose()
                       router.push('/dashboard/templates')
                     }}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 font-medium text-cyan-100 transition hover:bg-cyan-400/16"
-                  >
-                    Open templates
-                  </button>
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
+                    >
+                      Open templates
+                    </button>
                 ) : null}
 
                 {!senderSettings ? (

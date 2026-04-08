@@ -226,7 +226,7 @@ export default function TemplatesPage() {
       <header className="glass p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
               Template system
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
@@ -274,7 +274,7 @@ export default function TemplatesPage() {
                     onClick={() => setComposerView(view)}
                     className={`min-h-[40px] rounded-xl px-4 text-sm font-medium transition ${
                       composerView === view
-                        ? 'bg-cyan-400/12 text-white'
+                        ? 'bg-emerald-400/12 text-white'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
@@ -405,7 +405,7 @@ export default function TemplatesPage() {
                         {template.name}
                       </h3>
                       {template.tag ? (
-                        <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] uppercase tracking-wide text-cyan-300">
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] uppercase tracking-wide text-emerald-300">
                           {template.tag}
                         </span>
                       ) : null}

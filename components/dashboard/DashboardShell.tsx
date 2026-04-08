@@ -187,7 +187,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-transparent text-white">
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
-        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 border-r border-white/6 bg-[#060c18]/90 px-6 py-8 backdrop-blur-xl lg:flex lg:flex-col">
+        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-white/6 bg-[#060c18]/90 px-6 py-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:flex lg:flex-col">
           <Link href="/dashboard" className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[linear-gradient(135deg,#22d3ee,#34d399)] text-xl font-bold text-slate-950 shadow-[0_18px_40px_rgba(34,211,238,0.25)]">
               A
@@ -200,8 +200,8 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </div>
           </Link>
 
-          <div className="mt-8 rounded-[28px] border border-cyan-300/12 bg-cyan-400/8 p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/80">
+          <div className="mt-8 rounded-[28px] border border-emerald-300/14 bg-emerald-400/8 p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/80">
               Workspace
             </div>
             <div className="mt-3 text-sm text-slate-200">
@@ -245,21 +245,21 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                   href={href}
                   className={`flex min-h-[52px] items-center justify-between rounded-2xl px-4 py-3 text-sm transition ${
                     active
-                      ? 'border border-cyan-300/18 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(34,211,238,0.1)]'
+                      ? 'border border-emerald-300/18 bg-emerald-400/10 text-white shadow-[0_0_0_1px_rgba(52,211,153,0.1)]'
                       : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
                   }`}
                 >
                   <span className="flex items-center gap-3">
                     <span
                       className={`flex h-9 w-9 items-center justify-center rounded-2xl ${
-                        active ? 'bg-cyan-400/14 text-cyan-100' : 'bg-white/[0.04] text-slate-300'
+                        active ? 'bg-emerald-400/14 text-emerald-100' : 'bg-white/[0.04] text-slate-300'
                       }`}
                     >
                       <Icon className="h-4 w-4" />
                     </span>
                     <span>{item.label}</span>
                   </span>
-                  {active ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
+                  {active ? <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]" /> : null}
                 </Link>
               )
             })}
@@ -272,7 +272,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
               className="flex min-h-[48px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-slate-200 transition hover:bg-white/[0.06]"
             >
               <span className="flex items-center gap-3">
-                <LifeBuoy className="h-4 w-4 text-cyan-200" />
+                <LifeBuoy className="h-4 w-4 text-emerald-200" />
                 <span>Support</span>
               </span>
             </button>
@@ -299,7 +299,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
 
             <div className="px-1 text-xs text-slate-500">
               Need help fast? Reach us at{' '}
-              <a href="mailto:info@mindrasolutions.com" className="text-cyan-200 hover:text-white">
+              <a href="mailto:info@mindrasolutions.com" className="text-emerald-200 hover:text-white">
                 info@mindrasolutions.com
               </a>
               .
@@ -311,7 +311,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-white/6 bg-[#020617]/88 px-4 pb-4 pt-1 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
                   ALPA Workspace
                 </div>
                 <div className="truncate text-lg font-semibold text-white">
@@ -337,7 +337,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             Need help or have a question? Reach us at{' '}
             <a
               href="mailto:info@mindrasolutions.com"
-              className="font-medium text-sky-300 transition hover:text-white hover:underline"
+            className="font-medium text-emerald-200 transition hover:text-white hover:underline"
             >
               info@mindrasolutions.com
             </a>
@@ -374,7 +374,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                 href={href}
                 className={`flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl px-2 text-[11px] font-medium transition ${
                   active
-                    ? 'border border-cyan-300/20 bg-cyan-400/12 text-white'
+                    ? 'border border-emerald-300/20 bg-emerald-400/12 text-white'
                     : 'border border-transparent bg-white/[0.03] text-slate-300'
                 }`}
               >
@@ -406,7 +406,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           >
             <div className="flex items-center justify-between gap-4">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
                   Navigate
                 </div>
                 <div className="text-lg font-semibold text-white">Workspace menu</div>
@@ -458,7 +458,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                     onClick={() => setMobileMenuOpen(false)}
                     className={`flex min-h-[60px] items-center justify-between rounded-3xl px-4 py-3 transition ${
                       active
-                        ? 'border border-cyan-300/20 bg-cyan-400/12 text-white'
+                        ? 'border border-emerald-300/20 bg-emerald-400/12 text-white'
                         : 'border border-white/8 bg-white/[0.03] text-slate-200'
                     }`}
                   >
@@ -468,7 +468,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                       </span>
                       <span className="text-sm font-medium">{item.label}</span>
                     </span>
-                    {active ? <span className="h-2 w-2 rounded-full bg-emerald-400" /> : null}
+                    {active ? <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]" /> : null}
                   </Link>
                 )
               })}
@@ -484,7 +484,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                 className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 text-sm text-slate-200"
               >
                 <span className="flex items-center gap-3">
-                  <LifeBuoy className="h-4 w-4 text-cyan-200" />
+                  <LifeBuoy className="h-4 w-4 text-emerald-200" />
                   <span>Support</span>
                 </span>
               </button>
@@ -529,7 +529,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/12 text-cyan-200">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400/12 text-emerald-200">
                     <LifeBuoy className="h-5 w-5" />
                   </div>
                   <h2 className="text-2xl font-semibold tracking-tight text-white">Need help?</h2>
@@ -538,7 +538,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                   If you have any issue with your account, billing, or leads, reach us directly at{' '}
                   <a
                     href="mailto:info@mindrasolutions.com"
-                    className="font-medium text-sky-300 transition hover:underline"
+                    className="font-medium text-emerald-200 transition hover:underline"
                   >
                     info@mindrasolutions.com
                   </a>
@@ -558,7 +558,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <a
                 href="mailto:info@mindrasolutions.com"
-                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-sky-300/20 bg-sky-300/10 px-5 text-sm font-medium text-sky-100 transition hover:bg-sky-300/15"
+                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15"
               >
                 <LifeBuoy className="h-4 w-4" />
                 Email Support
