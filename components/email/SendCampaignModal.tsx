@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import { buildFinalEmailHtml } from '@/lib/email/signature'
+import { buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
 
 type Template = {
@@ -30,6 +30,7 @@ type SenderSettings = {
 }
 
 type ViewMode = 'details' | 'preview'
+const VERIFIED_SENDER_LABEL = 'ALPA <info@mindrasolutions.com>'
 
 export default function SendCampaignModal({
   isOpen,
@@ -77,10 +78,23 @@ export default function SendCampaignModal({
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
-  const previewHtml = useMemo(() => {
-    if (!selectedTemplate || !senderSettings) return ''
-    return buildFinalEmailHtml(selectedTemplate.body, senderSettings)
-  }, [selectedTemplate, senderSettings])
+  const previewContent = useMemo(() => {
+    const subject = selectedTemplate?.subject?.trim() || 'No subject'
+    const replyTo = profile?.email?.trim() || senderSettings?.sender_email?.trim() || 'No reply-to email'
+    const messageHtml = buildTemplateBodyHtml(selectedTemplate?.body)
+    const signatureHtml = senderSettings ? buildSignatureHtml(senderSettings) : ''
+    const emailHtml = [messageHtml, signatureHtml].filter(Boolean).join('<br/><br/>')
+
+    return {
+      subject,
+      from: senderSettings?.sender_name?.trim()
+        ? `${senderSettings.sender_name.trim()} via ALPA <info@mindrasolutions.com>`
+        : VERIFIED_SENDER_LABEL,
+      replyTo,
+      emailHtml,
+      hasContent: Boolean(emailHtml),
+    }
+  }, [profile?.email, selectedTemplate, senderSettings])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -336,19 +350,46 @@ export default function SendCampaignModal({
                           <div>{senderSettings.sender_email || 'No sender email saved'}</div>
                           <div>{senderSettings.company_name || 'No company name saved'}</div>
                         </div>
+                        <div className="mt-4 rounded-2xl border border-emerald-300/14 bg-emerald-400/8 px-3 py-3 text-sm text-emerald-50">
+                          Emails are sent via ALPA. Replies go directly to your inbox.
+                        </div>
                       </div>
                     </>
                   ) : null}
                 </div>
               ) : (
-                <div className="rounded-[28px] border border-white/8 bg-[#081120]/80 p-4">
-                  <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Mobile preview
+                <div className="space-y-4 bg-[#020617] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Preview
                   </div>
-                  <div
-                    className="rounded-[24px] bg-white p-5 text-sm leading-7 text-slate-800 shadow-[0_24px_48px_rgba(15,23,42,0.2)]"
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
+
+                  <div className="rounded-xl border border-white/10 bg-[#081120] p-4">
+                    <div className="space-y-1 text-sm text-slate-300">
+                      <div>
+                        <span className="text-slate-500">From:</span>{' '}
+                        <span className="text-white">{previewContent.from}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Reply-To:</span>{' '}
+                        <span className="text-white">{previewContent.replyTo}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Subject:</span>{' '}
+                        <span className="text-white">{previewContent.subject}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-white p-4 text-black shadow-md">
+                    {previewContent.hasContent ? (
+                      <div
+                        className="prose max-w-none text-black [&_a]:text-sky-700 [&_img]:h-auto [&_img]:max-w-[120px]"
+                        dangerouslySetInnerHTML={{ __html: previewContent.emailHtml }}
+                      />
+                    ) : (
+                      <div className="text-sm text-slate-500">Preview unavailable</div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

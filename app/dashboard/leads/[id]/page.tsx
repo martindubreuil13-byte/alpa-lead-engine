@@ -368,7 +368,10 @@ export default function Page() {
 
             <div className="mt-6 sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:hidden">
               <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-300">Ready to send this template to {lead.company_name}.</div>
+                <div className="space-y-1 text-sm text-slate-300">
+                  <div>Ready to send this template to {lead.company_name}.</div>
+                  <div className="text-xs text-slate-500">Emails are sent via ALPA. Replies go directly to your inbox.</div>
+                </div>
                 <button
                   type="button"
                   onClick={sendEmail}
@@ -389,6 +392,9 @@ export default function Page() {
               <div className="space-y-3">
                 <p className="text-sm text-slate-300">
                   Review the selected template and send it directly to {lead.company_name}.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Emails are sent via ALPA. Replies go directly to your inbox.
                 </p>
                 <button
                   type="button"

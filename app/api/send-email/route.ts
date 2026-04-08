@@ -1,15 +1,17 @@
-import nodemailer from 'nodemailer'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
-import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { canAccessFeature } from '@/lib/auth/access'
+import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { buildFinalEmailHtml, buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 
 export const runtime = 'nodejs'
+
+const VERIFIED_SENDER_EMAIL = 'info@mindrasolutions.com'
+const VERIFIED_SENDER_FALLBACK = `ALPA <${VERIFIED_SENDER_EMAIL}>`
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,6 +45,65 @@ type SenderSettingsRow = {
   phone: string | null
   website: string | null
   logo_url: string | null
+}
+
+type ResendEmailResult = {
+  id?: string
+  message?: string
+  error?: {
+    message?: string
+    name?: string
+  } | string
+}
+
+function getResendErrorMessage(result: ResendEmailResult | null) {
+  if (!result) return 'Failed to send emails'
+  if (typeof result.error === 'string') return result.error
+  if (result.error?.message) return result.error.message
+  if (result.message) return result.message
+  return 'Failed to send emails'
+}
+
+function formatVerifiedSender(senderName: string | null | undefined) {
+  const trimmedName = senderName?.trim()
+  return trimmedName
+    ? `${trimmedName} via ALPA <${VERIFIED_SENDER_EMAIL}>`
+    : VERIFIED_SENDER_FALLBACK
+}
+
+async function sendWithResend(payload: {
+  to: string
+  subject: string
+  html: string
+  from: string
+  replyTo?: string
+}) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: payload.from,
+      to: [payload.to],
+      subject: payload.subject,
+      html: payload.html,
+      reply_to: payload.replyTo,
+    }),
+  })
+
+  const result = (await response.json().catch(() => null)) as ResendEmailResult | null
+
+  if (!response.ok) {
+    throw new Error(getResendErrorMessage(result))
+  }
+
+  if (!result) {
+    throw new Error('Empty response from email provider')
+  }
+
+  return result
 }
 
 export async function POST(req: Request) {
@@ -80,6 +141,10 @@ export async function POST(req: Request) {
     const userProfile = await getUserProfile()
     if (!canAccessFeature('email', userProfile)) {
       return NextResponse.json({ error: 'Available on Starter plan' }, { status: 403 })
+    }
+
+    if (!process.env.RESEND_API_KEY) {
+      return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 500 })
     }
 
     const payload: RequestBody = await req.json()
@@ -126,12 +191,8 @@ export async function POST(req: Request) {
 
     const template = templateData as TemplateRow
     const senderSettings = senderData as SenderSettingsRow
-    const finalBody = buildFinalEmailHtml(template.body, senderSettings)
     const subject = template.subject?.trim() || ''
-
-    console.log('TEMPLATE:', template)
-    console.log('SENDER:', senderSettings)
-    console.log('FINAL EMAIL BODY:', finalBody)
+    const finalBody = buildFinalEmailHtml(template.body, senderSettings)
 
     if (!subject || !finalBody) {
       return NextResponse.json(
@@ -140,18 +201,8 @@ export async function POST(req: Request) {
       )
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-
-    const fromName = senderSettings.sender_name?.trim() || 'Prospecting Team'
-    const fromEmail = senderSettings.sender_email?.trim() || process.env.SMTP_USER!
+    const from = formatVerifiedSender(senderSettings.sender_name)
+    const replyTo = user.email?.trim().toLowerCase() || senderSettings.sender_email?.trim() || undefined
 
     if (testMode) {
       if (!testEmail) {
@@ -163,13 +214,11 @@ export async function POST(req: Request) {
       const testEmailBody =
         formattedBody && signature ? `${formattedBody}<br/><br/>${signature}` : formattedBody || signature
 
-      console.log('FINAL EMAIL BODY:', testEmailBody)
-
-      await transporter.sendMail({
-        from: `"${fromName}" <${fromEmail}>`,
-        replyTo: senderSettings.sender_email?.trim() || undefined,
+      await sendWithResend({
+        from,
         to: testEmail,
         subject,
+        replyTo,
         html: `
           <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111827;padding:20px;">
             ${testEmailBody}
@@ -210,11 +259,11 @@ export async function POST(req: Request) {
       const recipient = lead.email!
 
       try {
-        await transporter.sendMail({
-          from: `"${fromName}" <${fromEmail}>`,
-          replyTo: senderSettings.sender_email?.trim() || undefined,
+        await sendWithResend({
+          from,
           to: recipient,
           subject,
+          replyTo,
           html: `
             <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111827;padding:20px;">
               ${finalBody}
@@ -224,8 +273,8 @@ export async function POST(req: Request) {
 
         sentCount += 1
         sentLeadIds.push(lead.id)
-      } catch (err: any) {
-        console.error(`Failed sending to ${recipient}:`, err?.message || err)
+      } catch (error: any) {
+        console.error(`Failed sending to ${recipient}:`, error?.message || error)
         failed.push(recipient)
       }
     }
