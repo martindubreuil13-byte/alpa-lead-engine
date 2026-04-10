@@ -54,6 +54,14 @@ type SenderProfile = {
 type ViewMode = 'details' | 'preview'
 
 const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
+const DEFAULT_TEMPLATE: Template = {
+  id: 'default-template',
+  name: 'Default template',
+  tag: null,
+  subject: 'Test Email from ALPA',
+  body: 'This is a test email from ALPA.',
+  created_at: '',
+}
 
 function getCurrentUserName(user: { user_metadata?: Record<string, unknown> | null }) {
   const firstName =
@@ -122,6 +130,16 @@ function getWebsiteUrl(website: string | undefined) {
   }
 }
 
+function formatTemplateContent(content: string) {
+  const trimmed = content.trim()
+
+  if (!trimmed) {
+    return ''
+  }
+
+  return /<[^>]+>/.test(trimmed) ? trimmed : trimmed.replace(/\n/g, '<br/>')
+}
+
 function buildSenderProfile(
   currentUserIdentity: CurrentUserIdentity | null,
   senderSettings: SenderSettings | null
@@ -167,25 +185,12 @@ function buildSignature(profile: SenderProfile | undefined) {
 }
 
 function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
-  const contentHtml = html
-    .split('\n')
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-    .join('')
-
+  const contentHtml = formatTemplateContent(html)
   const signature = buildSignature(senderProfile)
 
   return `
   <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">
-    <p>Hello,</p>
     ${contentHtml}
-    <p>
-      You can try it here:<br/>
-      <a href="https://alpa.mindrasolutions.com/" target="_blank">
-        https://alpa.mindrasolutions.com/
-      </a>
-    </p>
     <br/>
 ${signature}
     <p style="font-size:11px;color:#888;margin-top:15px;">
@@ -242,24 +247,31 @@ export default function SendCampaignModal({
   }, [templates, selectedTemplateId])
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
+  const safeTemplate = selectedTemplate || DEFAULT_TEMPLATE
   const previewLead = selectedLeads[0] || null
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
   const senderProfile = useMemo(
     () => buildSenderProfile(currentUserIdentity, senderSettings),
     [currentUserIdentity, senderSettings]
   )
+  const testEmail = senderSettings?.test_email?.trim() || currentUserIdentity?.email || ''
 
   const previewContent = useMemo(() => {
-    const subject = selectedTemplate?.subject?.trim() || 'Quick question'
+    const subject = safeTemplate.subject?.trim() || 'Test Email from ALPA'
     const replyTo = currentUserIdentity?.email || 'No reply-to email'
-    const renderedBody = previewLead
-      ? renderTemplate(selectedTemplate?.body || '', {
-          business: previewLead.company_name,
-          name: previewLead.contact_name,
-          location: previewLead.city,
-        })
-      : ''
+    const renderedBody = renderTemplate(safeTemplate.body || 'This is a test email from ALPA.', {
+      business: previewLead?.company_name,
+      name: previewLead?.contact_name,
+      location: previewLead?.city,
+    })
     const emailHtml = renderedBody ? buildFinalHtml(renderedBody, senderProfile) : ''
+
+    console.log('DEBUG STATE:', {
+      user: currentUserIdentity,
+      settings: senderSettings,
+      testEmail,
+      template: safeTemplate,
+    })
 
     return {
       subject,
@@ -268,7 +280,7 @@ export default function SendCampaignModal({
       emailHtml,
       hasContent: Boolean(emailHtml),
     }
-  }, [currentUserIdentity?.email, previewLead, selectedTemplate, senderProfile])
+  }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -335,6 +347,37 @@ export default function SendCampaignModal({
       console.error('FULL ERROR:', JSON.stringify(leadError, null, 2))
     }
 
+    let nextSenderSettings = (senderSettingsData as SenderSettings | null) || null
+
+    if (!nextSenderSettings) {
+      const { data: createdSettings, error: createSettingsError } = await supabase
+        .from('sender_settings')
+        .upsert(
+          {
+            user_id: user.id,
+            test_email: user.email?.trim().toLowerCase() || null,
+          },
+          { onConflict: 'user_id' }
+        )
+        .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url, test_email')
+        .maybeSingle()
+
+      if (createSettingsError) {
+        console.error('FULL ERROR:', JSON.stringify(createSettingsError, null, 2))
+      }
+
+      nextSenderSettings = (createdSettings as SenderSettings | null) || {
+        sender_name: null,
+        sender_email: null,
+        company_name: null,
+        job_title: null,
+        phone: null,
+        website: null,
+        logo_url: null,
+        test_email: user.email?.trim().toLowerCase() || null,
+      }
+    }
+
     const nextTemplates = (templateData as Template[]) || []
     const nextLeads = ((leadData as Lead[]) || []).sort(
       (left, right) => selectedIds.indexOf(left.id) - selectedIds.indexOf(right.id)
@@ -342,10 +385,10 @@ export default function SendCampaignModal({
 
     setTemplates(nextTemplates)
     setSelectedLeads(nextLeads)
-    setSenderSettings((senderSettingsData as SenderSettings | null) || null)
+    setSenderSettings(nextSenderSettings)
 
     if (nextTemplates.length === 0) {
-      setTemplateMessage('No saved templates found. Create one before sending.')
+      setTemplateMessage('No saved templates found. Using the default email template.')
     } else if (nextLeads.length === 0) {
       setTemplateMessage('No selected leads were found.')
     }
@@ -355,21 +398,22 @@ export default function SendCampaignModal({
 
   async function sendLeadEmail(
     lead: Lead,
-    template: Template,
+    template: Template | null,
     currentUser: CurrentUserIdentity,
     options?: { isTest?: boolean }
   ) {
     const isTestSend = options?.isTest === true
     const leadEmail = lead.email?.trim().toLowerCase()
-    const testEmail = senderSettings?.test_email?.trim().toLowerCase()
-    const finalTo = isTestSend ? testEmail || leadEmail : leadEmail
+    const fallbackTestEmail = senderSettings?.test_email?.trim().toLowerCase() || currentUser.email
+    const finalTo = isTestSend ? fallbackTestEmail : leadEmail
 
     if (!finalTo) {
       return { ok: false as const, skipped: true as const }
     }
 
-    const subject = template.subject?.trim() || 'Quick question'
-    const html = renderTemplate(template.body || '', {
+    const activeTemplate = template || DEFAULT_TEMPLATE
+    const subject = activeTemplate.subject?.trim() || 'Test Email from ALPA'
+    const html = renderTemplate(activeTemplate.body || 'This is a test email from ALPA.', {
       business: lead.company_name,
       name: lead.contact_name,
       location: lead.city,
@@ -414,15 +458,10 @@ export default function SendCampaignModal({
   }
 
   async function sendCampaign() {
-    if (selectedIds.length === 0 || !selectedTemplate) return
+    if (selectedIds.length === 0) return
 
     if (!currentUserIdentity?.email) {
       alert('Your account email is missing. Please update your account before sending.')
-      return
-    }
-
-    if (sendAsTest && !senderSettings?.test_email?.trim()) {
-      alert('Add a test email address in Sender Settings before using test mode.')
       return
     }
 
@@ -436,7 +475,7 @@ export default function SendCampaignModal({
 
     try {
       for (const lead of selectedLeads) {
-        const result = await sendLeadEmail(lead, selectedTemplate, currentUserIdentity, {
+        const result = await sendLeadEmail(lead, selectedTemplate || DEFAULT_TEMPLATE, currentUserIdentity, {
           isTest: sendAsTest,
         })
 
@@ -483,18 +522,8 @@ export default function SendCampaignModal({
   }
 
   async function sendTestEmail() {
-    if (!selectedTemplate) {
-      setTestStatusMessage('Please select a template first')
-      return
-    }
-
     if (!currentUserIdentity?.email) {
       setTestStatusMessage('Your account email is missing')
-      return
-    }
-
-    if (!senderSettings?.test_email?.trim()) {
-      setTestStatusMessage('Add a test email address in Sender Settings first')
       return
     }
 
@@ -513,9 +542,9 @@ export default function SendCampaignModal({
       const result = await sendLeadEmail(
         {
           ...lead,
-          email: senderSettings.test_email,
+          email: testEmail,
         },
-        selectedTemplate,
+        selectedTemplate || DEFAULT_TEMPLATE,
         currentUserIdentity,
         { isTest: true }
       )
@@ -588,19 +617,9 @@ export default function SendCampaignModal({
               <button
                 type="button"
                 onClick={sendTestEmail}
-                disabled={
-                  testLoading ||
-                  loadingPreview ||
-                  loading ||
-                  !selectedTemplateId ||
-                  !senderSettings?.test_email?.trim()
-                }
+                disabled={!currentUserIdentity?.email}
                 className={`inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
-                  testLoading ||
-                  loadingPreview ||
-                  loading ||
-                  !selectedTemplateId ||
-                  !senderSettings?.test_email?.trim()
+                  !currentUserIdentity?.email
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
                     : 'border border-emerald-300/18 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
                 }`}
@@ -633,7 +652,7 @@ export default function SendCampaignModal({
             <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
               Loading your saved templates and selected leads...
             </div>
-          ) : templates.length > 0 ? (
+          ) : currentUserIdentity ? (
             <div className="space-y-4">
               {viewMode === 'details' ? (
                 <div className="space-y-4">
@@ -655,14 +674,14 @@ export default function SendCampaignModal({
                     </select>
                   </div>
 
-                  {selectedTemplate ? (
+                  {safeTemplate ? (
                     <>
                       <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                           Subject
                         </div>
                         <div className="mt-3 text-base font-medium text-white">
-                          {selectedTemplate.subject?.trim() || 'Quick question'}
+                          {safeTemplate.subject?.trim() || 'Test Email from ALPA'}
                         </div>
                       </div>
 
@@ -702,9 +721,9 @@ export default function SendCampaignModal({
                         <div>
                           <div>Send as test email</div>
                           <div className="mt-1 text-xs text-slate-500">
-                            {senderSettings?.test_email?.trim()
-                              ? `Test sends go to ${senderSettings.test_email.trim()}.`
-                              : 'Add a test email in Sender Settings to enable this.'}
+                            {testEmail
+                              ? `Test sends go to ${testEmail}.`
+                              : 'Test sends fall back to your account email.'}
                           </div>
                         </div>
                       </label>

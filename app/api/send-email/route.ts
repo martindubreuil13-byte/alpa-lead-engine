@@ -146,26 +146,19 @@ function isValidPublicUrl(url: string | undefined) {
   }
 }
 
-function getWebsiteUrl(website: string | undefined) {
-  const trimmed = website?.trim()
-
-  if (!trimmed) {
-    return undefined
-  }
-
-  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-
-  try {
-    const url = new URL(candidate)
-    return /^https?:$/i.test(url.protocol) ? url.toString() : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function getSafeText(value: string | undefined) {
   const trimmed = value?.trim()
   return trimmed ? escapeHtml(trimmed) : ''
+}
+
+function formatTemplateContent(content: string) {
+  const trimmed = content.trim()
+
+  if (!trimmed) {
+    return ''
+  }
+
+  return /<[^>]+>/.test(trimmed) ? trimmed : trimmed.replace(/\n/g, '<br/>')
 }
 
 function buildSignature(profile: SenderProfile | undefined) {
@@ -193,25 +186,12 @@ function buildSignature(profile: SenderProfile | undefined) {
 }
 
 function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
-  const contentHtml = html
-    .split('\n')
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-    .join('')
-
+  const contentHtml = formatTemplateContent(html)
   const signature = buildSignature(senderProfile)
 
   return `
   <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">
-    <p>Hello,</p>
     ${contentHtml}
-    <p>
-      You can try it here:<br/>
-      <a href="https://alpa.mindrasolutions.com/" target="_blank">
-        https://alpa.mindrasolutions.com/
-      </a>
-    </p>
     <br/>
     ${signature}
     <p style="font-size:11px;color:#888;margin-top:15px;">

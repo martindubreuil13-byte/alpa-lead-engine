@@ -128,6 +128,16 @@ function getWebsiteUrl(website: string | undefined) {
   }
 }
 
+function formatTemplateContent(content: string) {
+  const trimmed = content.trim()
+
+  if (!trimmed) {
+    return ''
+  }
+
+  return /<[^>]+>/.test(trimmed) ? trimmed : trimmed.replace(/\n/g, '<br/>')
+}
+
 function buildSenderProfile(
   currentUserIdentity: CurrentUserIdentity | null,
   senderSettings: SenderSettings | null
@@ -152,43 +162,40 @@ function buildSignature(profile: SenderProfile | undefined) {
   const title = profile.title ? escapeHtml(profile.title) : ''
   const company = profile.company ? escapeHtml(profile.company) : ''
   const email = profile.email ? escapeHtml(profile.email) : ''
-  const phone = profile.phone ? escapeHtml(profile.phone) : ''
-  const websiteUrl = getWebsiteUrl(profile.website)
-  const websiteLabel = websiteUrl ? escapeHtml(profile.website || websiteUrl) : ''
   const logoUrl = getPublicLogoUrl(profile.logoUrl)
 
-  if (!name && !title && !company && !email && !phone && !websiteUrl && !logoUrl) {
+  if (!name && !title && !company && !email && !logoUrl) {
     return ''
   }
 
   return `
-  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
-    ${
-      logoUrl
-        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
-        : ''
-    }
-
+  <div style="margin-top:20px;">
     <strong>${name || ''}</strong><br/>
     ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
-
-    ${phone ? `📞 ${phone}<br/>` : ''}
-    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteLabel}</a><br/>` : ''}
-    ${email ? `✉️ ${email}<br/>` : ''}
+    ${email ? `<a href="mailto:${email}">${email}</a><br/>` : ''}
+    ${
+      logoUrl
+        ? `<img src="${escapeHtml(logoUrl)}" style="max-width:120px;margin-top:12px;display:block;" />`
+        : ''
+    }
   </div>
   `
 }
 
 function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const contentHtml = formatTemplateContent(html)
   const signature = buildSignature(senderProfile)
 
   return `
-${html.trim()}
+  <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">
+${contentHtml}
+<br/>
 ${signature}
 <p style="margin-top:15px;font-size:11px;color:#888;">
 Sent via ALPA
 </p>
-`
+  </div>
+  `
 }
 
 export default function Page() {
