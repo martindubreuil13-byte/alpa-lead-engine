@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import { buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
 
 type Template = {
@@ -18,19 +17,66 @@ type Template = {
   created_at: string
 }
 
-type SenderSettings = {
+type Lead = {
   id: string
-  sender_name: string | null
-  sender_email: string | null
-  company_name: string | null
-  job_title: string | null
-  phone: string | null
-  website: string | null
-  logo_url: string | null
+  company_name: string
+  contact_name: string | null
+  email: string | null
+  city: string | null
+}
+
+type CurrentUserIdentity = {
+  email: string
+  name: string
 }
 
 type ViewMode = 'details' | 'preview'
-const VERIFIED_SENDER_LABEL = 'ALPA <info@mindrasolutions.com>'
+
+const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
+
+function getCurrentUserName(user: { user_metadata?: Record<string, unknown> | null }) {
+  const firstName =
+    typeof user.user_metadata?.first_name === 'string' ? user.user_metadata.first_name.trim() : ''
+  const lastName =
+    typeof user.user_metadata?.last_name === 'string' ? user.user_metadata.last_name.trim() : ''
+  const joinedName = [firstName, lastName].filter(Boolean).join(' ').trim()
+
+  if (joinedName) return joinedName
+
+  const fullName =
+    typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : ''
+
+  if (fullName) return fullName
+
+  return typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : ''
+}
+
+function renderTemplate(
+  template: string,
+  lead: { business?: string | null; name?: string | null; location?: string | null }
+) {
+  return template
+    .replace(/{{business_name}}/g, lead.business || '')
+    .replace(/{{contact_name}}/g, lead.name || '')
+    .replace(/{{location}}/g, lead.location || '')
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function withFooter(html: string, userName: string) {
+  return `${html}
+<p style="margin-top:20px;font-size:12px;color:#666;">
+Sent via ALPA<br/>
+on behalf of ${escapeHtml(userName)}
+</p>`
+}
 
 export default function SendCampaignModal({
   isOpen,
@@ -46,7 +92,8 @@ export default function SendCampaignModal({
   const router = useRouter()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [templates, setTemplates] = useState<Template[]>([])
-  const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
+  const [selectedLeads, setSelectedLeads] = useState<Lead[]>([])
+  const [currentUserIdentity, setCurrentUserIdentity] = useState<CurrentUserIdentity | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -60,7 +107,7 @@ export default function SendCampaignModal({
       void fetchEmailSetup()
       setViewMode('details')
     }
-  }, [isOpen])
+  }, [isOpen, selectedIds])
 
   useEffect(() => {
     if (!templates || templates.length === 0) {
@@ -76,25 +123,31 @@ export default function SendCampaignModal({
   }, [templates, selectedTemplateId])
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
+  const previewLead = selectedLeads[0] || null
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   const previewContent = useMemo(() => {
-    const subject = selectedTemplate?.subject?.trim() || 'No subject'
-    const replyTo = profile?.email?.trim() || senderSettings?.sender_email?.trim() || 'No reply-to email'
-    const messageHtml = buildTemplateBodyHtml(selectedTemplate?.body)
-    const signatureHtml = senderSettings ? buildSignatureHtml(senderSettings) : ''
-    const emailHtml = [messageHtml, signatureHtml].filter(Boolean).join('<br/><br/>')
+    const subject = selectedTemplate?.subject?.trim() || 'Quick question'
+    const replyTo = currentUserIdentity?.email || 'No reply-to email'
+    const renderedBody = previewLead
+      ? renderTemplate(selectedTemplate?.body || '', {
+          business: previewLead.company_name,
+          name: previewLead.contact_name,
+          location: previewLead.city,
+        })
+      : ''
+    const emailHtml = renderedBody
+      ? withFooter(renderedBody, currentUserIdentity?.name || 'Your name')
+      : ''
 
     return {
       subject,
-      from: senderSettings?.sender_name?.trim()
-        ? `${senderSettings.sender_name.trim()} via ALPA <info@mindrasolutions.com>`
-        : VERIFIED_SENDER_LABEL,
+      from: FIXED_SENDER_LABEL,
       replyTo,
       emailHtml,
       hasContent: Boolean(emailHtml),
     }
-  }, [profile?.email, selectedTemplate, senderSettings])
+  }, [currentUserIdentity?.email, currentUserIdentity?.name, previewLead, selectedTemplate])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -107,116 +160,214 @@ export default function SendCampaignModal({
 
     if (!user?.id) {
       setTemplates([])
-      setSenderSettings(null)
+      setSelectedLeads([])
+      setCurrentUserIdentity(null)
       setTemplateMessage('Please log in to load your email setup.')
       setLoadingPreview(false)
       return
     }
 
-    const [{ data: templateData, error: templateError }, { data: senderData, error: senderError }] =
-      await Promise.all([
-        supabase
-          .from('templates')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('sender_settings')
-          .select('id, sender_name, sender_email, company_name, job_title, phone, website, logo_url')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ])
+    setCurrentUserIdentity({
+      email: user.email?.trim().toLowerCase() || '',
+      name: getCurrentUserName(user),
+    })
+
+    const templateRequest = supabase
+      .from('templates')
+      .select('id, name, tag, subject, body, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+
+    const leadsRequest =
+      selectedIds.length === 0
+        ? Promise.resolve({ data: [] as Lead[], error: null })
+        : supabase
+            .from('leads')
+            .select('id, company_name, contact_name, email, city')
+            .eq('user_id', user.id)
+            .in('id', selectedIds)
+
+    const [{ data: templateData, error: templateError }, { data: leadData, error: leadError }] =
+      await Promise.all([templateRequest, leadsRequest])
 
     if (templateError) {
       console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
     }
 
-    if (senderError) {
-      console.error('FULL ERROR:', JSON.stringify(senderError, null, 2))
+    if (leadError) {
+      console.error('FULL ERROR:', JSON.stringify(leadError, null, 2))
     }
 
     const nextTemplates = (templateData as Template[]) || []
+    const nextLeads = ((leadData as Lead[]) || []).sort(
+      (left, right) => selectedIds.indexOf(left.id) - selectedIds.indexOf(right.id)
+    )
+
     setTemplates(nextTemplates)
-    setSenderSettings((senderData as SenderSettings | null) || null)
+    setSelectedLeads(nextLeads)
 
     if (nextTemplates.length === 0) {
       setTemplateMessage('No saved templates found. Create one before sending.')
-    } else if (!senderData) {
-      setTemplateMessage('No sender settings found. Save your sender identity before sending.')
+    } else if (nextLeads.length === 0) {
+      setTemplateMessage('No selected leads were found.')
     }
 
     setLoadingPreview(false)
   }
 
-  async function sendCampaign() {
-    if (selectedIds.length === 0 || !selectedTemplateId || !senderSettings) return
-    setLoading(true)
-    setTestStatusMessage('')
+  async function sendLeadEmail(lead: Lead, template: Template, currentUser: CurrentUserIdentity) {
+    const to = lead.email?.trim().toLowerCase()
+
+    if (!to) {
+      return { ok: false as const, skipped: true as const }
+    }
+
+    const subject = template.subject?.trim() || 'Quick question'
+    const html = renderTemplate(template.body || '', {
+      business: lead.company_name,
+      name: lead.contact_name,
+      location: lead.city,
+    })
+
+    console.log('📤 Sending email:', {
+      to,
+      subject,
+      userEmail: currentUser.email,
+    })
 
     const response = await fetch('/api/send-email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        leadIds: selectedIds,
-        templateId: selectedTemplateId,
+        to,
+        subject,
+        html,
+        userEmail: currentUser.email,
+        userName: currentUser.name,
       }),
     })
 
     const result = await response.json().catch(() => null)
-    setLoading(false)
 
-    if (response.ok) {
-      onSent(result?.sentIds || [])
-      alert(
-        `Sent ${result?.sent || 0} email(s). ` +
-          `Skipped ${result?.skipped || 0}. ` +
-          `Failed ${result?.failed?.length || 0}.`
-      )
-      onClose()
-    } else {
-      alert(result?.error || 'Failed to send emails')
+    if (!response.ok) {
+      return {
+        ok: false as const,
+        skipped: false as const,
+        error: result?.error || 'Failed to send email',
+      }
+    }
+
+    return { ok: true as const, skipped: false as const }
+  }
+
+  async function sendCampaign() {
+    if (selectedIds.length === 0 || !selectedTemplate) return
+
+    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
+      alert('Your account email or name is missing. Please update your account before sending.')
+      return
+    }
+
+    setLoading(true)
+    setTestStatusMessage('')
+
+    let sentCount = 0
+    let skippedCount = 0
+    const sentLeadIds: string[] = []
+    const failed: string[] = []
+
+    try {
+      for (const lead of selectedLeads) {
+        const result = await sendLeadEmail(lead, selectedTemplate, currentUserIdentity)
+
+        if (result.ok) {
+          sentCount += 1
+          sentLeadIds.push(lead.id)
+          continue
+        }
+
+        if (result.skipped) {
+          skippedCount += 1
+          continue
+        }
+
+        console.error('Campaign email failed:', result.error, {
+          leadId: lead.id,
+          to: lead.email,
+        })
+        failed.push(lead.company_name || lead.email || lead.id)
+      }
+
+      if (sentLeadIds.length > 0) {
+        onSent(sentLeadIds)
+      }
+
+      if (failed.length > 0) {
+        alert(
+          `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`
+        )
+        return
+      }
+
+      alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
+
+      if (sentLeadIds.length > 0) {
+        onClose()
+      }
+    } catch (error) {
+      console.error('Campaign email failed:', error)
+      alert('Error sending emails')
+    } finally {
+      setLoading(false)
     }
   }
 
   async function sendTestEmail() {
-    if (!selectedTemplateId) {
+    if (!selectedTemplate) {
       setTestStatusMessage('Please select a template first')
+      return
+    }
+
+    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
+      setTestStatusMessage('Your account email or name is missing')
       return
     }
 
     setTestLoading(true)
     setTestStatusMessage('')
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+    try {
+      const lead = previewLead || {
+        id: 'preview',
+        company_name: '',
+        contact_name: '',
+        email: currentUserIdentity.email,
+        city: '',
+      }
 
-    if (userError || !user?.email) {
-      setTestLoading(false)
-      setTestStatusMessage('Unable to resolve your account email')
-      return
-    }
+      const result = await sendLeadEmail(
+        {
+          ...lead,
+          email: currentUserIdentity.email,
+        },
+        selectedTemplate,
+        currentUserIdentity
+      )
 
-    const response = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        templateId: selectedTemplateId,
-        testMode: true,
-        testEmail: user.email,
-      }),
-    })
+      if (!result.ok && !result.skipped) {
+        console.error('Test email failed:', result.error)
+        setTestStatusMessage(result.error || 'Failed to send test email')
+        return
+      }
 
-    const result = await response.json().catch(() => null)
-    setTestLoading(false)
-
-    if (response.ok) {
       setTestStatusMessage('Test email sent')
-    } else {
-      setTestStatusMessage(result?.error || 'Failed to send test email')
+    } catch (error) {
+      console.error('Test email failed:', error)
+      setTestStatusMessage('Failed to send test email')
+    } finally {
+      setTestLoading(false)
     }
   }
 
@@ -273,9 +424,9 @@ export default function SendCampaignModal({
               <button
                 type="button"
                 onClick={sendTestEmail}
-                disabled={testLoading || loadingPreview || loading}
+                disabled={testLoading || loadingPreview || loading || !selectedTemplateId}
                 className={`inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
-                  testLoading || loadingPreview || loading
+                  testLoading || loadingPreview || loading || !selectedTemplateId
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
                     : 'border border-emerald-300/18 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
                 }`}
@@ -306,9 +457,9 @@ export default function SendCampaignModal({
         <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           {loadingPreview ? (
             <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 text-sm text-slate-300">
-              Loading your saved templates and sender settings...
+              Loading your saved templates and selected leads...
             </div>
-          ) : templates.length > 0 && senderSettings ? (
+          ) : templates.length > 0 ? (
             <div className="space-y-4">
               {viewMode === 'details' ? (
                 <div className="space-y-4">
@@ -337,21 +488,33 @@ export default function SendCampaignModal({
                           Subject
                         </div>
                         <div className="mt-3 text-base font-medium text-white">
-                          {selectedTemplate.subject}
+                          {selectedTemplate.subject?.trim() || 'Quick question'}
                         </div>
                       </div>
 
                       <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                          Sender profile
+                          Sending identity
                         </div>
                         <div className="mt-3 space-y-1 text-sm text-slate-300">
-                          <div>{senderSettings.sender_name || 'Unnamed sender'}</div>
-                          <div>{senderSettings.sender_email || 'No sender email saved'}</div>
-                          <div>{senderSettings.company_name || 'No company name saved'}</div>
+                          <div>{FIXED_SENDER_LABEL}</div>
+                          <div>{currentUserIdentity?.email || 'No reply-to email found'}</div>
+                          <div>{currentUserIdentity?.name || 'No account name found'}</div>
                         </div>
                         <div className="mt-4 rounded-2xl border border-emerald-300/14 bg-emerald-400/8 px-3 py-3 text-sm text-emerald-50">
                           Emails are sent via ALPA. Replies go directly to your inbox.
+                        </div>
+                      </div>
+
+                      <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Recipients
+                        </div>
+                        <div className="mt-3 text-sm text-slate-300">
+                          {selectedLeads.length} lead{selectedLeads.length === 1 ? '' : 's'} loaded
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          Leads without email addresses are skipped automatically.
                         </div>
                       </div>
                     </>
@@ -383,7 +546,7 @@ export default function SendCampaignModal({
                   <div className="rounded-xl border border-white/10 bg-white p-4 text-black shadow-md">
                     {previewContent.hasContent ? (
                       <div
-                        className="prose max-w-none text-black [&_a]:text-sky-700 [&_img]:h-auto [&_img]:max-w-[120px]"
+                        className="prose max-w-none text-black"
                         dangerouslySetInnerHTML={{ __html: previewContent.emailHtml }}
                       />
                     ) : (
@@ -398,31 +561,16 @@ export default function SendCampaignModal({
               <div>{templateMessage}</div>
 
               <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                {templates.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose()
-                      router.push('/dashboard/templates')
-                    }}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
-                    >
-                      Open templates
-                    </button>
-                ) : null}
-
-                {!senderSettings ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose()
-                      router.push('/dashboard/settings')
-                    }}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
-                  >
-                    Open sender settings
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    router.push('/dashboard/templates')
+                  }}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
+                >
+                  Open templates
+                </button>
               </div>
             </div>
           )}
@@ -440,10 +588,10 @@ export default function SendCampaignModal({
 
             <button
               type="button"
-              disabled={!selectedTemplateId || !senderSettings || loading}
+              disabled={!selectedTemplateId || loading || selectedLeads.length === 0}
               onClick={sendCampaign}
               className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
-                !selectedTemplateId || !senderSettings || loading
+                !selectedTemplateId || loading || selectedLeads.length === 0
                   ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
                   : 'btn-primary'
               }`}

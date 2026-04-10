@@ -8,14 +8,13 @@ import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import { buildFinalEmailHtml } from '@/lib/email/signature'
 import { getGuestLeads } from '@/lib/guest-session'
-import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 import { supabase } from '@/lib/supabase'
 
 type Lead = {
   id: string
   company_name: string
+  contact_name: string | null
   email: string | null
   phone: string | null
   website: string | null
@@ -33,18 +32,58 @@ type Template = {
   created_at: string
 }
 
-type SenderSettings = {
-  id: string
-  sender_name: string | null
-  sender_email: string | null
-  company_name: string | null
-  job_title: string | null
-  phone: string | null
-  website: string | null
-  logo_url: string | null
+type CurrentUserIdentity = {
+  email: string
+  name: string
 }
 
 type ViewMode = 'details' | 'preview'
+
+const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
+
+function getCurrentUserName(user: { user_metadata?: Record<string, unknown> | null }) {
+  const firstName =
+    typeof user.user_metadata?.first_name === 'string' ? user.user_metadata.first_name.trim() : ''
+  const lastName =
+    typeof user.user_metadata?.last_name === 'string' ? user.user_metadata.last_name.trim() : ''
+  const joinedName = [firstName, lastName].filter(Boolean).join(' ').trim()
+
+  if (joinedName) return joinedName
+
+  const fullName =
+    typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : ''
+
+  if (fullName) return fullName
+
+  return typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : ''
+}
+
+function renderTemplate(
+  template: string,
+  lead: { business?: string | null; name?: string | null; location?: string | null }
+) {
+  return template
+    .replace(/{{business_name}}/g, lead.business || '')
+    .replace(/{{contact_name}}/g, lead.name || '')
+    .replace(/{{location}}/g, lead.location || '')
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function withFooter(html: string, userName: string) {
+  return `${html}
+<p style="margin-top:20px;font-size:12px;color:#666;">
+Sent via ALPA<br/>
+on behalf of ${escapeHtml(userName)}
+</p>`
+}
 
 export default function Page() {
   const params = useParams()
@@ -54,7 +93,7 @@ export default function Page() {
   const [lead, setLead] = useState<Lead | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
+  const [currentUserIdentity, setCurrentUserIdentity] = useState<CurrentUserIdentity | null>(null)
   const [loading, setLoading] = useState(true)
   const [setupLoading, setSetupLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -72,9 +111,16 @@ export default function Page() {
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
 
   const previewHtml = useMemo(() => {
-    if (!selectedTemplate || !senderSettings) return ''
-    return buildFinalEmailHtml(selectedTemplate.body, senderSettings)
-  }, [selectedTemplate, senderSettings])
+    if (!lead || !selectedTemplate) return ''
+
+    const body = renderTemplate(selectedTemplate.body || '', {
+      business: lead.company_name,
+      name: lead.contact_name,
+      location: lead.city,
+    })
+
+    return withFooter(body, currentUserIdentity?.name || 'Your name')
+  }, [currentUserIdentity?.name, lead, selectedTemplate])
 
   async function fetchLead() {
     const {
@@ -87,6 +133,7 @@ export default function Page() {
         setLead({
           id: guestLead.id,
           company_name: guestLead.company_name,
+          contact_name: null,
           email: guestLead.email,
           phone: guestLead.phone,
           website: guestLead.website,
@@ -101,7 +148,7 @@ export default function Page() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, company_name, email, phone, website, industry, city, status')
+      .select('id, company_name, contact_name, email, phone, website, industry, city, status')
       .eq('id', leadId)
       .eq('user_id', user.id)
       .single()
@@ -124,38 +171,28 @@ export default function Page() {
 
     if (!user?.id) {
       setTemplates([])
-      setSenderSettings(null)
+      setCurrentUserIdentity(null)
       setSetupLoading(false)
       return
     }
 
-    const [{ data: templateData, error: templateError }, { data: senderData, error: senderError }] =
-      await Promise.all([
-        supabase
-          .from('templates')
-          .select('id, name, tag, subject, body, created_at')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('sender_settings')
-          .select('id, sender_name, sender_email, company_name, job_title, phone, website, logo_url')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ])
+    setCurrentUserIdentity({
+      email: user.email?.trim().toLowerCase() || '',
+      name: getCurrentUserName(user),
+    })
+
+    const { data: templateData, error: templateError } = await supabase
+      .from('templates')
+      .select('id, name, tag, subject, body, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
 
     if (templateError) {
       console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
     }
 
-    if (senderError && !isIgnorableEmptyResultError(senderError)) {
-      console.error('FULL ERROR:', JSON.stringify(senderError, null, 2))
-    }
-
     const nextTemplates = (templateData as Template[]) || []
     setTemplates(nextTemplates)
-    setSenderSettings((senderData as SenderSettings | null) ?? null)
 
     if (nextTemplates.length > 0) {
       setSelectedTemplateId(nextTemplates[0].id)
@@ -165,28 +202,56 @@ export default function Page() {
   }
 
   async function sendEmail() {
-    if (!lead || !selectedTemplateId || !senderSettings) return
+    if (!lead || !selectedTemplate) return
 
     if (emailLocked) {
       setShowFeatureLock(true)
       return
     }
 
+    if (!lead.email?.trim()) {
+      alert('This lead does not have an email address.')
+      return
+    }
+
+    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
+      alert('Your account email or name is missing. Please update your account before sending.')
+      return
+    }
+
     try {
       setSending(true)
+
+      const to = lead.email.trim().toLowerCase()
+      const subject = selectedTemplate.subject?.trim() || 'Quick question'
+      const html = renderTemplate(selectedTemplate.body || '', {
+        business: lead.company_name,
+        name: lead.contact_name,
+        location: lead.city,
+      })
+
+      console.log('📤 Sending email:', {
+        to,
+        subject,
+        userEmail: currentUserIdentity.email,
+      })
 
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          leadIds: [lead.id],
-          templateId: selectedTemplateId,
+          to,
+          subject,
+          html,
+          userEmail: currentUserIdentity.email,
+          userName: currentUserIdentity.name,
         }),
       })
 
       const data = await response.json().catch(() => null)
 
       if (!response.ok) {
+        console.error('Single lead email failed:', data?.error || 'Unknown error')
         alert('Failed to send email: ' + (data?.error || 'Unknown error'))
         return
       }
@@ -259,41 +324,24 @@ export default function Page() {
 
       {setupLoading ? (
         <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6 text-slate-400">
-          Loading your saved templates and sender settings...
+          Loading your saved templates...
         </div>
       ) : emailLocked ? (
         <FeatureLockNotice
           title="Email sending is available on Starter"
-          description="You can review this lead now. Upgrade when you want ALPA to handle templates, sender settings, and outreach from inside the workspace."
+          description="You can review this lead now. Upgrade when you want ALPA to handle templates and outreach from inside the workspace."
         />
-      ) : templates.length === 0 || !senderSettings ? (
+      ) : templates.length === 0 ? (
         <div className="glass space-y-4 p-6 text-slate-300">
-          <div>
-            {templates.length === 0 && !senderSettings
-              ? 'Save templates and sender settings before sending.'
-              : templates.length === 0
-                ? 'Save a template before sending.'
-                : 'Save sender settings before sending.'}
-          </div>
+          <div>Save a template before sending.</div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            {templates.length === 0 ? (
-              <Link
-                href="/dashboard/templates"
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
-              >
-                Open templates
-              </Link>
-            ) : null}
-
-            {!senderSettings ? (
-              <Link
-                href="/dashboard/settings"
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/18 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
-              >
-                Open sender settings
-              </Link>
-            ) : null}
+            <Link
+              href="/dashboard/templates"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 font-medium text-emerald-100 transition hover:bg-emerald-400/16"
+            >
+              Open templates
+            </Link>
           </div>
         </div>
       ) : (
@@ -346,12 +394,30 @@ export default function Page() {
                 </div>
 
                 {selectedTemplate ? (
-                  <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Subject
+                  <>
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Subject
+                      </div>
+                      <div className="mt-3 text-base font-medium text-white">
+                        {selectedTemplate.subject?.trim() || 'Quick question'}
+                      </div>
                     </div>
-                    <div className="mt-3 text-base font-medium text-white">{selectedTemplate.subject}</div>
-                  </div>
+
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Sending identity
+                      </div>
+                      <div className="mt-3 space-y-1 text-sm text-slate-300">
+                        <div>{FIXED_SENDER_LABEL}</div>
+                        <div>{currentUserIdentity?.email || 'No reply-to email found'}</div>
+                        <div>{currentUserIdentity?.name || 'No account name found'}</div>
+                      </div>
+                      <div className="mt-4 rounded-2xl border border-emerald-300/14 bg-emerald-400/8 px-3 py-3 text-sm text-emerald-50">
+                        Emails are sent via ALPA. Replies go directly to your inbox.
+                      </div>
+                    </div>
+                  </>
                 ) : null}
               </div>
             ) : (
@@ -370,12 +436,14 @@ export default function Page() {
               <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-1 text-sm text-slate-300">
                   <div>Ready to send this template to {lead.company_name}.</div>
-                  <div className="text-xs text-slate-500">Emails are sent via ALPA. Replies go directly to your inbox.</div>
+                  <div className="text-xs text-slate-500">
+                    Emails are sent via ALPA. Replies go directly to your inbox.
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={sendEmail}
-                  disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
+                  disabled={sending || emailLocked || !selectedTemplateId || !lead.email}
                   className="btn-primary w-full sm:w-auto"
                 >
                   {emailLocked ? 'Email sending locked' : sending ? 'Sending...' : 'Send email'}
@@ -399,7 +467,7 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={sendEmail}
-                  disabled={sending || emailLocked || !selectedTemplateId || !senderSettings}
+                  disabled={sending || emailLocked || !selectedTemplateId || !lead.email}
                   className="btn-primary w-full"
                 >
                   {emailLocked ? 'Email sending locked' : sending ? 'Sending...' : 'Send email'}
