@@ -155,12 +155,18 @@ export default function PipelinePage() {
     )
   }, [leads])
 
-  const sendableSelectedIds = useMemo(() => {
-    return selected.filter((id) => {
-      const lead = leads.find((item) => item.id === id)
-      return lead ? normalizePipelineStage(lead) !== 'closed' : false
-    })
-  }, [leads, selected])
+const validSelectedIds = useMemo(() => {
+  return selected.filter((id) => {
+    const lead = leads.find((item) => item.id === id)
+
+    if (!lead) return false
+
+    // Only exclude truly closed leads
+    if (normalizePipelineStage(lead) === 'closed') return false
+
+    return true
+  })
+}, [selected, leads])
 
   async function fetchLeads() {
     setLoading(true)
@@ -229,38 +235,54 @@ export default function PipelinePage() {
     setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, ...payload } : lead)))
   }
 
-  async function batchMarkContacted(ids: string[]) {
-    if (ids.length === 0) {
-      setSelected([])
-      return
-    }
-
-    if (isGuest) {
-      setShowFeatureLock(true)
-      return
-    }
-
-    const now = new Date().toISOString()
-    const payload = {
-      status: 'contacted',
-      contacted_at: now,
-      pipeline_stage: 'followup',
-      status_updated_at: now,
-    }
-
-    const { error } = await supabase
-      .from('leads')
-      .update(payload)
-      .in('id', ids)
-
-    if (error) {
-      console.error('Error updating contacted leads:', error)
-      return
-    }
-
-    setLeads((prev) => prev.map((lead) => (ids.includes(lead.id) ? { ...lead, ...payload } : lead)))
-    setSelected((prev) => prev.filter((id) => !ids.includes(id)))
+async function batchMarkContacted(ids: string[]) {
+  if (ids.length === 0) {
+    setSelected([])
+    return
   }
+
+  if (isGuest) {
+    setShowFeatureLock(true)
+    return
+  }
+
+  // 🔥 Defensive filter (CRITICAL)
+  const validIds = ids.filter((id) => {
+    const lead = leads.find((l) => l.id === id)
+    return lead && normalizePipelineStage(lead) !== 'closed'
+  })
+
+  if (validIds.length === 0) {
+    setSelected([])
+    return
+  }
+
+  const now = new Date().toISOString()
+  const payload = {
+    status: 'contacted',
+    contacted_at: now,
+    pipeline_stage: 'followup',
+    status_updated_at: now,
+  }
+
+  const { error } = await supabase
+    .from('leads')
+    .update(payload)
+    .in('id', validIds)
+
+  if (error) {
+    console.error('Error updating contacted leads:', error)
+    return
+  }
+
+  setLeads((prev) =>
+    prev.map((lead) =>
+      validIds.includes(lead.id) ? { ...lead, ...payload } : lead
+    )
+  )
+
+  setSelected((prev) => prev.filter((id) => !validIds.includes(id)))
+}
 
   function toggleSelect(id: string) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((current) => current !== id) : [...prev, id]))
@@ -425,7 +447,7 @@ export default function PipelinePage() {
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <MetricCard label="Total leads" value={totalLeads} />
             <MetricCard label="Active pipeline" value={activeLeads} />
-            <MetricCard label="Ready to send" value={sendableSelectedIds.length} />
+<MetricCard label="Ready to send" value={validSelectedIds.length} />
           </div>
         </header>
 
@@ -448,12 +470,13 @@ export default function PipelinePage() {
                   }
                   setIsSendModalOpen(true)
                 }}
-                disabled={sendableSelectedIds.length === 0}
-                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
-                  sendableSelectedIds.length === 0
-                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15'
-                }`}
+disabled={selected.length === 0}
+        className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+  validSelectedIds.length === 0
+    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
+    : 'border border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15'
+}`}
+
               >
                 Send template email
               </button>
@@ -549,12 +572,13 @@ export default function PipelinePage() {
         )}
       </div>
 
-      <SendCampaignModal
-        isOpen={isSendModalOpen}
-        onClose={() => setIsSendModalOpen(false)}
-        selectedIds={sendableSelectedIds}
-        onSent={batchMarkContacted}
-      />
+<SendCampaignModal
+  isOpen={isSendModalOpen}
+  onClose={() => setIsSendModalOpen(false)}
+  selectedIds={selected}
+  onSent={batchMarkContacted}
+/>
+
 
       {moveLead ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-0 backdrop-blur-sm sm:items-center sm:px-4">
