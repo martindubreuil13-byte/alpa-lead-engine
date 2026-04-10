@@ -469,62 +469,90 @@ async function sendCampaign() {
     return
   }
 
+  setLoading(true)
+  setTestStatusMessage('')
 
-    setLoading(true)
-    setTestStatusMessage('')
+  let sentCount = 0
+  let skippedCount = 0
+  const sentLeadIds: string[] = []
+  const failed: string[] = []
 
-    let sentCount = 0
-    let skippedCount = 0
-    const sentLeadIds: string[] = []
-    const failed: string[] = []
+  try {
+    // 👉 DEBUG (this is what we want to see)
+    console.log('SELECTED IDS:', selectedIds)
+    console.log('FETCHED LEADS:', selectedLeads)
 
-    try {
-      for (const lead of selectedLeads) {
-        const result = await sendLeadEmail(lead, selectedTemplate || DEFAULT_TEMPLATE, currentUserIdentity, {
-          isTest: sendAsTest,
-        })
+let leadsToSend: Lead[] = []
 
-        if (result.ok) {
-          sentCount += 1
-          sentLeadIds.push(lead.id)
-          continue
-        }
-
-        if (result.skipped) {
-          skippedCount += 1
-          continue
-        }
-
-        console.error('Campaign email failed:', result.error, {
-          leadId: lead.id,
-          to: lead.email,
-        })
-        failed.push(lead.company_name || lead.email || lead.id)
-      }
-
-      if (sentLeadIds.length > 0) {
-        onSent(sentLeadIds)
-      }
-
-      if (failed.length > 0) {
-        alert(
-          `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`
-        )
-        return
-      }
-
-      alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
-
-      if (sentLeadIds.length > 0) {
-        onClose()
-      }
-    } catch (error) {
-      console.error('Campaign email failed:', error)
-      alert('Error sending emails')
-    } finally {
-      setLoading(false)
-    }
+if (sendAsTest) {
+  leadsToSend = [
+    previewLead || {
+      id: 'preview',
+      company_name: '',
+      contact_name: '',
+      email: testEmail,
+      city: '',
+    },
+  ]
+} else {
+  if (selectedLeads.length === 0) {
+    alert('The selected leads could not be loaded. Please close this window and try again.')
+    return
   }
+
+  leadsToSend = selectedLeads
+}
+    for (const lead of leadsToSend) {
+      const result = await sendLeadEmail(
+        lead,
+        selectedTemplate || DEFAULT_TEMPLATE,
+        currentUserIdentity,
+        {
+          isTest: sendAsTest,
+        }
+      )
+
+      if (result.ok) {
+        sentCount += 1
+        sentLeadIds.push(lead.id)
+        continue
+      }
+
+      if (result.skipped) {
+        skippedCount += 1
+        continue
+      }
+
+      console.error('Campaign email failed:', result.error, {
+        leadId: lead.id,
+        to: lead.email,
+      })
+      failed.push(lead.company_name || lead.email || lead.id)
+    }
+
+    if (sentLeadIds.length > 0) {
+      onSent(sentLeadIds)
+    }
+
+    if (failed.length > 0) {
+      alert(
+        `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`
+      )
+      return
+    }
+
+    alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
+
+    if (sentLeadIds.length > 0) {
+      onClose()
+    }
+  } catch (error) {
+    console.error('Campaign email failed:', error)
+    alert('Error sending emails')
+  } finally {
+    setLoading(false)
+  }
+}
 
   async function sendTestEmail() {
     if (!currentUserIdentity?.email) {
