@@ -165,8 +165,9 @@ function buildSignature(profile: SenderProfile | undefined) {
   const email = profile.email ? escapeHtml(profile.email) : ''
   const logoUrl = getPublicLogoUrl(profile.logoUrl)
   const company = profile.company ? escapeHtml(profile.company) : ''
+  const website = getWebsiteUrl(profile.website)
 
-  if (!name && !title && !company && !email && !logoUrl) {
+  if (!name && !title && !company && !email && !logoUrl && !website) {
     return ''
   }
 
@@ -175,6 +176,7 @@ function buildSignature(profile: SenderProfile | undefined) {
     <strong>${name || ''}</strong><br/>
     ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
     ${email ? `<a href="mailto:${email}">${email}</a><br/>` : ''}
+    ${website ? `<a href="${escapeHtml(website)}" target="_blank" rel="noreferrer">${escapeHtml(website)}</a><br/>` : ''}
     ${
       logoUrl
         ? `<img src="${escapeHtml(logoUrl)}" style="max-width:120px;margin-top:12px;display:block;" />`
@@ -213,14 +215,19 @@ export default function SendCampaignModal({
 }) {
   const router = useRouter()
   const { profile, loading: profileLoading } = useClientUserProfile()
+
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedLeads, setSelectedLeads] = useState<Lead[]>([])
+  const [modalSelectedIds, setModalSelectedIds] = useState<string[]>([])
+
   const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
   const [currentUserIdentity, setCurrentUserIdentity] = useState<CurrentUserIdentity | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [loading, setLoading] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
+
   const [sendAsTest, setSendAsTest] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
   const [testStatusMessage, setTestStatusMessage] = useState('')
@@ -228,10 +235,21 @@ export default function SendCampaignModal({
 
   useEffect(() => {
     if (isOpen) {
-      void fetchEmailSetup()
+      setModalSelectedIds(selectedIds)
       setViewMode('details')
     }
   }, [isOpen, selectedIds])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const selectionReady =
+      selectedIds.length === 0 || modalSelectedIds.length === selectedIds.length
+
+    if (!selectionReady) return
+
+    void fetchEmailSetup()
+  }, [isOpen, selectedIds, modalSelectedIds])
 
   useEffect(() => {
     if (!templates || templates.length === 0) {
@@ -271,6 +289,7 @@ export default function SendCampaignModal({
       settings: senderSettings,
       testEmail,
       template: safeTemplate,
+      modalSelectedIds,
     })
 
     return {
@@ -280,7 +299,7 @@ export default function SendCampaignModal({
       emailHtml,
       hasContent: Boolean(emailHtml),
     }
-  }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail])
+  }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail, modalSelectedIds])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -321,13 +340,13 @@ export default function SendCampaignModal({
       .maybeSingle()
 
     const leadsRequest =
-      selectedIds.length === 0
+      modalSelectedIds.length === 0
         ? Promise.resolve({ data: [] as Lead[], error: null })
         : supabase
             .from('leads')
             .select('id, company_name, contact_name, email, city')
             .eq('user_id', user.id)
-            .in('id', selectedIds)
+            .in('id', modalSelectedIds)
 
     const [
       { data: templateData, error: templateError },
@@ -380,8 +399,11 @@ export default function SendCampaignModal({
 
     const nextTemplates = (templateData as Template[]) || []
     const nextLeads = ((leadData as Lead[]) || []).sort(
-      (left, right) => selectedIds.indexOf(left.id) - selectedIds.indexOf(right.id)
+      (left, right) => modalSelectedIds.indexOf(left.id) - modalSelectedIds.indexOf(right.id)
     )
+
+    console.log('MODAL IDS:', modalSelectedIds)
+    console.log('FETCHED LEADS FROM QUERY:', nextLeads)
 
     setTemplates(nextTemplates)
     setSelectedLeads(nextLeads)
@@ -389,7 +411,7 @@ export default function SendCampaignModal({
 
     if (nextTemplates.length === 0) {
       setTemplateMessage('No saved templates found. Using the default email template.')
-    } else if (nextLeads.length === 0) {
+    } else if (nextLeads.length === 0 && modalSelectedIds.length > 0) {
       setTemplateMessage('No selected leads were found.')
     }
 
@@ -423,6 +445,7 @@ export default function SendCampaignModal({
       to: finalTo,
       subject,
       userEmail: currentUser.email,
+      isTest: isTestSend,
     })
     console.log('🚀 Sending email request')
 
@@ -457,106 +480,113 @@ export default function SendCampaignModal({
     return { ok: true as const, skipped: false as const }
   }
 
-async function sendCampaign() {
-  // Allow test mode without leads
-  if (!sendAsTest && selectedIds.length === 0) {
-    alert('Please select at least one lead before sending emails.')
-    return
-  }
-
-  if (!currentUserIdentity?.email) {
-    alert('Your account email is missing. Please update your account before sending.')
-    return
-  }
-
-  setLoading(true)
-  setTestStatusMessage('')
-
-  let sentCount = 0
-  let skippedCount = 0
-  const sentLeadIds: string[] = []
-  const failed: string[] = []
-
-  try {
-    // 👉 DEBUG (this is what we want to see)
-    console.log('SELECTED IDS:', selectedIds)
-    console.log('FETCHED LEADS:', selectedLeads)
-
-let leadsToSend: Lead[] = []
-
-if (sendAsTest) {
-  leadsToSend = [
-    previewLead || {
-      id: 'preview',
-      company_name: '',
-      contact_name: '',
-      email: testEmail,
-      city: '',
-    },
-  ]
-} else {
-  if (selectedLeads.length === 0) {
-    alert('The selected leads could not be loaded. Please close this window and try again.')
-    return
-  }
-
-  leadsToSend = selectedLeads
-}
-    for (const lead of leadsToSend) {
-      const result = await sendLeadEmail(
-        lead,
-        selectedTemplate || DEFAULT_TEMPLATE,
-        currentUserIdentity,
-        {
-          isTest: sendAsTest,
-        }
-      )
-
-      if (result.ok) {
-        sentCount += 1
-        sentLeadIds.push(lead.id)
-        continue
-      }
-
-      if (result.skipped) {
-        skippedCount += 1
-        continue
-      }
-
-      console.error('Campaign email failed:', result.error, {
-        leadId: lead.id,
-        to: lead.email,
-      })
-      failed.push(lead.company_name || lead.email || lead.id)
-    }
-
-    if (sentLeadIds.length > 0) {
-      onSent(sentLeadIds)
-    }
-
-    if (failed.length > 0) {
-      alert(
-        `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`
-      )
+  async function sendCampaign() {
+    if (!sendAsTest && modalSelectedIds.length === 0) {
+      alert('Please select at least one lead before sending emails.')
       return
     }
 
-    alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
-
-    if (sentLeadIds.length > 0) {
-      onClose()
+    if (!currentUserIdentity?.email) {
+      alert('Your account email is missing. Please update your account before sending.')
+      return
     }
-  } catch (error) {
-    console.error('Campaign email failed:', error)
-    alert('Error sending emails')
-  } finally {
-    setLoading(false)
+
+    if (!selectedTemplateId) {
+      alert('Please choose a template before sending emails.')
+      return
+    }
+
+    setLoading(true)
+    setTestStatusMessage('')
+
+    let sentCount = 0
+    let skippedCount = 0
+    const sentLeadIds: string[] = []
+    const failed: string[] = []
+
+    try {
+      console.log('MODAL IDS:', modalSelectedIds)
+      console.log('FETCHED LEADS:', selectedLeads)
+
+      let leadsToSend: Lead[] = []
+
+      if (sendAsTest) {
+        leadsToSend = [
+          previewLead || {
+            id: 'preview',
+            company_name: '',
+            contact_name: '',
+            email: testEmail,
+            city: '',
+          },
+        ]
+      } else {
+        if (selectedLeads.length === 0) {
+          alert('The selected leads could not be loaded. Please close this window and try again.')
+          return
+        }
+
+        leadsToSend = selectedLeads
+      }
+
+      for (const lead of leadsToSend) {
+        const result = await sendLeadEmail(
+          lead,
+          selectedTemplate || DEFAULT_TEMPLATE,
+          currentUserIdentity,
+          {
+            isTest: sendAsTest,
+          }
+        )
+
+        if (result.ok) {
+          sentCount += 1
+          sentLeadIds.push(lead.id)
+          continue
+        }
+
+        if (result.skipped) {
+          skippedCount += 1
+          continue
+        }
+
+        console.error('Campaign email failed:', result.error, {
+          leadId: lead.id,
+          to: lead.email,
+        })
+        failed.push(lead.company_name || lead.email || lead.id)
+      }
+
+      if (sentLeadIds.length > 0) {
+        onSent(sentLeadIds)
+      }
+
+      if (failed.length > 0) {
+        alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`)
+        return
+      }
+
+      alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
+
+      if (sentLeadIds.length > 0) {
+        onClose()
+      }
+    } catch (error) {
+      console.error('Campaign email failed:', error)
+      alert('Error sending emails')
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   async function sendTestEmail() {
     if (!currentUserIdentity?.email) {
       setTestStatusMessage('Your account email is missing')
+      return
+    }
+
+    if (!selectedTemplateId) {
+      setTestStatusMessage('Please select a template before sending a test email')
       return
     }
 
@@ -639,7 +669,7 @@ if (sendAsTest) {
             <div>
               <h2 className="text-2xl font-semibold text-white">Send Campaign</h2>
               <p className="mt-1 text-sm text-slate-400">
-                {selectedIds.length} lead{selectedIds.length === 1 ? '' : 's'} selected
+                {modalSelectedIds.length} lead{modalSelectedIds.length === 1 ? '' : 's'} selected
               </p>
               {testStatusMessage ? (
                 <p className="mt-2 text-sm text-slate-300">{testStatusMessage}</p>
@@ -650,9 +680,9 @@ if (sendAsTest) {
               <button
                 type="button"
                 onClick={sendTestEmail}
-                disabled={!currentUserIdentity?.email}
+                disabled={!currentUserIdentity?.email || !selectedTemplateId || testLoading}
                 className={`inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
-                  !currentUserIdentity?.email
+                  !currentUserIdentity?.email || !selectedTemplateId || testLoading
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
                     : 'border border-emerald-300/18 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
                 }`}
@@ -829,27 +859,27 @@ if (sendAsTest) {
               Cancel
             </button>
 
-{(() => {
-const canSend =
-  currentUserIdentity?.email &&
-  selectedTemplateId &&
-  (sendAsTest || selectedIds.length > 0)
+            {(() => {
+              const canSend =
+                !!currentUserIdentity?.email &&
+                !!selectedTemplateId &&
+                (sendAsTest || modalSelectedIds.length > 0)
 
-  return (
-    <button
-      type="button"
-      disabled={!canSend || loading}
-      onClick={sendCampaign}
-      className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
-        !canSend || loading
-          ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
-          : 'btn-primary'
-      }`}
-    >
-      {loading ? 'Sending...' : 'Send emails'}
-    </button>
-  )
-})()}
+              return (
+                <button
+                  type="button"
+                  disabled={!canSend || loading}
+                  onClick={sendCampaign}
+                  className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
+                    !canSend || loading
+                      ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
+                      : 'btn-primary'
+                  }`}
+                >
+                  {loading ? 'Sending...' : 'Send emails'}
+                </button>
+              )
+            })()}
           </div>
         </div>
       </div>
