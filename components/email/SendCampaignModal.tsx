@@ -339,14 +339,14 @@ export default function SendCampaignModal({
       .limit(1)
       .maybeSingle()
 
-    const leadsRequest =
-      modalSelectedIds.length === 0
-        ? Promise.resolve({ data: [] as Lead[], error: null })
-        : supabase
-            .from('leads')
-            .select('id, company_name, contact_name, email, city')
-            .eq('user_id', user.id)
-            .in('id', modalSelectedIds)
+  const leadsRequest =
+  selectedIds.length === 0
+    ? Promise.resolve({ data: [] as Lead[], error: null })
+    : supabase
+        .from('leads')
+        .select('id, company_name, contact_name, email, city')
+        .eq('user_id', user.id)
+        .in('id', selectedIds)
 
     const [
       { data: templateData, error: templateError },
@@ -398,9 +398,17 @@ export default function SendCampaignModal({
     }
 
     const nextTemplates = (templateData as Template[]) || []
-    const nextLeads = ((leadData as Lead[]) || []).sort(
-      (left, right) => modalSelectedIds.indexOf(left.id) - modalSelectedIds.indexOf(right.id)
-    )
+  const nextLeads = ((leadData as Lead[]) || []).sort((left, right) => {
+  const leftIndex = selectedIds.indexOf(left.id)
+  const rightIndex = selectedIds.indexOf(right.id)
+
+  // Safety fallback (in case something slips through)
+  if (leftIndex === -1 && rightIndex === -1) return 0
+  if (leftIndex === -1) return 1
+  if (rightIndex === -1) return -1
+
+  return leftIndex - rightIndex
+})
 
     console.log('MODAL IDS:', modalSelectedIds)
     console.log('FETCHED LEADS FROM QUERY:', nextLeads)
@@ -481,10 +489,10 @@ export default function SendCampaignModal({
   }
 
   async function sendCampaign() {
-    if (!sendAsTest && modalSelectedIds.length === 0) {
-      alert('Please select at least one lead before sending emails.')
-      return
-    }
+  if (!sendAsTest && selectedIds.length === 0) {
+  alert('Please select at least one lead before sending emails.')
+  return
+}
 
     if (!currentUserIdentity?.email) {
       alert('Your account email is missing. Please update your account before sending.')
@@ -669,7 +677,7 @@ export default function SendCampaignModal({
             <div>
               <h2 className="text-2xl font-semibold text-white">Send Campaign</h2>
               <p className="mt-1 text-sm text-slate-400">
-                {modalSelectedIds.length} lead{modalSelectedIds.length === 1 ? '' : 's'} selected
+                {selectedIds.length} lead{selectedIds.length === 1 ? '' : 's'} selected
               </p>
               {testStatusMessage ? (
                 <p className="mt-2 text-sm text-slate-300">{testStatusMessage}</p>
