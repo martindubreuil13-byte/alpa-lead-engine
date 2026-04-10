@@ -1,307 +1,248 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
-
-import { canAccessFeature } from '@/lib/auth/access'
-import { getUserProfile } from '@/lib/auth/get-user-profile'
-import { buildFinalEmailHtml, buildSignatureHtml, buildTemplateBodyHtml } from '@/lib/email/signature'
-import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
+import { Resend } from 'resend'
+import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-const VERIFIED_SENDER_EMAIL = 'info@mindrasolutions.com'
-const VERIFIED_SENDER_FALLBACK = `ALPA <${VERIFIED_SENDER_EMAIL}>`
+const resend = new Resend(process.env.RESEND_API_KEY)
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const FROM_EMAIL = 'ALPA by MINDRA <info@mindrasolutions.com>'
+const MAX_EMAILS_PER_USER_PER_DAY = 20
+const MAX_EMAILS_TOTAL_PER_DAY = 200
 
-type RequestBody = {
-  leadIds?: string[]
-  templateId?: string
-  testMode?: boolean
-  testEmail?: string
+type RateLimitBucket = {
+  day: string
+  count: number
 }
 
-type TemplateRow = {
-  id: string
-  user_id: string
-  name: string
-  tag: string | null
-  subject: string | null
-  body: string | null
-  created_at: string
+const userDailyCounts = new Map<string, RateLimitBucket>()
+let totalDailyCount: RateLimitBucket = {
+  day: '',
+  count: 0,
 }
 
-type SenderSettingsRow = {
-  id: string
-  user_id: string
-  sender_name: string | null
-  sender_email: string | null
-  company_name: string | null
-  job_title: string | null
-  phone: string | null
-  website: string | null
-  logo_url: string | null
+const sendEmailSchema = z.object({
+  to: z.string().trim().email(),
+  subject: z.string().trim().min(4).max(200),
+  html: z.string().trim().min(1).max(100_000),
+  userEmail: z.string().trim().email(),
+  userName: z.string().trim().min(1).max(120),
+})
+
+function getDayKey(now = new Date()) {
+  return now.toISOString().slice(0, 10)
 }
 
-type ResendEmailResult = {
-  id?: string
-  message?: string
-  error?: {
-    message?: string
-    name?: string
-  } | string
-}
-
-function getResendErrorMessage(result: ResendEmailResult | null) {
-  if (!result) return 'Failed to send emails'
-  if (typeof result.error === 'string') return result.error
-  if (result.error?.message) return result.error.message
-  if (result.message) return result.message
-  return 'Failed to send emails'
-}
-
-function formatVerifiedSender(senderName: string | null | undefined) {
-  const trimmedName = senderName?.trim()
-  return trimmedName
-    ? `${trimmedName} via ALPA <${VERIFIED_SENDER_EMAIL}>`
-    : VERIFIED_SENDER_FALLBACK
-}
-
-async function sendWithResend(payload: {
-  to: string
-  subject: string
-  html: string
-  from: string
-  replyTo?: string
-}) {
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: payload.from,
-      to: [payload.to],
-      subject: payload.subject,
-      html: payload.html,
-      reply_to: payload.replyTo,
-    }),
-  })
-
-  const result = (await response.json().catch(() => null)) as ResendEmailResult | null
-
-  if (!response.ok) {
-    throw new Error(getResendErrorMessage(result))
+function resetDailyBuckets(day: string) {
+  if (totalDailyCount.day !== day) {
+    totalDailyCount = { day, count: 0 }
   }
 
-  if (!result) {
-    throw new Error('Empty response from email provider')
+  for (const [key, bucket] of userDailyCounts.entries()) {
+    if (bucket.day !== day) {
+      userDailyCounts.delete(key)
+    }
   }
-
-  return result
 }
 
-export async function POST(req: Request) {
+function getUserBucket(userEmail: string, day: string) {
+  const existing = userDailyCounts.get(userEmail)
+
+  if (!existing || existing.day !== day) {
+    const nextBucket = { day, count: 0 }
+    userDailyCounts.set(userEmail, nextBucket)
+    return nextBucket
+  }
+
+  return existing
+}
+
+function reserveRateLimit(userEmail: string) {
+  const day = getDayKey()
+  resetDailyBuckets(day)
+
+  const userBucket = getUserBucket(userEmail, day)
+
+  if (userBucket.count >= MAX_EMAILS_PER_USER_PER_DAY) {
+    return {
+      ok: false as const,
+      message: `Daily user email limit reached (${MAX_EMAILS_PER_USER_PER_DAY})`,
+    }
+  }
+
+  if (totalDailyCount.count >= MAX_EMAILS_TOTAL_PER_DAY) {
+    return {
+      ok: false as const,
+      message: `Daily workspace email limit reached (${MAX_EMAILS_TOTAL_PER_DAY})`,
+    }
+  }
+
+  userBucket.count += 1
+  totalDailyCount.count += 1
+
+  return { ok: true as const }
+}
+
+function releaseRateLimit(userEmail: string) {
+  const day = getDayKey()
+  const userBucket = userDailyCounts.get(userEmail)
+
+  if (userBucket && userBucket.day === day && userBucket.count > 0) {
+    userBucket.count -= 1
+  }
+
+  if (totalDailyCount.day === day && totalDailyCount.count > 0) {
+    totalDailyCount.count -= 1
+  }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function countLinks(html: string) {
+  const anchorLinks = html.match(/<a\b[^>]*href\s*=\s*["'][^"']+["'][^>]*>/gi) ?? []
+  const withoutAnchors = html.replace(/<a\b[^>]*>.*?<\/a>/gis, ' ')
+  const plainUrls = withoutAnchors.match(/https?:\/\/[^\s<>"']+/gi) ?? []
+
+  return anchorLinks.length + plainUrls.length
+}
+
+function containsUnsafeMarkup(html: string) {
+  return /<(script|iframe)\b/i.test(html)
+}
+
+function withFooter(html: string, userName: string) {
+  const footer = `
+<p style="margin-top:20px;font-size:12px;color:#666;">
+Sent via ALPA<br/>
+on behalf of ${escapeHtml(userName)}
+</p>`
+
+  return `${html.trim()}\n${footer}`
+}
+
+export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies()
+    const json = await request.json().catch(() => null)
 
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) => {
-                cookieStore.set(name, value, options)
-              })
-            } catch {}
-          },
-        },
-      }
-    )
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!json || typeof json !== 'object') {
+      return NextResponse.json({ error: 'Invalid email payload' }, { status: 400 })
     }
 
-    const userProfile = await getUserProfile()
-    if (!canAccessFeature('email', userProfile)) {
-      return NextResponse.json({ error: 'Available on Starter plan' }, { status: 403 })
+    const parsed = sendEmailSchema.safeParse(json)
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: 'Invalid email payload',
+          details: parsed.error.flatten().fieldErrors,
+        },
+        { status: 400 }
+      )
+    }
+
+    const to = parsed.data.to.toLowerCase()
+    const userEmail = parsed.data.userEmail.toLowerCase()
+    const subject = parsed.data.subject
+    const userName = parsed.data.userName
+    const html = parsed.data.html
+
+    if (containsUnsafeMarkup(html)) {
+      return NextResponse.json(
+        { error: 'HTML contains unsupported markup' },
+        { status: 400 }
+      )
+    }
+
+    if (countLinks(html) > 3) {
+      return NextResponse.json(
+        { error: 'Email HTML can contain at most 3 links' },
+        { status: 400 }
+      )
+    }
+
+    if (process.env.EMAIL_SENDING_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: true,
+          id: null,
+          message: 'Email sending disabled',
+        },
+        { status: 200 }
+      )
     }
 
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 500 })
     }
 
-    const payload: RequestBody = await req.json()
-    const leadIds = payload.leadIds || []
-    const templateId = payload.templateId || ''
-    const testMode = payload.testMode === true
-    const testEmail = payload.testEmail?.trim() || ''
+    const isTestMode = process.env.EMAIL_TEST_MODE === 'true'
+    const testEmail = process.env.TEST_EMAIL?.trim().toLowerCase() || ''
+    const finalRecipient = isTestMode ? testEmail : to
 
-    if (!testMode && leadIds.length === 0) {
-      return NextResponse.json({ error: 'No leads provided' }, { status: 400 })
+    if (isTestMode && !testEmail) {
+      return NextResponse.json({ error: 'TEST_EMAIL is not configured' }, { status: 500 })
     }
 
-    if (!templateId) {
-      return NextResponse.json({ error: 'No template selected' }, { status: 400 })
+    if (isTestMode && !z.string().email().safeParse(testEmail).success) {
+      return NextResponse.json({ error: 'TEST_EMAIL is invalid' }, { status: 500 })
     }
 
-    const { data: templateData, error: templateError } = await admin
-      .from('templates')
-      .select('id, user_id, name, tag, subject, body, created_at')
-      .eq('id', templateId)
-      .eq('user_id', user.id)
-      .single()
+    const rateLimit = reserveRateLimit(userEmail)
 
-    if (templateError || !templateData) {
-      console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
-      return NextResponse.json({ error: 'Selected template not found' }, { status: 400 })
+    if (!rateLimit.ok) {
+      return NextResponse.json({ error: rateLimit.message }, { status: 429 })
     }
 
-    const { data: senderData, error: senderError } = await admin
-      .from('sender_settings')
-      .select('id, user_id, sender_name, sender_email, company_name, job_title, phone, website, logo_url')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const finalHtml = withFooter(html, userName)
 
-    if (senderError && !isIgnorableEmptyResultError(senderError)) {
-      console.error('FULL ERROR:', JSON.stringify(senderError, null, 2))
-    }
-
-    if (!senderData) {
-      return NextResponse.json({ error: 'No sender settings found' }, { status: 400 })
-    }
-
-    const template = templateData as TemplateRow
-    const senderSettings = senderData as SenderSettingsRow
-    const subject = template.subject?.trim() || ''
-    const finalBody = buildFinalEmailHtml(template.body, senderSettings)
-
-    if (!subject || !finalBody) {
-      return NextResponse.json(
-        { error: 'Selected template is missing subject or body' },
-        { status: 400 }
-      )
-    }
-
-    const from = formatVerifiedSender(senderSettings.sender_name)
-    const replyTo = user.email?.trim().toLowerCase() || senderSettings.sender_email?.trim() || undefined
-
-    if (testMode) {
-      if (!testEmail) {
-        return NextResponse.json({ error: 'No test email provided' }, { status: 400 })
-      }
-
-      const formattedBody = buildTemplateBodyHtml(template.body).replace(/\n/g, '')
-      const signature = buildSignatureHtml(senderSettings)
-      const testEmailBody =
-        formattedBody && signature ? `${formattedBody}<br/><br/>${signature}` : formattedBody || signature
-
-      await sendWithResend({
-        from,
-        to: testEmail,
-        subject,
-        replyTo,
-        html: `
-          <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111827;padding:20px;">
-            ${testEmailBody}
-          </div>
-        `,
-      })
-
-      return NextResponse.json({
-        success: true,
-        testMode: true,
-        sent: 1,
-      })
-    }
-
-    const { data: leads, error: leadsError } = await admin
-      .from('leads')
-      .select('id, user_id, company_name, email')
-      .eq('user_id', user.id)
-      .in('id', leadIds)
-
-    if (leadsError || !leads || leads.length === 0) {
-      console.error('FULL ERROR:', JSON.stringify(leadsError, null, 2))
-      return NextResponse.json({ error: 'No leads found' }, { status: 404 })
-    }
-
-    const validLeads = leads.filter((lead) => lead.email && lead.email.includes('@'))
-    const skippedLeads = leads.length - validLeads.length
-
-    if (validLeads.length === 0) {
-      return NextResponse.json({ error: 'No valid emails found' }, { status: 400 })
-    }
-
-    let sentCount = 0
-    const sentLeadIds: string[] = []
-    const failed: string[] = []
-
-    for (const lead of validLeads) {
-      const recipient = lead.email!
-
-      try {
-        await sendWithResend({
-          from,
-          to: recipient,
-          subject,
-          replyTo,
-          html: `
-            <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111827;padding:20px;">
-              ${finalBody}
-            </div>
-          `,
-        })
-
-        sentCount += 1
-        sentLeadIds.push(lead.id)
-      } catch (error: any) {
-        console.error(`Failed sending to ${recipient}:`, error?.message || error)
-        failed.push(recipient)
-      }
-    }
-
-    if (sentLeadIds.length > 0) {
-      await admin
-        .from('leads')
-        .update({
-          status: 'contacted',
-          contacted_at: new Date().toISOString(),
-          status_updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', user.id)
-        .in('id', sentLeadIds)
-    }
-
-    return NextResponse.json({
-      success: true,
-      sent: sentCount,
-      sentIds: sentLeadIds,
-      skipped: skippedLeads,
-      failed,
+    console.log('📨 Email request:', {
+      to: finalRecipient,
+      subject,
+      userEmail,
+      testMode: process.env.EMAIL_TEST_MODE,
     })
-  } catch (error: any) {
-    console.error('send-email error:', error?.message || error)
+
+    const payload: Parameters<typeof resend.emails.send>[0] & { reply_to: string } = {
+      from: FROM_EMAIL,
+      to: [finalRecipient],
+      subject,
+      html: finalHtml,
+      replyTo: userEmail,
+      reply_to: userEmail,
+    }
+
+    const { data, error } = await resend.emails.send(payload)
+
+    if (error) {
+      releaseRateLimit(userEmail)
+      console.error('❌ Email error:', error)
+
+      return NextResponse.json({ error: error.message || 'Failed to send email' }, { status: 500 })
+    }
+
+    console.log('✅ Email sent:', data?.id)
+
     return NextResponse.json(
-      { error: error?.message || 'Failed to send emails' },
+      {
+        success: true,
+        id: data?.id ?? null,
+      },
+      { status: 200 }
+    )
+  } catch (error) {
+    console.error('❌ Email error:', error)
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : 'Failed to send email',
+      },
       { status: 500 }
     )
   }
