@@ -805,7 +805,7 @@ async function sendCampaign() {
 const canSend =
   currentUserIdentity?.email &&
   selectedTemplateId &&
-  (sendAsTest || selectedLeads.length > 0)
+  (sendAsTest || selectedIds.length > 0)
 
   return (
     <button
