@@ -21,13 +21,28 @@ let totalDailyCount: RateLimitBucket = {
   count: 0,
 }
 
+const senderProfileSchema = z
+  .object({
+    name: z.string().trim().optional(),
+    title: z.string().trim().optional(),
+    company: z.string().trim().optional(),
+    email: z.string().trim().optional(),
+    phone: z.string().trim().optional(),
+    website: z.string().trim().optional(),
+    logoUrl: z.string().trim().url().optional().catch(undefined),
+  })
+  .optional()
+
 const sendEmailSchema = z.object({
   to: z.string().trim().email(),
   subject: z.string().trim().min(4).max(200),
   html: z.string().trim().min(1).max(100_000),
   userEmail: z.string().trim().email(),
-  userName: z.string().trim().min(1).max(120),
+  userName: z.string().trim().max(120).optional().catch(''),
+  senderProfile: senderProfileSchema,
 })
+
+type SenderProfile = z.infer<NonNullable<typeof senderProfileSchema>>
 
 function getDayKey(now = new Date()) {
   return now.toISOString().slice(0, 10)
@@ -117,14 +132,87 @@ function containsUnsafeMarkup(html: string) {
   return /<(script|iframe)\b/i.test(html)
 }
 
-function withFooter(html: string, userName: string) {
-  const footer = `
-<p style="margin-top:20px;font-size:12px;color:#666;">
-Sent via ALPA<br/>
-on behalf of ${escapeHtml(userName)}
-</p>`
+function getPublicLogoUrl(logoUrl: string | undefined) {
+  const trimmed = logoUrl?.trim()
 
-  return `${html.trim()}\n${footer}`
+  if (!trimmed || !trimmed.startsWith('https://')) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(trimmed)
+    return url.protocol === 'https:' ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getWebsiteUrl(website: string | undefined) {
+  const trimmed = website?.trim()
+
+  if (!trimmed) {
+    return undefined
+  }
+
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+
+  try {
+    const url = new URL(candidate)
+    return /^https?:$/i.test(url.protocol) ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getSafeText(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? escapeHtml(trimmed) : ''
+}
+
+function buildSignature(profile: SenderProfile | undefined) {
+  if (!profile) return ''
+
+  const name = getSafeText(profile.name)
+  const title = getSafeText(profile.title)
+  const company = getSafeText(profile.company)
+  const email = getSafeText(profile.email)
+  const phone = getSafeText(profile.phone)
+  const websiteUrl = getWebsiteUrl(profile.website)
+  const websiteText = websiteUrl ? escapeHtml(profile.website?.trim() || websiteUrl) : ''
+  const logoUrl = getPublicLogoUrl(profile.logoUrl)
+
+  const hasContent = Boolean(name || title || company || email || phone || websiteUrl || logoUrl)
+
+  if (!hasContent) return ''
+
+  return `
+  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
+    ${
+      logoUrl
+        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
+        : ''
+    }
+
+    <strong>${name || ''}</strong><br/>
+    ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
+
+    ${phone ? `📞 ${phone}<br/>` : ''}
+    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteText}</a><br/>` : ''}
+    ${email ? `✉️ ${email}<br/>` : ''}
+  </div>
+  `
+}
+
+function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const signature = buildSignature(senderProfile)
+
+  return `
+${html.trim()}
+${signature}
+<p style="margin-top:15px;font-size:11px;color:#888;">
+Sent via ALPA
+</p>
+`
 }
 
 export async function POST(request: Request) {
@@ -150,8 +238,14 @@ export async function POST(request: Request) {
     const to = parsed.data.to.toLowerCase()
     const userEmail = parsed.data.userEmail.toLowerCase()
     const subject = parsed.data.subject
-    const userName = parsed.data.userName
+    const senderProfile = parsed.data.senderProfile
+    const userName = parsed.data.userName?.trim()
     const html = parsed.data.html
+    const safeUserName =
+      userName ||
+      senderProfile?.name?.trim() ||
+      userEmail.split('@')[0] ||
+      'User'
 
     if (containsUnsafeMarkup(html)) {
       return NextResponse.json(
@@ -200,7 +294,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: rateLimit.message }, { status: 429 })
     }
 
-    const finalHtml = withFooter(html, userName)
+    const finalHtml = buildFinalHtml(html, {
+      ...senderProfile,
+      name: senderProfile?.name?.trim() || safeUserName,
+      email: senderProfile?.email?.trim() || userEmail,
+    })
 
     console.log('📨 Email request:', {
       to: finalRecipient,

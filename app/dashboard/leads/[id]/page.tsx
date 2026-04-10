@@ -32,9 +32,29 @@ type Template = {
   created_at: string
 }
 
+type SenderSettings = {
+  sender_name: string | null
+  sender_email: string | null
+  company_name: string | null
+  job_title: string | null
+  phone: string | null
+  website: string | null
+  logo_url: string | null
+}
+
 type CurrentUserIdentity = {
   email: string
   name: string
+}
+
+type SenderProfile = {
+  name?: string
+  title?: string
+  company?: string
+  email?: string
+  phone?: string
+  website?: string
+  logoUrl?: string
 }
 
 type ViewMode = 'details' | 'preview'
@@ -77,12 +97,98 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;')
 }
 
-function withFooter(html: string, userName: string) {
-  return `${html}
-<p style="margin-top:20px;font-size:12px;color:#666;">
-Sent via ALPA<br/>
-on behalf of ${escapeHtml(userName)}
-</p>`
+function getTrimmed(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed || undefined
+}
+
+function getPublicLogoUrl(logoUrl: string | undefined) {
+  if (!logoUrl || !logoUrl.startsWith('https://')) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(logoUrl)
+    return url.protocol === 'https:' ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getWebsiteUrl(website: string | undefined) {
+  if (!website) return undefined
+
+  const candidate = /^https?:\/\//i.test(website) ? website : `https://${website}`
+
+  try {
+    const url = new URL(candidate)
+    return /^https?:$/i.test(url.protocol) ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function buildSenderProfile(
+  currentUserIdentity: CurrentUserIdentity | null,
+  senderSettings: SenderSettings | null
+): SenderProfile | undefined {
+  const profile: SenderProfile = {
+    name: getTrimmed(senderSettings?.sender_name) || getTrimmed(currentUserIdentity?.name),
+    title: getTrimmed(senderSettings?.job_title),
+    company: getTrimmed(senderSettings?.company_name),
+    email: getTrimmed(senderSettings?.sender_email) || getTrimmed(currentUserIdentity?.email),
+    phone: getTrimmed(senderSettings?.phone),
+    website: getTrimmed(senderSettings?.website),
+    logoUrl: getTrimmed(senderSettings?.logo_url),
+  }
+
+  return Object.values(profile).some(Boolean) ? profile : undefined
+}
+
+function buildSignature(profile: SenderProfile | undefined) {
+  if (!profile) return ''
+
+  const name = profile.name ? escapeHtml(profile.name) : ''
+  const title = profile.title ? escapeHtml(profile.title) : ''
+  const company = profile.company ? escapeHtml(profile.company) : ''
+  const email = profile.email ? escapeHtml(profile.email) : ''
+  const phone = profile.phone ? escapeHtml(profile.phone) : ''
+  const websiteUrl = getWebsiteUrl(profile.website)
+  const websiteLabel = websiteUrl ? escapeHtml(profile.website || websiteUrl) : ''
+  const logoUrl = getPublicLogoUrl(profile.logoUrl)
+
+  if (!name && !title && !company && !email && !phone && !websiteUrl && !logoUrl) {
+    return ''
+  }
+
+  return `
+  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
+    ${
+      logoUrl
+        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
+        : ''
+    }
+
+    <strong>${name || ''}</strong><br/>
+    ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
+
+    ${phone ? `📞 ${phone}<br/>` : ''}
+    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteLabel}</a><br/>` : ''}
+    ${email ? `✉️ ${email}<br/>` : ''}
+  </div>
+  `
+}
+
+function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const signature = buildSignature(senderProfile)
+
+  return `
+${html.trim()}
+${signature}
+<p style="margin-top:15px;font-size:11px;color:#888;">
+Sent via ALPA
+</p>
+`
 }
 
 export default function Page() {
@@ -93,6 +199,7 @@ export default function Page() {
   const [lead, setLead] = useState<Lead | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
   const [currentUserIdentity, setCurrentUserIdentity] = useState<CurrentUserIdentity | null>(null)
   const [loading, setLoading] = useState(true)
   const [setupLoading, setSetupLoading] = useState(true)
@@ -109,6 +216,10 @@ export default function Page() {
   }, [leadId])
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
+  const senderProfile = useMemo(
+    () => buildSenderProfile(currentUserIdentity, senderSettings),
+    [currentUserIdentity, senderSettings]
+  )
 
   const previewHtml = useMemo(() => {
     if (!lead || !selectedTemplate) return ''
@@ -119,8 +230,8 @@ export default function Page() {
       location: lead.city,
     })
 
-    return withFooter(body, currentUserIdentity?.name || 'Your name')
-  }, [currentUserIdentity?.name, lead, selectedTemplate])
+    return buildFinalHtml(body, senderProfile)
+  }, [lead, selectedTemplate, senderProfile])
 
   async function fetchLead() {
     const {
@@ -171,6 +282,7 @@ export default function Page() {
 
     if (!user?.id) {
       setTemplates([])
+      setSenderSettings(null)
       setCurrentUserIdentity(null)
       setSetupLoading(false)
       return
@@ -181,18 +293,36 @@ export default function Page() {
       name: getCurrentUserName(user),
     })
 
-    const { data: templateData, error: templateError } = await supabase
+    const templateRequest = supabase
       .from('templates')
       .select('id, name, tag, subject, body, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
+    const senderSettingsRequest = supabase
+      .from('sender_settings')
+      .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const [
+      { data: templateData, error: templateError },
+      { data: senderSettingsData, error: senderSettingsError },
+    ] = await Promise.all([templateRequest, senderSettingsRequest])
+
     if (templateError) {
       console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
     }
 
+    if (senderSettingsError) {
+      console.error('FULL ERROR:', JSON.stringify(senderSettingsError, null, 2))
+    }
+
     const nextTemplates = (templateData as Template[]) || []
     setTemplates(nextTemplates)
+    setSenderSettings((senderSettingsData as SenderSettings | null) || null)
 
     if (nextTemplates.length > 0) {
       setSelectedTemplateId(nextTemplates[0].id)
@@ -214,8 +344,8 @@ export default function Page() {
       return
     }
 
-    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
-      alert('Your account email or name is missing. Please update your account before sending.')
+    if (!currentUserIdentity?.email) {
+      alert('Your account email is missing. Please update your account before sending.')
       return
     }
 
@@ -245,6 +375,7 @@ export default function Page() {
           html,
           userEmail: currentUserIdentity.email,
           userName: currentUserIdentity.name,
+          senderProfile,
         }),
       })
 

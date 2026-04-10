@@ -25,9 +25,29 @@ type Lead = {
   city: string | null
 }
 
+type SenderSettings = {
+  sender_name: string | null
+  sender_email: string | null
+  company_name: string | null
+  job_title: string | null
+  phone: string | null
+  website: string | null
+  logo_url: string | null
+}
+
 type CurrentUserIdentity = {
   email: string
   name: string
+}
+
+type SenderProfile = {
+  name?: string
+  title?: string
+  company?: string
+  email?: string
+  phone?: string
+  website?: string
+  logoUrl?: string
 }
 
 type ViewMode = 'details' | 'preview'
@@ -70,12 +90,98 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;')
 }
 
-function withFooter(html: string, userName: string) {
-  return `${html}
-<p style="margin-top:20px;font-size:12px;color:#666;">
-Sent via ALPA<br/>
-on behalf of ${escapeHtml(userName)}
-</p>`
+function getTrimmed(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed || undefined
+}
+
+function getPublicLogoUrl(logoUrl: string | undefined) {
+  if (!logoUrl || !logoUrl.startsWith('https://')) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(logoUrl)
+    return url.protocol === 'https:' ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getWebsiteUrl(website: string | undefined) {
+  if (!website) return undefined
+
+  const candidate = /^https?:\/\//i.test(website) ? website : `https://${website}`
+
+  try {
+    const url = new URL(candidate)
+    return /^https?:$/i.test(url.protocol) ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function buildSenderProfile(
+  currentUserIdentity: CurrentUserIdentity | null,
+  senderSettings: SenderSettings | null
+): SenderProfile | undefined {
+  const profile: SenderProfile = {
+    name: getTrimmed(senderSettings?.sender_name) || getTrimmed(currentUserIdentity?.name),
+    title: getTrimmed(senderSettings?.job_title),
+    company: getTrimmed(senderSettings?.company_name),
+    email: getTrimmed(senderSettings?.sender_email) || getTrimmed(currentUserIdentity?.email),
+    phone: getTrimmed(senderSettings?.phone),
+    website: getTrimmed(senderSettings?.website),
+    logoUrl: getTrimmed(senderSettings?.logo_url),
+  }
+
+  return Object.values(profile).some(Boolean) ? profile : undefined
+}
+
+function buildSignature(profile: SenderProfile | undefined) {
+  if (!profile) return ''
+
+  const name = profile.name ? escapeHtml(profile.name) : ''
+  const title = profile.title ? escapeHtml(profile.title) : ''
+  const company = profile.company ? escapeHtml(profile.company) : ''
+  const email = profile.email ? escapeHtml(profile.email) : ''
+  const phone = profile.phone ? escapeHtml(profile.phone) : ''
+  const websiteUrl = getWebsiteUrl(profile.website)
+  const websiteLabel = websiteUrl ? escapeHtml(profile.website || websiteUrl) : ''
+  const logoUrl = getPublicLogoUrl(profile.logoUrl)
+
+  if (!name && !title && !company && !email && !phone && !websiteUrl && !logoUrl) {
+    return ''
+  }
+
+  return `
+  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
+    ${
+      logoUrl
+        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
+        : ''
+    }
+
+    <strong>${name || ''}</strong><br/>
+    ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
+
+    ${phone ? `📞 ${phone}<br/>` : ''}
+    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteLabel}</a><br/>` : ''}
+    ${email ? `✉️ ${email}<br/>` : ''}
+  </div>
+  `
+}
+
+function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const signature = buildSignature(senderProfile)
+
+  return `
+${html.trim()}
+${signature}
+<p style="margin-top:15px;font-size:11px;color:#888;">
+Sent via ALPA
+</p>
+`
 }
 
 export default function SendCampaignModal({
@@ -93,6 +199,7 @@ export default function SendCampaignModal({
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedLeads, setSelectedLeads] = useState<Lead[]>([])
+  const [senderSettings, setSenderSettings] = useState<SenderSettings | null>(null)
   const [currentUserIdentity, setCurrentUserIdentity] = useState<CurrentUserIdentity | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -125,6 +232,10 @@ export default function SendCampaignModal({
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
   const previewLead = selectedLeads[0] || null
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
+  const senderProfile = useMemo(
+    () => buildSenderProfile(currentUserIdentity, senderSettings),
+    [currentUserIdentity, senderSettings]
+  )
 
   const previewContent = useMemo(() => {
     const subject = selectedTemplate?.subject?.trim() || 'Quick question'
@@ -136,9 +247,7 @@ export default function SendCampaignModal({
           location: previewLead.city,
         })
       : ''
-    const emailHtml = renderedBody
-      ? withFooter(renderedBody, currentUserIdentity?.name || 'Your name')
-      : ''
+    const emailHtml = renderedBody ? buildFinalHtml(renderedBody, senderProfile) : ''
 
     return {
       subject,
@@ -147,7 +256,7 @@ export default function SendCampaignModal({
       emailHtml,
       hasContent: Boolean(emailHtml),
     }
-  }, [currentUserIdentity?.email, currentUserIdentity?.name, previewLead, selectedTemplate])
+  }, [currentUserIdentity?.email, previewLead, selectedTemplate, senderProfile])
 
   async function fetchEmailSetup() {
     setLoadingPreview(true)
@@ -161,6 +270,7 @@ export default function SendCampaignModal({
     if (!user?.id) {
       setTemplates([])
       setSelectedLeads([])
+      setSenderSettings(null)
       setCurrentUserIdentity(null)
       setTemplateMessage('Please log in to load your email setup.')
       setLoadingPreview(false)
@@ -178,6 +288,14 @@ export default function SendCampaignModal({
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
+    const senderSettingsRequest = supabase
+      .from('sender_settings')
+      .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     const leadsRequest =
       selectedIds.length === 0
         ? Promise.resolve({ data: [] as Lead[], error: null })
@@ -187,11 +305,18 @@ export default function SendCampaignModal({
             .eq('user_id', user.id)
             .in('id', selectedIds)
 
-    const [{ data: templateData, error: templateError }, { data: leadData, error: leadError }] =
-      await Promise.all([templateRequest, leadsRequest])
+    const [
+      { data: templateData, error: templateError },
+      { data: senderSettingsData, error: senderSettingsError },
+      { data: leadData, error: leadError },
+    ] = await Promise.all([templateRequest, senderSettingsRequest, leadsRequest])
 
     if (templateError) {
       console.error('FULL ERROR:', JSON.stringify(templateError, null, 2))
+    }
+
+    if (senderSettingsError) {
+      console.error('FULL ERROR:', JSON.stringify(senderSettingsError, null, 2))
     }
 
     if (leadError) {
@@ -205,6 +330,7 @@ export default function SendCampaignModal({
 
     setTemplates(nextTemplates)
     setSelectedLeads(nextLeads)
+    setSenderSettings((senderSettingsData as SenderSettings | null) || null)
 
     if (nextTemplates.length === 0) {
       setTemplateMessage('No saved templates found. Create one before sending.')
@@ -246,6 +372,7 @@ export default function SendCampaignModal({
         html,
         userEmail: currentUser.email,
         userName: currentUser.name,
+        senderProfile,
       }),
     })
 
@@ -265,8 +392,8 @@ export default function SendCampaignModal({
   async function sendCampaign() {
     if (selectedIds.length === 0 || !selectedTemplate) return
 
-    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
-      alert('Your account email or name is missing. Please update your account before sending.')
+    if (!currentUserIdentity?.email) {
+      alert('Your account email is missing. Please update your account before sending.')
       return
     }
 
@@ -330,8 +457,8 @@ export default function SendCampaignModal({
       return
     }
 
-    if (!currentUserIdentity?.email || !currentUserIdentity.name) {
-      setTestStatusMessage('Your account email or name is missing')
+    if (!currentUserIdentity?.email) {
+      setTestStatusMessage('Your account email is missing')
       return
     }
 
