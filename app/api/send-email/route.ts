@@ -215,15 +215,19 @@ Sent via ALPA
 `
 }
 
-export async function POST(request: Request) {
-  try {
-    const json = await request.json().catch(() => null)
+export async function POST(req: Request) {
+  console.log('📥 /api/send-email HIT')
 
-    if (!json || typeof json !== 'object') {
+  try {
+    const body = await req.json().catch(() => null)
+
+    console.log('📦 Payload:', body)
+
+    if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid email payload' }, { status: 400 })
     }
 
-    const parsed = sendEmailSchema.safeParse(json)
+    const parsed = sendEmailSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -273,7 +277,8 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.RESEND_API_KEY) {
-      return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 500 })
+      console.error('❌ Missing RESEND_API_KEY')
+      return new Response('Missing API key', { status: 500 })
     }
 
     const isTestMode = process.env.EMAIL_TEST_MODE === 'true'
@@ -316,7 +321,18 @@ export async function POST(request: Request) {
       reply_to: userEmail,
     }
 
-    const { data, error } = await resend.emails.send(payload)
+    let resendResponse: Awaited<ReturnType<typeof resend.emails.send>>
+
+    try {
+      resendResponse = await resend.emails.send(payload)
+      console.log('📨 Resend response:', resendResponse)
+    } catch (err) {
+      releaseRateLimit(userEmail)
+      console.error('❌ Resend error:', err)
+      return new Response('Send failed', { status: 500 })
+    }
+
+    const { data, error } = resendResponse
 
     if (error) {
       releaseRateLimit(userEmail)
@@ -334,6 +350,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
+        data,
         id: data?.id ?? null,
       },
       { status: 200 }

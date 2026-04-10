@@ -292,6 +292,8 @@ export default function SettingsPage() {
         logoUrl,
       })
 
+      console.log('🚀 Sending email request')
+
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {
@@ -306,6 +308,8 @@ export default function SettingsPage() {
           senderProfile,
         }),
       })
+
+      console.log('📬 Response status:', response.status)
 
       const result = await response.json().catch(() => null)
 

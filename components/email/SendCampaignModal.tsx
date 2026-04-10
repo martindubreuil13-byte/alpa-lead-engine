@@ -360,6 +360,7 @@ export default function SendCampaignModal({
       subject,
       userEmail: currentUser.email,
     })
+    console.log('🚀 Sending email request')
 
     const response = await fetch('/api/send-email', {
       method: 'POST',
@@ -375,6 +376,8 @@ export default function SendCampaignModal({
         senderProfile,
       }),
     })
+
+    console.log('📬 Response status:', response.status)
 
     const result = await response.json().catch(() => null)
 
