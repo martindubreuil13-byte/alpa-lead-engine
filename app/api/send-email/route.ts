@@ -327,6 +327,10 @@ export async function POST(request: Request) {
 
     console.log('✅ Email sent:', data?.id)
 
+    if (subject === 'Test Email from ALPA') {
+      console.log('🧪 Test email sent to:', finalRecipient)
+    }
+
     return NextResponse.json(
       {
         success: true,

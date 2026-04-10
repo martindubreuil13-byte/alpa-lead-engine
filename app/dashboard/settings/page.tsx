@@ -16,14 +16,70 @@ type SenderSettingsRow = {
   phone: string | null
   website: string | null
   logo_url: string | null
+  test_email: string | null
 }
 
 type ViewMode = 'form' | 'preview'
+
+type SenderProfile = {
+  name?: string
+  title?: string
+  company?: string
+  email?: string
+  phone?: string
+  website?: string
+  logoUrl?: string
+}
+
+function getCurrentUserName(user: { user_metadata?: Record<string, unknown> | null }) {
+  const firstName =
+    typeof user.user_metadata?.first_name === 'string' ? user.user_metadata.first_name.trim() : ''
+  const lastName =
+    typeof user.user_metadata?.last_name === 'string' ? user.user_metadata.last_name.trim() : ''
+  const joinedName = [firstName, lastName].filter(Boolean).join(' ').trim()
+
+  if (joinedName) return joinedName
+
+  const fullName =
+    typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : ''
+
+  if (fullName) return fullName
+
+  return typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : ''
+}
+
+function getTrimmed(value: string) {
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function buildSenderProfile(input: {
+  senderName: string
+  jobTitle: string
+  companyName: string
+  senderEmail: string
+  phone: string
+  website: string
+  logoUrl: string
+}): SenderProfile | undefined {
+  const profile: SenderProfile = {
+    name: getTrimmed(input.senderName),
+    title: getTrimmed(input.jobTitle),
+    company: getTrimmed(input.companyName),
+    email: getTrimmed(input.senderEmail),
+    phone: getTrimmed(input.phone),
+    website: getTrimmed(input.website),
+    logoUrl: getTrimmed(input.logoUrl),
+  }
+
+  return Object.values(profile).some(Boolean) ? profile : undefined
+}
 
 export default function SettingsPage() {
   const [rowId, setRowId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [testSending, setTestSending] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('form')
 
@@ -34,6 +90,7 @@ export default function SettingsPage() {
   const [phone, setPhone] = useState('')
   const [website, setWebsite] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
+  const [testEmail, setTestEmail] = useState('')
   const [logoFileName, setLogoFileName] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -55,7 +112,9 @@ export default function SettingsPage() {
 
     const { data, error } = await supabase
       .from('sender_settings')
-      .select('id, user_id, sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .select(
+        'id, user_id, sender_name, sender_email, company_name, job_title, phone, website, logo_url, test_email'
+      )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -75,6 +134,7 @@ export default function SettingsPage() {
       setPhone('')
       setWebsite('')
       setLogoUrl('')
+      setTestEmail('')
       setLogoFileName('')
       return
     }
@@ -88,6 +148,7 @@ export default function SettingsPage() {
     setPhone(row.phone || '')
     setWebsite(row.website || '')
     setLogoUrl(row.logo_url || '')
+    setTestEmail(row.test_email || '')
 
     if (row.logo_url) {
       const parts = row.logo_url.split('/')
@@ -125,6 +186,7 @@ export default function SettingsPage() {
             phone: phone.trim() || null,
             website: website.trim() || null,
             logo_url: logoUrl.trim() || null,
+            test_email: testEmail.trim() || null,
           },
           {
             onConflict: 'user_id',
@@ -195,6 +257,71 @@ export default function SettingsPage() {
     setLogoUrl('')
     setLogoFileName('')
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function sendTestEmail() {
+    const destination = testEmail.trim()
+
+    if (!destination) {
+      return
+    }
+
+    setTestSending(true)
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError) {
+        throw userError
+      }
+
+      if (!user?.email) {
+        throw new Error('Missing authenticated user email')
+      }
+
+      const senderProfile = buildSenderProfile({
+        senderName,
+        jobTitle,
+        companyName,
+        senderEmail,
+        phone,
+        website,
+        logoUrl,
+      })
+
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: destination,
+          subject: 'Test Email from ALPA',
+          html: '<p>This is a test email to verify your sending setup.</p>',
+          userEmail: user.email.trim().toLowerCase(),
+          userName: senderName.trim() || getCurrentUserName(user),
+          senderProfile,
+        }),
+      })
+
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        console.error('Test email failed:', result?.error || 'Unknown error')
+        alert('Failed to send test email.')
+        return
+      }
+
+      alert('Test email sent. Check your inbox or spam.')
+    } catch (error) {
+      console.error('Test email failed:', error)
+      alert('Failed to send test email.')
+    } finally {
+      setTestSending(false)
+    }
   }
 
   return (
@@ -378,6 +505,38 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+
+              <div className="space-y-4 border-t border-white/8 pt-6">
+                <div>
+                  <h3 className="text-base font-semibold text-white">Test Email</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Send test emails to verify your setup and deliverability.
+                  </p>
+                </div>
+
+                <label className="space-y-2">
+                  <span className="text-sm text-slate-300">Test email address</span>
+                  <input
+                    value={testEmail}
+                    onChange={(event) => setTestEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    className="input"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={sendTestEmail}
+                  disabled={!testEmail.trim() || testSending || loading}
+                  className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
+                    !testEmail.trim() || testSending || loading
+                      ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
+                      : 'btn-primary'
+                  }`}
+                >
+                  {testSending ? 'Sending test...' : 'Send Test Email'}
+                </button>
               </div>
             </div>
           </section>
