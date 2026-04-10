@@ -457,13 +457,18 @@ export default function SendCampaignModal({
     return { ok: true as const, skipped: false as const }
   }
 
-  async function sendCampaign() {
-    if (selectedIds.length === 0) return
+async function sendCampaign() {
+  // Allow test mode without leads
+  if (!sendAsTest && selectedIds.length === 0) {
+    alert('Please select at least one lead before sending emails.')
+    return
+  }
 
-    if (!currentUserIdentity?.email) {
-      alert('Your account email is missing. Please update your account before sending.')
-      return
-    }
+  if (!currentUserIdentity?.email) {
+    alert('Your account email is missing. Please update your account before sending.')
+    return
+  }
+
 
     setLoading(true)
     setTestStatusMessage('')
@@ -796,18 +801,27 @@ export default function SendCampaignModal({
               Cancel
             </button>
 
-            <button
-              type="button"
-              disabled={!selectedTemplateId || loading || selectedLeads.length === 0}
-              onClick={sendCampaign}
-              className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
-                !selectedTemplateId || loading || selectedLeads.length === 0
-                  ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
-                  : 'btn-primary'
-              }`}
-            >
-              {loading ? 'Sending...' : 'Send emails'}
-            </button>
+{(() => {
+const canSend =
+  currentUserIdentity?.email &&
+  selectedTemplateId &&
+  (sendAsTest || selectedLeads.length > 0)
+
+  return (
+    <button
+      type="button"
+      disabled={!canSend || loading}
+      onClick={sendCampaign}
+      className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
+        !canSend || loading
+          ? 'cursor-not-allowed bg-blue-950/40 text-slate-400'
+          : 'btn-primary'
+      }`}
+    >
+      {loading ? 'Sending...' : 'Send emails'}
+    </button>
+  )
+})()}
           </div>
         </div>
       </div>
