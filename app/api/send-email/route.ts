@@ -40,6 +40,7 @@ const sendEmailSchema = z.object({
   userEmail: z.string().trim().email(),
   userName: z.string().trim().max(120).optional().catch(''),
   senderProfile: senderProfileSchema,
+  isTest: z.boolean().optional(),
 })
 
 type SenderProfile = z.infer<NonNullable<typeof senderProfileSchema>>
@@ -132,18 +133,16 @@ function containsUnsafeMarkup(html: string) {
   return /<(script|iframe)\b/i.test(html)
 }
 
-function getPublicLogoUrl(logoUrl: string | undefined) {
-  const trimmed = logoUrl?.trim()
-
-  if (!trimmed || !trimmed.startsWith('https://')) {
-    return undefined
+function isValidPublicUrl(url: string | undefined) {
+  if (!url) {
+    return false
   }
 
   try {
-    const url = new URL(trimmed)
-    return url.protocol === 'https:' ? url.toString() : undefined
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:'
   } catch {
-    return undefined
+    return false
   }
 }
 
@@ -176,43 +175,50 @@ function buildSignature(profile: SenderProfile | undefined) {
   const title = getSafeText(profile.title)
   const company = getSafeText(profile.company)
   const email = getSafeText(profile.email)
-  const phone = getSafeText(profile.phone)
-  const websiteUrl = getWebsiteUrl(profile.website)
-  const websiteText = websiteUrl ? escapeHtml(profile.website?.trim() || websiteUrl) : ''
-  const logoUrl = getPublicLogoUrl(profile.logoUrl)
+  const safeLogo =
+    profile.logoUrl && isValidPublicUrl(profile.logoUrl) ? escapeHtml(profile.logoUrl) : null
 
-  const hasContent = Boolean(name || title || company || email || phone || websiteUrl || logoUrl)
+  const hasContent = Boolean(name || title || company || email || safeLogo)
 
   if (!hasContent) return ''
 
   return `
-  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
-    ${
-      logoUrl
-        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
-        : ''
-    }
-
+  <div style="margin-top:20px;">
     <strong>${name || ''}</strong><br/>
     ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
-
-    ${phone ? `📞 ${phone}<br/>` : ''}
-    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteText}</a><br/>` : ''}
-    ${email ? `✉️ ${email}<br/>` : ''}
+    ${email ? `<a href="mailto:${email}">${email}</a><br/>` : ''}
+    ${safeLogo ? `<img src="${safeLogo}" style="max-width:120px;margin-top:12px;display:block;" />` : ''}
   </div>
   `
 }
 
 function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const contentHtml = html
+    .split('\n')
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join('')
+
   const signature = buildSignature(senderProfile)
 
   return `
-${html.trim()}
-${signature}
-<p style="margin-top:15px;font-size:11px;color:#888;">
-Sent via ALPA
-</p>
-`
+  <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">
+    <p>Hello,</p>
+    ${contentHtml}
+    <p>
+      You can try it here:<br/>
+      <a href="https://alpa.mindrasolutions.com/" target="_blank">
+        https://alpa.mindrasolutions.com/
+      </a>
+    </p>
+    <br/>
+    ${signature}
+    <p style="font-size:11px;color:#888;margin-top:15px;">
+      Sent via ALPA
+    </p>
+  </div>
+  `
 }
 
 export async function POST(req: Request) {
@@ -244,6 +250,7 @@ export async function POST(req: Request) {
     const subject = parsed.data.subject
     const senderProfile = parsed.data.senderProfile
     const userName = parsed.data.userName?.trim()
+    const isTest = parsed.data.isTest === true
     const html = parsed.data.html
     const safeUserName =
       userName ||
@@ -283,7 +290,8 @@ export async function POST(req: Request) {
 
     const isTestMode = process.env.EMAIL_TEST_MODE === 'true'
     const testEmail = process.env.TEST_EMAIL?.trim().toLowerCase() || ''
-    const finalRecipient = isTestMode ? testEmail : to
+    const requestedRecipient = isTest && parsed.data.to ? parsed.data.to.toLowerCase() : to
+    const finalRecipient = isTestMode ? testEmail : requestedRecipient
 
     if (isTestMode && !testEmail) {
       return NextResponse.json({ error: 'TEST_EMAIL is not configured' }, { status: 500 })

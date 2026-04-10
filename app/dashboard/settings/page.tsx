@@ -302,10 +302,11 @@ export default function SettingsPage() {
         body: JSON.stringify({
           to: destination,
           subject: 'Test Email from ALPA',
-          html: '<p>This is a test email to verify your sending setup.</p>',
+          html: 'This is a test email to verify your sending setup.',
           userEmail: user.email.trim().toLowerCase(),
           userName: senderName.trim() || getCurrentUserName(user),
           senderProfile,
+          isTest: true,
         }),
       })
 

@@ -33,6 +33,7 @@ type SenderSettings = {
   phone: string | null
   website: string | null
   logo_url: string | null
+  test_email: string | null
 }
 
 type CurrentUserIdentity = {
@@ -143,45 +144,55 @@ function buildSignature(profile: SenderProfile | undefined) {
 
   const name = profile.name ? escapeHtml(profile.name) : ''
   const title = profile.title ? escapeHtml(profile.title) : ''
-  const company = profile.company ? escapeHtml(profile.company) : ''
   const email = profile.email ? escapeHtml(profile.email) : ''
-  const phone = profile.phone ? escapeHtml(profile.phone) : ''
-  const websiteUrl = getWebsiteUrl(profile.website)
-  const websiteLabel = websiteUrl ? escapeHtml(profile.website || websiteUrl) : ''
   const logoUrl = getPublicLogoUrl(profile.logoUrl)
+  const company = profile.company ? escapeHtml(profile.company) : ''
 
-  if (!name && !title && !company && !email && !phone && !websiteUrl && !logoUrl) {
+  if (!name && !title && !company && !email && !logoUrl) {
     return ''
   }
 
   return `
-  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:13px;color:#333;">
-    ${
-      logoUrl
-        ? `<img src="${escapeHtml(logoUrl)}" alt="logo" style="max-height:50px;margin-bottom:10px;" />`
-        : ''
-    }
-
+  <div style="margin-top:20px;">
     <strong>${name || ''}</strong><br/>
     ${title || ''}${title && company ? ' at ' : ''}${company || ''}<br/>
-
-    ${phone ? `📞 ${phone}<br/>` : ''}
-    ${websiteUrl ? `🌐 <a href="${escapeHtml(websiteUrl)}" target="_blank">${websiteLabel}</a><br/>` : ''}
-    ${email ? `✉️ ${email}<br/>` : ''}
+    ${email ? `<a href="mailto:${email}">${email}</a><br/>` : ''}
+    ${
+      logoUrl
+        ? `<img src="${escapeHtml(logoUrl)}" style="max-width:120px;margin-top:12px;display:block;" />`
+        : ''
+    }
   </div>
   `
 }
 
 function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) {
+  const contentHtml = html
+    .split('\n')
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join('')
+
   const signature = buildSignature(senderProfile)
 
   return `
-${html.trim()}
+  <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">
+    <p>Hello,</p>
+    ${contentHtml}
+    <p>
+      You can try it here:<br/>
+      <a href="https://alpa.mindrasolutions.com/" target="_blank">
+        https://alpa.mindrasolutions.com/
+      </a>
+    </p>
+    <br/>
 ${signature}
-<p style="margin-top:15px;font-size:11px;color:#888;">
-Sent via ALPA
-</p>
-`
+    <p style="font-size:11px;color:#888;margin-top:15px;">
+      Sent via ALPA
+    </p>
+  </div>
+  `
 }
 
 export default function SendCampaignModal({
@@ -205,6 +216,7 @@ export default function SendCampaignModal({
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [loading, setLoading] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
+  const [sendAsTest, setSendAsTest] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
   const [testStatusMessage, setTestStatusMessage] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('details')
@@ -290,7 +302,7 @@ export default function SendCampaignModal({
 
     const senderSettingsRequest = supabase
       .from('sender_settings')
-      .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url, test_email')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -341,10 +353,18 @@ export default function SendCampaignModal({
     setLoadingPreview(false)
   }
 
-  async function sendLeadEmail(lead: Lead, template: Template, currentUser: CurrentUserIdentity) {
-    const to = lead.email?.trim().toLowerCase()
+  async function sendLeadEmail(
+    lead: Lead,
+    template: Template,
+    currentUser: CurrentUserIdentity,
+    options?: { isTest?: boolean }
+  ) {
+    const isTestSend = options?.isTest === true
+    const leadEmail = lead.email?.trim().toLowerCase()
+    const testEmail = senderSettings?.test_email?.trim().toLowerCase()
+    const finalTo = isTestSend ? testEmail || leadEmail : leadEmail
 
-    if (!to) {
+    if (!finalTo) {
       return { ok: false as const, skipped: true as const }
     }
 
@@ -356,7 +376,7 @@ export default function SendCampaignModal({
     })
 
     console.log('📤 Sending email:', {
-      to,
+      to: finalTo,
       subject,
       userEmail: currentUser.email,
     })
@@ -368,12 +388,13 @@ export default function SendCampaignModal({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        to,
+        to: finalTo,
         subject,
         html,
         userEmail: currentUser.email,
         userName: currentUser.name,
         senderProfile,
+        isTest: isTestSend,
       }),
     })
 
@@ -400,6 +421,11 @@ export default function SendCampaignModal({
       return
     }
 
+    if (sendAsTest && !senderSettings?.test_email?.trim()) {
+      alert('Add a test email address in Sender Settings before using test mode.')
+      return
+    }
+
     setLoading(true)
     setTestStatusMessage('')
 
@@ -410,7 +436,9 @@ export default function SendCampaignModal({
 
     try {
       for (const lead of selectedLeads) {
-        const result = await sendLeadEmail(lead, selectedTemplate, currentUserIdentity)
+        const result = await sendLeadEmail(lead, selectedTemplate, currentUserIdentity, {
+          isTest: sendAsTest,
+        })
 
         if (result.ok) {
           sentCount += 1
@@ -465,6 +493,11 @@ export default function SendCampaignModal({
       return
     }
 
+    if (!senderSettings?.test_email?.trim()) {
+      setTestStatusMessage('Add a test email address in Sender Settings first')
+      return
+    }
+
     setTestLoading(true)
     setTestStatusMessage('')
 
@@ -480,10 +513,11 @@ export default function SendCampaignModal({
       const result = await sendLeadEmail(
         {
           ...lead,
-          email: currentUserIdentity.email,
+          email: senderSettings.test_email,
         },
         selectedTemplate,
-        currentUserIdentity
+        currentUserIdentity,
+        { isTest: true }
       )
 
       if (!result.ok && !result.skipped) {
@@ -554,9 +588,19 @@ export default function SendCampaignModal({
               <button
                 type="button"
                 onClick={sendTestEmail}
-                disabled={testLoading || loadingPreview || loading || !selectedTemplateId}
+                disabled={
+                  testLoading ||
+                  loadingPreview ||
+                  loading ||
+                  !selectedTemplateId ||
+                  !senderSettings?.test_email?.trim()
+                }
                 className={`inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
-                  testLoading || loadingPreview || loading || !selectedTemplateId
+                  testLoading ||
+                  loadingPreview ||
+                  loading ||
+                  !selectedTemplateId ||
+                  !senderSettings?.test_email?.trim()
                     ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
                     : 'border border-emerald-300/18 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/16'
                 }`}
@@ -647,6 +691,23 @@ export default function SendCampaignModal({
                           Leads without email addresses are skipped automatically.
                         </div>
                       </div>
+
+                      <label className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={sendAsTest}
+                          onChange={(event) => setSendAsTest(event.target.checked)}
+                          className="h-4 w-4 rounded border-white/20 bg-transparent"
+                        />
+                        <div>
+                          <div>Send as test email</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {senderSettings?.test_email?.trim()
+                              ? `Test sends go to ${senderSettings.test_email.trim()}.`
+                              : 'Add a test email in Sender Settings to enable this.'}
+                          </div>
+                        </div>
+                      </label>
                     </>
                   ) : null}
                 </div>
