@@ -1,8 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 
+import LeadCard from '@/components/leads/LeadCard'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
@@ -15,6 +17,7 @@ type Lead = {
   city: string | null
   email: string | null
   phone: string | null
+  website?: string | null
   status: string | null
   created_at: string
 }
@@ -25,15 +28,8 @@ function formatLocation(value: string | null) {
   return String(value || '').trim() || 'Unknown location'
 }
 
-function hasEmail(lead: Pick<Lead, 'email'>) {
-  return Boolean(String(lead.email || '').trim())
-}
-
-function hasPhone(lead: Pick<Lead, 'phone'>) {
-  return Boolean(String(lead.phone || '').trim())
-}
-
 export default function LeadLibraryPage() {
+  const router = useRouter()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,7 +63,7 @@ export default function LeadLibraryPage() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, user_id, company_name, city, email, phone, status, created_at')
+      .select('id, user_id, company_name, city, email, phone, website, status, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
@@ -81,7 +77,7 @@ export default function LeadLibraryPage() {
     setLoading(false)
   }
 
-  async function updateStatus(id: string, status: 'pipeline' | 'contacted') {
+  async function updateStatus(id: string, status: 'inbox' | 'pipeline' | 'contacted') {
     if (!currentUserId || isGuest) return
     if (status === 'pipeline' && pipelineLocked) return
 
@@ -138,18 +134,23 @@ export default function LeadLibraryPage() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap gap-3">
-          {(['all', 'inbox', 'pipeline', 'contacted'] as FilterValue[]).map((value) => (
+          {([
+            { value: 'all', label: 'All' },
+            { value: 'inbox', label: 'New' },
+            { value: 'pipeline', label: 'In pipeline' },
+            { value: 'contacted', label: 'Contacted' },
+          ] as Array<{ value: FilterValue; label: string }>).map((option) => (
             <button
-              key={value}
+              key={option.value}
               type="button"
-              onClick={() => setFilter(value)}
+              onClick={() => setFilter(option.value)}
               className={`rounded-lg px-4 py-2 text-sm ${
-                filter === value
+                filter === option.value
                   ? 'bg-white/10 text-white'
                   : 'bg-white/5 text-slate-400 transition hover:bg-white/10'
               }`}
             >
-              {value}
+              {option.label}
             </button>
           ))}
         </div>
@@ -169,73 +170,23 @@ export default function LeadLibraryPage() {
         ) : null}
 
         {filteredLeads.map((lead) => (
-          <div
+          <LeadCard
             key={lead.id}
-            className="glass rounded-2xl border border-white/10 p-5"
-          >
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-lg font-semibold text-white">{lead.company_name}</div>
-                  <div className="mt-1 text-sm text-slate-400">{formatLocation(lead.city)}</div>
-                </div>
-
-                <div className="space-y-2 text-sm text-slate-300">
-                  {hasEmail(lead) ? <div>{lead.email}</div> : null}
-                  {hasPhone(lead) ? <div>{lead.phone}</div> : null}
-                  {!hasEmail(lead) && !hasPhone(lead) ? (
-                    <div className="text-slate-500">No contact details saved yet.</div>
-                  ) : null}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {hasEmail(lead) ? (
-                    <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-medium text-cyan-100">
-                      Email available
-                    </span>
-                  ) : null}
-                  {hasPhone(lead) ? (
-                    <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-medium text-emerald-100">
-                      Phone available
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <Link
-                  href={`/dashboard/leads/${lead.id}`}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08]"
-                >
-                  View
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => void updateStatus(lead.id, 'pipeline')}
-                  disabled={isGuest || pipelineLocked}
-                  className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-4 text-sm font-medium transition ${
-                    isGuest || pipelineLocked
-                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
-                      : 'border-cyan-300/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
-                  }`}
-                >
-                  Move to Pipeline
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void updateStatus(lead.id, 'contacted')}
-                  disabled={isGuest}
-                  className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-4 text-sm font-medium transition ${
-                    isGuest
-                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
-                      : 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15'
-                  }`}
-                >
-                  Mark Contacted
-                </button>
-              </div>
-            </div>
-          </div>
+            id={lead.id}
+            name={lead.company_name}
+            location={formatLocation(lead.city)}
+            email={lead.email}
+            phone={lead.phone}
+            inPipeline={lead.status === 'pipeline'}
+            contacted={lead.status === 'contacted'}
+            isNew={lead.status === 'inbox'}
+            context="library"
+            sourceUrl={lead.website}
+            onView={() => router.push(`/dashboard/leads/${lead.id}`)}
+            onAddToPipeline={() =>
+              void updateStatus(lead.id, lead.status === 'pipeline' ? 'inbox' : 'pipeline')
+            }
+          />
         ))}
       </div>
     </div>

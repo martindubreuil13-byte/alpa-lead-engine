@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import LeadCard from '@/components/leads/LeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
@@ -1056,6 +1057,45 @@ export default function Page() {
     URL.revokeObjectURL(link.href)
   }
 
+  async function addPreviewLeadToPipeline(id: string) {
+    const targetLead = sessionSavedLeads.find((lead) => lead.id === id)
+    if (!targetLead) return
+
+    if (isFree) {
+      requestInboxFocus()
+      setToastMessage('Open your leads to manage pipeline actions.')
+      router.push('/dashboard/leads')
+      return
+    }
+
+    const { error } = await supabase
+      .from('leads')
+      .update({ status: 'pipeline' })
+      .eq('id', id)
+
+    if (error) {
+      console.error('Preview pipeline update failed:', error)
+      setToastMessage('Could not update pipeline right now.')
+      return
+    }
+
+    setSessionSavedLeads((prev) =>
+      prev.map((lead) => (lead.id === id ? { ...lead, status: 'pipeline' } : lead))
+    )
+
+    const storedResult = readStoredScrapeResult()
+    if (storedResult) {
+      writeStoredScrapeResult({
+        ...storedResult,
+        latestSavedLeads: storedResult.latestSavedLeads.map((lead) =>
+          lead.id === id ? { ...lead, status: 'pipeline' } : lead
+        ),
+      })
+    }
+
+    setToastMessage(`${targetLead.company_name} added to pipeline.`)
+  }
+
   function clearValidation() {
     setShowValidation(false)
     setValidationMessage('')
@@ -1387,18 +1427,20 @@ export default function Page() {
             {(completionResult || guestClaimResult) && previewLeads.length > 0 ? (
               <div className="space-y-3">
                 {previewLeads.map((lead) => (
-                  <div
+                  <LeadCard
                     key={lead.id}
-                    className="rounded-2xl border border-white/8 bg-[#0b1220] px-4 py-4"
-                  >
-                    <div className="text-base font-semibold text-white">{lead.company_name}</div>
-                    <div className="mt-1 text-sm text-slate-400">
-                      {formatLeadPreviewLocation(lead) || 'Location details coming in'}
-                    </div>
-                    <div className="mt-2 text-sm text-cyan-100">
-                      {lead.email || lead.phone || lead.website || 'Contact enrichment complete'}
-                    </div>
-                  </div>
+                    id={lead.id}
+                    name={lead.company_name}
+                    location={formatLeadPreviewLocation(lead) || 'Verified business lead'}
+                    email={lead.email}
+                    phone={lead.phone}
+                    inPipeline={lead.status === 'pipeline'}
+                    contacted={lead.status === 'contacted'}
+                    isNew
+                    context="prospector"
+                    sourceUrl={lead.website}
+                    onAddToPipeline={() => void addPreviewLeadToPipeline(lead.id)}
+                  />
                 ))}
               </div>
             ) : null}
