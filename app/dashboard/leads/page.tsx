@@ -373,7 +373,7 @@ export default function LeadsPage() {
           ref={actionBarRef}
           className={`rounded-xl border px-5 py-4 transition-all duration-500 ${
             highlightActions
-              ? 'border-cyan-300/40 bg-cyan-400/12 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]'
+              ? 'border-blue-400/30 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.14)]'
               : 'border-white/8 bg-white/[0.03]'
           }`}
         >
@@ -391,10 +391,10 @@ export default function LeadsPage() {
                 type="button"
                 onClick={exportLatestSessionCsv}
                 disabled={latestSessionLeads.length === 0}
-                className={`rounded-lg px-4 py-2 text-sm transition ${
+                className={`btn-secondary ${
                   latestSessionLeads.length === 0
-                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-white/10 bg-white/5 text-slate-100 hover:bg-white/[0.08]'
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
+                    : 'text-slate-100'
                 }`}
               >
                 Download CSV
@@ -403,10 +403,10 @@ export default function LeadsPage() {
                 type="button"
                 onClick={openSendLeadsModal}
                 disabled={latestSessionLeads.length === 0}
-                className={`rounded-lg px-4 py-2 text-sm transition ${
+                className={`btn-primary ${
                   latestSessionLeads.length === 0
-                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15'
+                    ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500 shadow-none hover:bg-white/5'
+                    : ''
                 }`}
               >
                 Save to my email
@@ -415,7 +415,7 @@ export default function LeadsPage() {
           </div>
 
           {actionMessage ? (
-            <div className="mt-3 text-sm text-emerald-300">{actionMessage}</div>
+            <div className="mt-3 text-sm text-blue-200">{actionMessage}</div>
           ) : null}
           {actionError ? (
             <div className="mt-3 text-sm text-rose-300">{actionError}</div>
@@ -442,7 +442,7 @@ export default function LeadsPage() {
                   onClick={() => setContactFilter(option.value as LeadContactFilter)}
                   className={`inline-flex min-h-[44px] flex-col items-start justify-center rounded-2xl border px-4 py-2 text-left transition ${
                     active
-                      ? 'border-sky-400/40 bg-sky-500/12 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.12)]'
+                      ? 'border-blue-400/30 bg-blue-500/10 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.12)]'
                       : 'border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/15 hover:bg-white/[0.05] hover:text-white'
                   }`}
                 >
@@ -450,7 +450,7 @@ export default function LeadsPage() {
                   {option.helper ? (
                     <span
                       className={`text-[11px] leading-4 ${
-                        active ? 'text-sky-100/80' : 'text-slate-500'
+                        active ? 'text-blue-100/80' : 'text-slate-500'
                       }`}
                     >
                       {option.helper}
@@ -505,7 +505,7 @@ export default function LeadsPage() {
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={exportCsv}
-                className="rounded-lg bg-white/10 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/15"
+                className="btn-secondary"
               >
                 Export CSV
               </button>
@@ -513,10 +513,10 @@ export default function LeadsPage() {
               <button
                 onClick={() => void copySelectedLeads()}
                 disabled={selected.length === 0}
-                className={`rounded-lg px-4 py-2 text-sm transition ${
+                className={`btn-secondary ${
                   selected.length === 0
-                    ? 'cursor-not-allowed bg-white/5 text-slate-500'
-                    : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25'
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
+                    : ''
                 }`}
               >
                 Copy Selected
@@ -525,12 +525,10 @@ export default function LeadsPage() {
               <button
                 onClick={() => moveToPipeline(selected)}
                 disabled={selected.length === 0}
-                className={`rounded-lg px-4 py-2 text-sm transition ${
+                className={`btn-secondary ${
                   selected.length === 0
-                    ? 'cursor-not-allowed bg-white/5 text-slate-500'
-                    : pipelineLocked
-                      ? 'bg-white/10 text-slate-200 hover:bg-white/15'
-                      : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
+                    : 'text-slate-200'
                 }`}
               >
                 Move to Pipeline
@@ -539,10 +537,10 @@ export default function LeadsPage() {
               <button
                 onClick={() => deleteLeads(selected)}
                 disabled={selected.length === 0}
-                className={`rounded-lg px-4 py-2 text-sm transition ${
+                className={`btn-ghost ${
                   selected.length === 0
-                    ? 'cursor-not-allowed bg-white/5 text-slate-500'
-                    : 'bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                    ? 'cursor-not-allowed text-slate-500 hover:text-slate-500'
+                    : ''
                 }`}
               >
                 Delete
@@ -560,7 +558,7 @@ export default function LeadsPage() {
                 setFeatureLockContent(PIPELINE_LOCK_CONTENT)
                 setShowFeatureLock(true)
               }}
-              className="font-medium text-cyan-200 transition hover:text-white"
+              className="font-medium text-blue-200 transition hover:text-white"
             >
               Learn more
             </button>
@@ -607,13 +605,13 @@ export default function LeadsPage() {
               }
               expandedFooter={
                 limitedMode ? (
-                  <button
-                    type="button"
-                    onClick={() => void deleteLeads([lead.id])}
-                    className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-red-400/20 bg-red-500/10 px-3 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
-                  >
-                    Delete lead
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteLeads([lead.id])}
+                  className="btn-ghost min-h-[40px] justify-start px-0 py-0 text-xs"
+                >
+                  Delete lead
+                </button>
                 ) : null
               }
             />

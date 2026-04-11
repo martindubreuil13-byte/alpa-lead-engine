@@ -52,20 +52,11 @@ function getSourceHost(url: string | null | undefined) {
 
 function StatusPill({
   children,
-  tone = 'default',
 }: {
   children: ReactNode
-  tone?: 'default' | 'positive' | 'accent'
 }) {
   return (
-    <span
-      className={cn(
-        'rounded-full border px-2 py-1 text-[11px] font-medium',
-        tone === 'accent' && 'border-sky-400/18 bg-sky-500/10 text-sky-100/90',
-        tone === 'positive' && 'border-emerald-300/12 bg-emerald-400/8 text-emerald-100/85',
-        tone === 'default' && 'border-white/10 bg-white/[0.08] text-white/80'
-      )}
-    >
+    <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80">
       {children}
     </span>
   )
@@ -93,8 +84,8 @@ function ActionButton({
     disabled
       ? 'cursor-not-allowed text-white/80 opacity-40'
       : active
-        ? 'bg-sky-500/12 text-sky-200 shadow-[0_0_16px_rgba(59,130,246,0.14)] hover:text-sky-100'
-        : 'text-white/80 hover:bg-sky-500/10 hover:text-sky-300'
+        ? 'bg-blue-500/12 text-blue-200 shadow-[0_0_16px_rgba(59,130,246,0.14)] hover:text-blue-100'
+        : 'text-white/80 hover:bg-blue-500/10 hover:text-blue-300'
   )
 
   if (href && !disabled) {
@@ -150,15 +141,15 @@ export default function LeadCard({
 
   const statusPill = useMemo(() => {
     if (contacted) {
-      return { label: 'Contacted', tone: 'positive' as const }
+      return { label: 'Contacted' }
     }
 
     if (inPipeline) {
-      return { label: 'In pipeline', tone: 'accent' as const }
+      return { label: 'In pipeline' }
     }
 
     if (isNew) {
-      return { label: 'New', tone: 'default' as const }
+      return { label: 'New' }
     }
 
     return null
@@ -179,8 +170,8 @@ export default function LeadCard({
     <article
       data-lead-id={id}
       className={cn(
-        'rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,32,0.96),rgba(8,14,28,0.92))] p-4 shadow-[0_12px_40px_rgba(2,8,23,0.26)] backdrop-blur-sm transition',
-        selected && 'border-sky-400/28 bg-[linear-gradient(180deg,rgba(10,22,46,0.98),rgba(8,14,28,0.94))] shadow-[0_0_0_1px_rgba(59,130,246,0.14)]',
+        'rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(8,15,29,0.96),rgba(8,14,28,0.92))] p-4 shadow-[0_12px_40px_rgba(2,8,23,0.26)] backdrop-blur-sm transition',
+        selected && 'border-blue-400/28 bg-[linear-gradient(180deg,rgba(12,24,44,0.98),rgba(8,14,28,0.94))] shadow-[0_0_0_1px_rgba(59,130,246,0.14)]',
         className
       )}
     >
@@ -190,7 +181,7 @@ export default function LeadCard({
             type="checkbox"
             checked={selected}
             onChange={onToggleSelect}
-            className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-sky-400"
+            className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-blue-400"
             aria-label={`Select ${name}`}
           />
         ) : null}
@@ -199,11 +190,7 @@ export default function LeadCard({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               {onView ? (
-                <button
-                  type="button"
-                  onClick={onView}
-                  className="max-w-full text-left transition hover:text-cyan-100"
-                >
+                <button type="button" onClick={onView} className="max-w-full text-left transition hover:text-blue-200">
                   <h3 className="truncate text-base font-semibold text-white">{name}</h3>
                 </button>
               ) : (
@@ -216,15 +203,15 @@ export default function LeadCard({
 
             {statusPill ? (
               <div className="flex shrink-0 justify-end">
-                <StatusPill tone={statusPill.tone}>{statusPill.label}</StatusPill>
+                <StatusPill>{statusPill.label}</StatusPill>
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-lg border border-white/10 bg-white/[0.05] p-2">
-            <div className="flex items-center gap-2">
+          <div className="flex justify-center">
+            <div className="flex w-full max-w-[220px] items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] p-2">
               <ActionButton
-                label={email ? 'Contact lead' : 'No verified email'}
+                label={email ? 'Contact lead' : 'Email unavailable'}
                 disabled={!email}
                 active={Boolean(email) && Boolean(onContact)}
                 href={!onContact ? mailHref : undefined}
@@ -234,7 +221,7 @@ export default function LeadCard({
               </ActionButton>
 
               <ActionButton
-                label={phone ? 'Call lead' : 'No phone available'}
+                label={phone ? 'Call lead' : 'Phone unavailable'}
                 disabled={!phone}
                 href={phoneHref}
               >
@@ -242,7 +229,7 @@ export default function LeadCard({
               </ActionButton>
 
               <ActionButton
-                label={normalizedSourceUrl ? 'Open website' : 'No website available'}
+                label={normalizedSourceUrl ? 'Open website' : 'Website unavailable'}
                 disabled={!normalizedSourceUrl}
                 href={normalizedSourceUrl || undefined}
                 openInNewTab
@@ -271,7 +258,7 @@ export default function LeadCard({
 
           {detailsOpen ? (
             <div className="border-t border-white/8 pt-3">
-              <div className="space-y-2.5 bg-white/[0.03] px-3 py-2.5">
+              <div className="space-y-2.5 bg-white/[0.05] px-3 py-3">
               {email ? (
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500/90">
@@ -295,7 +282,7 @@ export default function LeadCard({
                   href={normalizedSourceUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 text-sm text-sky-200 transition hover:text-white"
+                  className="inline-flex items-center gap-2 text-sm text-blue-200 transition hover:text-white"
                 >
                   <ExternalLink className="h-4 w-4" />
                   <span>{sourceHost}</span>

@@ -1145,10 +1145,10 @@ export default function Page() {
   }
 
   const liveLogPanel = (
-    <section className="space-y-6 rounded-[30px] border border-cyan-300/10 bg-[linear-gradient(180deg,rgba(14,24,42,0.92),rgba(11,18,32,0.96))] p-5 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
+    <section className="space-y-6 rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,20,38,0.94),rgba(8,15,29,0.96))] p-5 shadow-[0_0_0_1px_rgba(59,130,246,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/80">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-white/60">
             Processing your leads
           </div>
           <div className="mt-2 text-lg font-semibold text-white">
@@ -1158,7 +1158,7 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="rounded-full border border-cyan-300/12 bg-cyan-300/8 px-3 py-1 text-xs text-cyan-100/80">
+        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
           {formatTime(finalElapsed ?? elapsed)}
         </div>
       </div>
@@ -1171,9 +1171,9 @@ export default function Page() {
                 <span
                   className={`h-2.5 w-2.5 rounded-full ${
                     item.complete
-                      ? 'bg-emerald-400'
+                      ? 'bg-blue-400'
                       : item.active
-                        ? 'animate-pulse bg-cyan-300'
+                        ? 'animate-pulse bg-blue-300'
                         : 'bg-white/15'
                   }`}
                 />
@@ -1190,7 +1190,7 @@ export default function Page() {
 
             <div className="h-2 overflow-hidden rounded-full bg-white/10 shadow-[inset_0_1px_2px_rgba(15,23,42,0.4)]">
               <div
-                className="h-full bg-[linear-gradient(90deg,#3B82F6_0%,#22D3EE_55%,#10B981_100%)] shadow-[0_0_14px_rgba(34,211,238,0.28)] transition-all duration-500"
+                className="h-full bg-[linear-gradient(90deg,#3B82F6_0%,#60A5FA_100%)] shadow-[0_0_14px_rgba(59,130,246,0.28)] transition-all duration-500"
                 style={{ width: `${item.progress}%` }}
               />
             </div>
@@ -1213,7 +1213,7 @@ export default function Page() {
 
       <div
         ref={activityFeedRef}
-        className="max-h-[220px] space-y-2 overflow-y-auto scroll-smooth rounded-2xl border border-white/8 bg-black/20 p-4 pr-3 select-text shadow-[0_0_0_1px_rgba(34,211,238,0.04)] sm:max-h-[260px] lg:max-h-[360px]"
+        className="max-h-[220px] space-y-2 overflow-y-auto scroll-smooth rounded-2xl border border-white/8 bg-black/20 p-4 pr-3 select-text shadow-[0_0_0_1px_rgba(59,130,246,0.04)] sm:max-h-[260px] lg:max-h-[360px]"
       >
         {(liveLogLines.length > 0 ? liveLogLines : ['No activity yet']).map(
           (entry, index) => (
@@ -1221,7 +1221,7 @@ export default function Page() {
               key={`${entry}-${index}`}
               className="font-mono text-sm leading-6 text-slate-200 transition-all duration-300"
             >
-              <span className="mr-2 text-cyan-300">▸</span>
+              <span className="mr-2 text-blue-300">▸</span>
               {entry}
             </div>
           )
@@ -1247,7 +1247,7 @@ export default function Page() {
         </div>
 
         {freeUsageWarning ? (
-          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-100">
+          <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
             {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
           </div>
         ) : null}
@@ -1365,7 +1365,7 @@ export default function Page() {
                   type="button"
                   onClick={goToPreviousStep}
                   disabled={loading}
-                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-5 text-base font-medium text-white transition hover:bg-white/[0.06] disabled:opacity-60"
+                  className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:opacity-60"
                 >
                   Back
                 </button>
@@ -1376,7 +1376,7 @@ export default function Page() {
                   type="button"
                   onClick={goToNextStep}
                   disabled={loading}
-                  className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition disabled:opacity-60"
+                  className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold disabled:opacity-60"
                 >
                   Next
                 </button>
@@ -1384,7 +1384,7 @@ export default function Page() {
                 <button
                   onClick={runScrape}
                   disabled={loading || hasMissingRequiredFields}
-                  className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition disabled:cursor-not-allowed disabled:opacity-60"
+                  className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? 'Generating leads...' : 'Generate Leads'}
                 </button>
@@ -1399,7 +1399,7 @@ export default function Page() {
               {loading ? (
                 <button
                   onClick={abortMission}
-                  className="w-full rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-medium text-red-300 transition hover:bg-red-500/15"
+                  className="btn-ghost w-full rounded-2xl px-5 py-3 text-sm font-medium"
                 >
                   Stop search
                 </button>
@@ -1459,12 +1459,12 @@ export default function Page() {
             <button
               type="button"
               onClick={downloadPreviewLeads}
-              className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/14 bg-white/[0.04] px-5 text-base font-semibold text-white transition hover:bg-white/[0.07]"
+              className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-semibold"
             >
               Download leads
             </button>
 
-            <div className="space-y-4 rounded-[26px] border border-cyan-300/10 bg-[linear-gradient(180deg,rgba(14,24,42,0.84),rgba(11,18,32,0.94))] p-5">
+            <div className="space-y-4 rounded-[26px] border border-white/10 bg-white/[0.04] p-5">
               <div>
                 <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">
                   Your leads are ready
@@ -1480,7 +1480,7 @@ export default function Page() {
                   requestInboxFocus()
                   router.push('/dashboard/leads')
                 }}
-                className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition hover:opacity-95"
+                className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold"
               >
                 View my leads
               </button>
@@ -1488,7 +1488,7 @@ export default function Page() {
               <button
                 type="button"
                 onClick={resetSearchFlow}
-                className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-5 text-base font-medium text-white transition hover:bg-white/[0.06]"
+                className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium"
               >
                 Run another search
               </button>

@@ -400,7 +400,7 @@ async function batchMarkContacted(ids: string[]) {
       <div className="space-y-6 pb-4">
         <header className="glass overflow-hidden p-5 sm:p-6">
           <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60">
               Mobile pipeline
             </div>
             <div className="space-y-2">
@@ -440,10 +440,10 @@ async function batchMarkContacted(ids: string[]) {
                   setIsSendModalOpen(true)
                 }}
                 disabled={selected.length === 0}
-                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+                className={`btn-primary min-h-[48px] rounded-2xl px-4 ${
                   validSelectedIds.length === 0
-                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-emerald-300/20 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15'
+                    ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500 shadow-none hover:bg-white/5'
+                    : ''
                 }`}
               >
                 Send template email
@@ -453,10 +453,10 @@ async function batchMarkContacted(ids: string[]) {
                 type="button"
                 onClick={clearSelection}
                 disabled={selected.length === 0}
-                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-4 text-sm font-medium transition ${
+                className={`btn-secondary min-h-[48px] rounded-2xl px-4 ${
                   selected.length === 0
-                    ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                    : 'border border-white/10 bg-white/[0.05] text-slate-200 hover:bg-white/[0.08]'
+                    ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
+                    : 'text-slate-200'
                 }`}
               >
                 Clear selection
@@ -552,7 +552,7 @@ async function batchMarkContacted(ids: string[]) {
                                 <button
                                   type="button"
                                   onClick={() => openCloseModal(lead)}
-                                  className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-rose-300/16 bg-rose-400/10 px-3 text-xs font-medium text-rose-100 transition hover:bg-rose-400/16"
+                                  className="btn-ghost min-h-[40px] justify-start px-0 py-0 text-xs text-white/60 hover:text-white"
                                 >
                                   Close lead
                                 </button>
@@ -600,12 +600,12 @@ async function batchMarkContacted(ids: string[]) {
                   onClick={() => setMoveTarget(stage.key)}
                   className={`flex min-h-[52px] w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition ${
                     moveTarget === stage.key
-                      ? 'border-emerald-300/28 bg-emerald-400/12 text-white'
+                      ? 'border-blue-400/28 bg-blue-500/10 text-white'
                       : 'border-white/10 bg-white/[0.03] text-slate-200'
                   }`}
                 >
                   <span>{stage.title}</span>
-                  {moveTarget === stage.key ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" /> : null}
+                  {moveTarget === stage.key ? <span className="h-2.5 w-2.5 rounded-full bg-blue-400" /> : null}
                 </button>
               ))}
             </div>
@@ -614,7 +614,7 @@ async function batchMarkContacted(ids: string[]) {
               <button
                 type="button"
                 onClick={closeMoveModal}
-                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-300 transition hover:bg-white/[0.08]"
+                className="btn-secondary min-h-[48px] rounded-2xl px-4 text-slate-300"
               >
                 Cancel
               </button>
@@ -647,7 +647,7 @@ async function batchMarkContacted(ids: string[]) {
                   key={option.value}
                   className={`flex min-h-[52px] items-center gap-3 rounded-2xl border px-4 text-sm transition ${
                     closeReason === option.value
-                      ? 'border-rose-300/24 bg-rose-400/10 text-white'
+                      ? 'border-blue-400/24 bg-blue-500/10 text-white'
                       : 'border-white/10 bg-white/[0.03] text-slate-200'
                   }`}
                 >
@@ -667,7 +667,7 @@ async function batchMarkContacted(ids: string[]) {
               <button
                 type="button"
                 onClick={closeCloseModal}
-                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-300 transition hover:bg-white/[0.08]"
+                className="btn-secondary min-h-[48px] rounded-2xl px-4 text-slate-300"
               >
                 Cancel
               </button>
@@ -675,10 +675,10 @@ async function batchMarkContacted(ids: string[]) {
                 type="button"
                 onClick={confirmCloseLead}
                 disabled={closing}
-                className={`inline-flex min-h-[48px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition ${
+                className={`btn-ghost min-h-[48px] rounded-2xl px-5 text-sm ${
                   closing
-                    ? 'cursor-not-allowed bg-rose-950/40 text-rose-200'
-                    : 'bg-rose-500/20 text-rose-200 hover:bg-rose-500/28'
+                    ? 'cursor-not-allowed text-white/30 hover:text-white/30'
+                    : 'text-white/60 hover:text-white'
                 }`}
               >
                 {closing ? 'Closing...' : 'Confirm close'}

@@ -324,7 +324,7 @@ export default function Page() {
           <div className="mt-8">
             <Link
               href="/dashboard/scraper"
-              className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-6 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
+              className="btn-primary min-h-[52px] rounded-2xl px-6 text-base font-semibold"
             >
               Start Prospecting
             </Link>
@@ -347,8 +347,8 @@ export default function Page() {
   if (isFreeViewer) {
     return (
       <div className="space-y-8">
-        <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_42%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(8,15,29,0.98))] p-10 shadow-[0_30px_90px_rgba(2,8,23,0.45)]">
-          <div className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
+        <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_42%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(8,15,29,0.98))] p-10 shadow-[0_30px_90px_rgba(2,8,23,0.45)]">
+          <div className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/80">
             Progress checkpoint
           </div>
           <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
@@ -357,7 +357,7 @@ export default function Page() {
           <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
             You found {stats.saved} {stats.saved === 1 ? 'lead' : 'leads'}. {stats.ready} {stats.ready === 1 ? 'is' : 'are'} ready to contact right now.
           </p>
-          <p className="mt-3 text-sm text-cyan-100">
+          <p className="mt-3 text-sm text-white/60">
             Free plan: {Math.min(stats.saved, freeLeadLimit)} / {freeLeadLimit} leads used
           </p>
           <div className="mt-8">
@@ -366,11 +366,11 @@ export default function Page() {
                 label="Unlock outreach + 300 leads/month"
                 email={profile?.email ?? ''}
                 source="dashboard_free_limit"
-                className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]"
+                className="btn-primary min-h-[52px] rounded-2xl px-6 text-base font-semibold"
               />
               <Link
                 href="/dashboard/leads"
-                className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-6 text-base font-semibold text-slate-100 transition hover:bg-white/[0.08]"
+                className="btn-secondary min-h-[52px] rounded-2xl px-6 text-base font-semibold text-slate-100"
               >
                 Go to my leads
               </Link>
@@ -436,7 +436,7 @@ export default function Page() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="space-y-4">
             <h1 className="text-5xl font-bold">
-              <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-300 via-blue-400 to-white bg-clip-text text-transparent">
                 ALPA Command Center
               </span>
             </h1>
@@ -504,9 +504,9 @@ export default function Page() {
  */
 function Metric({ title, value, highlight }: any) {
   return (
-    <div className={`glass p-8 rounded-2xl ${highlight ? 'ring-1 ring-emerald-400/40' : ''}`}>
+    <div className={`glass rounded-2xl p-8 ${highlight ? 'ring-1 ring-blue-400/30' : ''}`}>
       <div className="text-xs uppercase text-slate-500">{title}</div>
-      <div className="text-5xl font-bold mt-4 text-white">{value}</div>
+      <div className="mt-4 text-5xl font-bold text-white">{value}</div>
     </div>
   )
 }

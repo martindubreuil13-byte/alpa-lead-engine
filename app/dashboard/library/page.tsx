@@ -126,7 +126,7 @@ export default function LeadLibraryPage() {
       {pipelineLocked ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
           <span>Pipeline actions unlock on Starter.</span>
-          <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+          <Link href="/plans" className="font-medium text-blue-200 transition hover:text-white">
             Upgrade
           </Link>
         </div>
@@ -144,10 +144,10 @@ export default function LeadLibraryPage() {
               key={option.value}
               type="button"
               onClick={() => setFilter(option.value)}
-              className={`rounded-lg px-4 py-2 text-sm ${
+              className={`btn-secondary ${
                 filter === option.value
                   ? 'bg-white/10 text-white'
-                  : 'bg-white/5 text-slate-400 transition hover:bg-white/10'
+                  : 'text-white/60'
               }`}
             >
               {option.label}
@@ -160,7 +160,7 @@ export default function LeadLibraryPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search company, location, email, or phone..."
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-cyan-400/40 lg:w-96"
+          className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-400/40 lg:w-96"
         />
       </div>
 
