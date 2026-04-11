@@ -208,8 +208,8 @@ export default function LeadCard({
             ) : null}
           </div>
 
-          <div className="flex justify-center">
-            <div className="flex w-full max-w-[220px] items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] p-2">
+          <div>
+            <div className="flex w-fit items-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] p-2">
               <ActionButton
                 label={email ? 'Contact lead' : 'Email unavailable'}
                 disabled={!email}
