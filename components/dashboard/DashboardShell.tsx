@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 
+import HomeBackButton from '@/components/dashboard/HomeBackButton'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
@@ -80,6 +81,13 @@ const NAV_ITEMS: NavItem[] = [
     benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
   },
 ]
+
+const HOME_BACK_ROUTES = new Set([
+  '/dashboard/kanban',
+  '/dashboard/leads',
+  '/dashboard/library',
+  '/dashboard/scraper',
+])
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
@@ -153,6 +161,8 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
     )
   }, [pathname, viewerMode])
 
+  const showHomeBackButton = HOME_BACK_ROUTES.has(pathname)
+
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
@@ -188,7 +198,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-transparent text-white">
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
         <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-white/6 bg-[#060c18]/90 px-6 py-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:flex lg:flex-col">
-          <Link href="/dashboard" className="flex items-center gap-4">
+          <Link href="/" className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[linear-gradient(135deg,#22d3ee,#34d399)] text-xl font-bold text-slate-950 shadow-[0_18px_40px_rgba(34,211,238,0.25)]">
               A
             </div>
@@ -311,9 +321,12 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-white/6 bg-[#020617]/88 px-4 pb-4 pt-1 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
-                  ALPA Workspace
-                </div>
+                <Link
+                  href="/"
+                  className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70 transition hover:text-white"
+                >
+                  ALPA
+                </Link>
                 <div className="truncate text-lg font-semibold text-white">
                   {activeItem?.label || 'Dashboard'}
                 </div>
@@ -331,7 +344,10 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col">{children}</div>
+          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">
+            {showHomeBackButton ? <HomeBackButton className="self-start" /> : null}
+            {children}
+          </div>
 
           <footer className="mx-auto mt-10 hidden w-full max-w-6xl border-t border-white/6 pt-6 text-center text-xs leading-6 text-slate-500 lg:block">
             Need help or have a question? Reach us at{' '}

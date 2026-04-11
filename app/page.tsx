@@ -77,10 +77,14 @@ export default function HomePage() {
             </div>
 
             <h1 className="mt-6 max-w-5xl text-[2.35rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:mt-8 sm:text-[4rem] lg:text-[5.6rem]">
-              Find Verified Business Leads in Minutes
+              Get Verified Business Leads in Seconds — Not Minutes
             </h1>
 
-            <p className="mt-6 max-w-3xl text-base leading-7 text-slate-300 sm:mt-8 sm:text-xl sm:leading-8">
+            <p className="mt-4 max-w-2xl text-sm font-medium tracking-[0.02em] text-slate-300 sm:mt-5 sm:text-lg">
+              Only real, verified contacts. No filler. No junk.
+            </p>
+
+            <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:mt-7 sm:text-xl sm:leading-8">
               A modern lead generation platform designed to help freelancers, agencies, and sales teams discover and contact the right businesses faster.
             </p>
 
