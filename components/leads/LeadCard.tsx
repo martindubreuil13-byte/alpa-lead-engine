@@ -60,10 +60,10 @@ function StatusPill({
   return (
     <span
       className={cn(
-        'rounded-full px-2 py-1 text-[11px] font-medium',
-        tone === 'accent' && 'border border-cyan-300/20 bg-cyan-400/10 text-cyan-100',
-        tone === 'positive' && 'border border-emerald-300/20 bg-emerald-400/10 text-emerald-100',
-        tone === 'default' && 'border border-white/10 bg-white/[0.05] text-slate-200'
+        'rounded-full border px-2 py-1 text-[11px] font-medium',
+        tone === 'accent' && 'border-sky-400/18 bg-sky-500/10 text-sky-100/90',
+        tone === 'positive' && 'border-emerald-300/12 bg-emerald-400/8 text-emerald-100/85',
+        tone === 'default' && 'border-white/10 bg-white/[0.08] text-white/80'
       )}
     >
       {children}
@@ -89,12 +89,12 @@ function ActionButton({
   children: ReactNode
 }) {
   const className = cn(
-    'inline-flex h-10 w-10 items-center justify-center rounded-xl border transition',
+    'inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150',
     disabled
-      ? 'cursor-not-allowed border-white/8 bg-white/[0.03] text-slate-500 opacity-40'
+      ? 'cursor-not-allowed text-white/80 opacity-40'
       : active
-        ? 'border-emerald-300/24 bg-emerald-400/12 text-emerald-100 hover:bg-emerald-400/18'
-        : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] hover:text-white'
+        ? 'bg-sky-500/12 text-sky-200 shadow-[0_0_16px_rgba(59,130,246,0.14)] hover:text-sky-100'
+        : 'text-white/80 hover:bg-sky-500/10 hover:text-sky-300'
   )
 
   if (href && !disabled) {
@@ -148,39 +148,21 @@ export default function LeadCard({
 }: LeadCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  const statusPills = useMemo(() => {
-    const pills: Array<{ label: string; tone: 'default' | 'positive' | 'accent' }> = []
-
-    if (isNew) {
-      pills.push({ label: 'New', tone: 'accent' })
-    }
-
+  const statusPill = useMemo(() => {
     if (contacted) {
-      pills.push({ label: 'Contacted', tone: 'positive' })
+      return { label: 'Contacted', tone: 'positive' as const }
     }
 
     if (inPipeline) {
-      pills.push({ label: 'In pipeline', tone: 'default' })
+      return { label: 'In pipeline', tone: 'accent' as const }
     }
 
-    return pills.slice(0, 2)
+    if (isNew) {
+      return { label: 'New', tone: 'default' as const }
+    }
+
+    return null
   }, [contacted, inPipeline, isNew])
-
-  const availabilityPills = useMemo(() => {
-    const pills: Array<{ label: string; tone: 'default' | 'positive' | 'accent' }> = []
-
-    if (email) {
-      pills.push({ label: 'Email available', tone: 'accent' })
-    } else {
-      pills.push({ label: 'No verified email', tone: 'default' })
-    }
-
-    if (phone) {
-      pills.push({ label: 'Phone available', tone: 'positive' })
-    }
-
-    return pills
-  }, [email, phone])
 
   const mailHref = email ? `mailto:${email}` : undefined
   const phoneHref = phone ? `tel:${phone}` : undefined
@@ -197,8 +179,8 @@ export default function LeadCard({
     <article
       data-lead-id={id}
       className={cn(
-        'rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] p-4 shadow-[0_12px_40px_rgba(2,8,23,0.18)] backdrop-blur-sm transition',
-        selected && 'border-emerald-300/22 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(52,211,153,0.1)]',
+        'rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,32,0.96),rgba(8,14,28,0.92))] p-4 shadow-[0_12px_40px_rgba(2,8,23,0.26)] backdrop-blur-sm transition',
+        selected && 'border-sky-400/28 bg-[linear-gradient(180deg,rgba(10,22,46,0.98),rgba(8,14,28,0.94))] shadow-[0_0_0_1px_rgba(59,130,246,0.14)]',
         className
       )}
     >
@@ -208,7 +190,7 @@ export default function LeadCard({
             type="checkbox"
             checked={selected}
             onChange={onToggleSelect}
-            className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-emerald-300"
+            className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-sky-400"
             aria-label={`Select ${name}`}
           />
         ) : null}
@@ -232,31 +214,19 @@ export default function LeadCard({
               ) : null}
             </div>
 
-            {statusPills.length > 0 ? (
-              <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                {statusPills.map((pill) => (
-                  <StatusPill key={pill.label} tone={pill.tone}>
-                    {pill.label}
-                  </StatusPill>
-                ))}
+            {statusPill ? (
+              <div className="flex shrink-0 justify-end">
+                <StatusPill tone={statusPill.tone}>{statusPill.label}</StatusPill>
               </div>
             ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {availabilityPills.map((pill) => (
-              <StatusPill key={pill.label} tone={pill.tone}>
-                {pill.label}
-              </StatusPill>
-            ))}
-          </div>
-
-          <div className="rounded-lg border border-white/8 bg-white/[0.04] p-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="rounded-lg border border-white/10 bg-white/[0.05] p-2">
+            <div className="flex items-center gap-2">
               <ActionButton
                 label={email ? 'Contact lead' : 'No verified email'}
                 disabled={!email}
-                active={Boolean(email)}
+                active={Boolean(email) && Boolean(onContact)}
                 href={!onContact ? mailHref : undefined}
                 onClick={onContact}
               >
@@ -300,10 +270,11 @@ export default function LeadCard({
           </div>
 
           {detailsOpen ? (
-            <div className="space-y-3 rounded-lg border border-white/8 bg-[#081120]/80 p-3">
+            <div className="border-t border-white/8 pt-3">
+              <div className="space-y-2.5 bg-white/[0.03] px-3 py-2.5">
               {email ? (
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500/90">
                     Email
                   </div>
                   <div className="mt-1 break-all text-sm text-slate-200">{email}</div>
@@ -312,7 +283,7 @@ export default function LeadCard({
 
               {phone ? (
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500/90">
                     Phone
                   </div>
                   <div className="mt-1 text-sm text-slate-200">{phone}</div>
@@ -324,7 +295,7 @@ export default function LeadCard({
                   href={normalizedSourceUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 text-sm text-cyan-200 transition hover:text-white"
+                  className="inline-flex items-center gap-2 text-sm text-sky-200 transition hover:text-white"
                 >
                   <ExternalLink className="h-4 w-4" />
                   <span>{sourceHost}</span>
@@ -332,6 +303,7 @@ export default function LeadCard({
               ) : null}
 
               {expandedFooter ? <div className="pt-1">{expandedFooter}</div> : null}
+              </div>
             </div>
           ) : null}
         </div>
