@@ -5,8 +5,73 @@ import ICPInput from '@/components/agent/ICPInput'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { isAdmin } from '@/lib/auth/access'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
+import type { ICPData } from '@/lib/ai/icp'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
+
+type SavedIcpRecord = {
+  id: string
+  data: ICPData
+  isActive: boolean
+  status: string
+  createdAt: string
+}
+
+function mapStoredIcp(structuredOutput: unknown): ICPData | null {
+  if (!structuredOutput || typeof structuredOutput !== 'object') {
+    return null
+  }
+
+  const value = structuredOutput as Record<string, unknown>
+  const targetBusinesses = Array.isArray(value.target_businesses)
+    ? value.target_businesses.filter((item): item is string => typeof item === 'string')
+    : []
+  const locations = Array.isArray(value.locations)
+    ? value.locations.filter((item): item is string => typeof item === 'string')
+    : []
+  const painPoints = Array.isArray(value.pain_points)
+    ? value.pain_points.filter((item): item is string => typeof item === 'string')
+    : []
+  const messagingAngles = Array.isArray(value.messaging_angles)
+    ? value.messaging_angles.filter((item): item is string => typeof item === 'string')
+    : []
+  const summary = typeof value.summary === 'string' ? value.summary : ''
+
+  if (targetBusinesses.length === 0 || painPoints.length === 0 || messagingAngles.length === 0 || !summary) {
+    return null
+  }
+
+  return {
+    industries: targetBusinesses,
+    excluded: [],
+    location: locations,
+    company_size: '',
+    pain_points: painPoints,
+    angles: messagingAngles,
+    summary,
+  }
+}
+
+function mapStoredIcpRecord(row: {
+  id: string
+  structured_output: unknown
+  is_active: boolean
+  status: string
+  created_at: string
+}): SavedIcpRecord | null {
+  const data = mapStoredIcp(row.structured_output)
+
+  if (!data) return null
+
+  return {
+    id: row.id,
+    data,
+    isActive: row.is_active,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
 
 export default async function AgentModePage() {
   const user = await getUserProfile()
@@ -14,6 +79,17 @@ export default async function AgentModePage() {
   if (!user || !isAdmin(user)) {
     redirect('/')
   }
+
+  const supabase = await createSupabaseServerClient()
+  const { data: savedIcpRows } = await supabase
+    .from('agent_icp')
+    .select('id, structured_output, is_active, status, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+
+  const initialSavedIcps = (savedIcpRows || [])
+    .map(mapStoredIcpRecord)
+    .filter((row): row is SavedIcpRecord => Boolean(row))
 
   return (
     <DashboardShell>
@@ -37,7 +113,7 @@ export default async function AgentModePage() {
 
         <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
           <div className="min-w-0">
-            <ICPInput />
+            <ICPInput initialSavedIcps={initialSavedIcps} />
           </div>
 
           <div className="hidden lg:block">

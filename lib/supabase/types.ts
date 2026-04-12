@@ -119,6 +119,29 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["leads"]["Insert"]>;
       };
+      agent_icp: {
+        Row: {
+          id: string;
+          user_id: string;
+          raw_input: string;
+          structured_output: Json;
+          status: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          raw_input: string;
+          structured_output: Json;
+          status?: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_icp"]["Insert"]>;
+      };
       guest_lead_captures: {
         Row: {
           id: string;
