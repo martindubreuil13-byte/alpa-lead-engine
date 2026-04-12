@@ -17,6 +17,7 @@ import {
   Menu,
   Rocket,
   Settings,
+  Sparkles,
   X,
 } from 'lucide-react'
 
@@ -40,6 +41,9 @@ type NavItem = {
   description?: string
   benefit?: string
   mobilePrimary?: boolean
+  adminOnly?: boolean
+  badge?: string
+  accent?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -79,6 +83,16 @@ const NAV_ITEMS: NavItem[] = [
     lockedOnFree: true,
     description: 'Configure sender identity, workspace defaults, and the advanced controls behind your system.',
     benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
+  },
+  {
+    href: '/agent-mode',
+    label: 'Agent Mode',
+    icon: Sparkles,
+    adminOnly: true,
+    badge: 'Beta',
+    accent: true,
+    description: 'Build, test, and deploy autonomous lead-engine workflows from one isolated workspace.',
+    benefit: 'Agent Mode gives admins a private lab to prototype automation without touching customer-facing flows.',
   },
 ]
 
@@ -147,19 +161,24 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
     }
   }, [mobileMenuOpen, supportOpen])
 
+  const visibleNavItems = useMemo(
+    () => NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin(profile)),
+    [profile]
+  )
+
   const mobilePrimaryItems = useMemo(
-    () => NAV_ITEMS.filter((item) => item.mobilePrimary),
-    []
+    () => visibleNavItems.filter((item) => item.mobilePrimary),
+    [visibleNavItems]
   )
 
   const activeItem = useMemo(() => {
     return (
-      NAV_ITEMS.find((item) => {
+      visibleNavItems.find((item) => {
         const href = getItemHref(item, viewerMode)
         return isActivePath(pathname, href)
       }) ?? null
     )
-  }, [pathname, viewerMode])
+  }, [pathname, viewerMode, visibleNavItems])
 
   const showHomeBackButton = HOME_BACK_ROUTES.has(pathname)
 
@@ -224,7 +243,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav className="mt-8 space-y-2">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const href = getItemHref(item, viewerMode)
               const active = isActivePath(pathname, href)
               const locked = isLocked(item)
@@ -242,7 +261,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                       <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/[0.04] text-slate-300">
                         <Icon className="h-4 w-4" />
                       </span>
-                      <span>{item.label}</span>
+                      <NavItemLabel item={item} />
                     </span>
                     <Lock className="h-4 w-4 text-amber-200" />
                   </button>
@@ -267,7 +286,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                     >
                       <Icon className="h-4 w-4" />
                     </span>
-                    <span>{item.label}</span>
+                    <NavItemLabel item={item} />
                   </span>
                   {active ? <span className="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.55)]" /> : null}
                 </Link>
@@ -439,7 +458,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </div>
 
             <nav className="mt-6 flex-1 space-y-3 overflow-y-auto pb-4">
-              {NAV_ITEMS.map((item) => {
+              {visibleNavItems.map((item) => {
                 const locked = isLocked(item)
                 const href = getItemHref(item, viewerMode)
                 const active = !locked && isActivePath(pathname, href)
@@ -458,7 +477,9 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                           <Icon className="h-5 w-5 text-slate-200" />
                         </span>
                         <span>
-                          <span className="block text-sm font-medium text-white">{item.label}</span>
+                          <span className="block text-sm font-medium text-white">
+                            <NavItemLabel item={item} />
+                          </span>
                           <span className="mt-1 block text-xs text-slate-500">Upgrade to access</span>
                         </span>
                       </span>
@@ -482,7 +503,9 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                       <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.04]">
                         <Icon className="h-5 w-5" />
                       </span>
-                      <span className="text-sm font-medium">{item.label}</span>
+                      <span className="text-sm font-medium">
+                        <NavItemLabel item={item} />
+                      </span>
                     </span>
                     {active ? <span className="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.55)]" /> : null}
                   </Link>
@@ -609,4 +632,23 @@ function shortMobileLabel(label: string) {
     default:
       return label
   }
+}
+
+function NavItemLabel({ item }: { item: NavItem }) {
+  if (!item.accent) {
+    return <span>{item.label}</span>
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      <span className="bg-[linear-gradient(90deg,#60a5fa,#a78bfa)] bg-clip-text text-transparent drop-shadow-[0_0_12px_rgba(96,165,250,0.18)]">
+        {item.label}
+      </span>
+      {item.badge ? (
+        <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-100 shadow-[0_0_16px_rgba(59,130,246,0.18)]">
+          {item.badge}
+        </span>
+      ) : null}
+    </span>
+  )
 }
