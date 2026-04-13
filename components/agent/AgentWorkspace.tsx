@@ -42,7 +42,6 @@ type AgentWorkspaceProps = {
 
 const NO_MISSION_LABEL = 'No mission yet'
 const NO_LOCATION_LABEL = 'Global'
-const NO_TARGET_SUMMARY = 'No active target profile yet.'
 
 export default function AgentWorkspace({
   initialSavedIcps,
@@ -72,21 +71,6 @@ export default function AgentWorkspace({
     activeMission && activeMission.name ? activeMission.name : NO_MISSION_LABEL
   const missionLocation =
     activeMission && activeMission.location ? activeMission.location : NO_LOCATION_LABEL
-  const missionDetails =
-    activeMission !== null
-      ? `${activeMission.leadsPerDay} leads/day • ${activeMission.contactMode}`
-      : '0 leads/day • email'
-  const icpSummary = activeIcpData ? activeIcpData.summary : NO_TARGET_SUMMARY
-  const icpLocation =
-    activeIcpData && activeIcpData.location.length > 0
-      ? activeIcpData.location.join(' • ')
-      : NO_LOCATION_LABEL
-
-  const agentStatus = hasMission
-    ? 'Mission configured'
-    : hasActiveIcp
-      ? 'Target locked'
-      : 'Awaiting setup'
 
   function focusIcpView() {
     setActiveView('icp')
@@ -195,20 +179,6 @@ export default function AgentWorkspace({
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-0 sm:space-y-6">
-      <section className="overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(90deg,rgba(10,18,32,0.92),rgba(7,14,26,0.88))] px-4 py-3 shadow-[0_10px_40px_rgba(2,8,23,0.18)] backdrop-blur-xl sm:px-5">
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-3 w-3 items-center justify-center">
-            <span className="absolute inline-flex h-3 w-3 rounded-full bg-emerald-400/70 animate-pulse" />
-            <span className="relative h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.85)]" />
-          </div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60">
-            Agent Status
-          </div>
-          <div className="h-px flex-1 bg-gradient-to-r from-emerald-400/25 via-white/8 to-transparent" />
-          <div className="text-sm font-medium text-slate-200">{agentStatus}</div>
-        </div>
-      </section>
-
       <section className="overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max gap-3 pr-1">
           {flowSegments.map((segment) => {
@@ -271,7 +241,7 @@ export default function AgentWorkspace({
 
       <section className="glass relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,15,29,0.92),rgba(4,10,20,0.95))] p-4 shadow-[0_20px_70px_rgba(2,8,23,0.3)] transition-all duration-300 sm:p-6">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-x-[-10%] top-[-20%] h-40 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.12),transparent_65%)] blur-2xl" />
+          <div className="agent-breath absolute inset-x-[-10%] top-[-20%] h-40 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.1),transparent_65%)] blur-2xl" />
           <div className="absolute bottom-[-10%] right-[-8%] h-44 w-44 rounded-full bg-emerald-500/8 blur-3xl" />
           <div className="absolute inset-0 opacity-[0.04] [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:28px_28px]" />
         </div>
@@ -294,13 +264,15 @@ export default function AgentWorkspace({
             <p className="max-w-2xl text-sm leading-6 text-slate-400">
               {activeView === 'icp'
                 ? 'Shape the targeting logic your agent will operate from.'
-                : hasMission
+                : !hasActiveIcp
+                  ? 'Mission execution stays locked until the target profile is defined.'
+                  : hasMission
                   ? 'Run or refine the operational layer that turns your target into execution.'
                   : 'Define what the agent should do daily once the target is locked.'}
             </p>
           </div>
 
-          {!hasActiveIcp ? <ICPInput initialSavedIcps={savedIcps} /> : null}
+          {activeView === 'icp' && !hasActiveIcp ? <ICPInput initialSavedIcps={savedIcps} /> : null}
 
           {activeView === 'icp' && hasActiveIcp && icpMode === 'view' ? (
             <div className="space-y-5 transition-all duration-300">
@@ -353,6 +325,32 @@ export default function AgentWorkspace({
               >
                 Cancel
               </button>
+            </div>
+          ) : null}
+
+          {activeView === 'mission' && !hasActiveIcp ? (
+            <div className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,15,29,0.58),rgba(5,10,18,0.82))] p-6 shadow-[0_16px_36px_rgba(2,8,23,0.18)] transition-all duration-300 sm:p-8">
+              <div className="flex min-h-[260px] flex-col items-start justify-center gap-5 text-left">
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Mission Blocked
+                  </div>
+                  <h3 className="text-2xl font-semibold tracking-tight text-white">
+                    Mission requires a target
+                  </h3>
+                  <p className="max-w-xl text-sm leading-7 text-slate-400">
+                    Define who you&apos;re targeting before launching a mission.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={focusIcpView}
+                  className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.18)] transition hover:-translate-y-0.5 active:scale-[0.98]"
+                >
+                  Go to Target
+                </button>
+              </div>
             </div>
           ) : null}
 

@@ -202,6 +202,96 @@ body {
   }
 }
 
+@keyframes agentBreath {
+  0% {
+    transform: scale(1) translate3d(-10px, 5px, 0);
+    opacity: 0.78;
+  }
+  50% {
+    transform: scale(1.075) translate3d(14px, -8px, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translate3d(-10px, 5px, 0);
+    opacity: 0.78;
+  }
+}
+
+@keyframes agentDrift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(18px, -12px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes agentBreathSoft {
+  0% {
+    transform: scale(1) translate3d(4px, -2px, 0);
+    opacity: 0.64;
+  }
+  50% {
+    transform: scale(1.06) translate3d(-12px, 10px, 0);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1) translate3d(4px, -2px, 0);
+    opacity: 0.64;
+  }
+}
+
+@keyframes agentDriftSoft {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-16px, 12px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes agentSweep {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(14deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.46;
+  }
+  50% {
+    transform: translate3d(165%, 0, 0) rotate(14deg);
+    opacity: 0.4;
+  }
+  88% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: translate3d(210%, 0, 0) rotate(14deg);
+    opacity: 0;
+  }
+}
+
+@keyframes agentGridShift {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.08;
+  }
+  50% {
+    transform: translate3d(12px, -8px, 0);
+    opacity: 0.12;
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.08;
+  }
+}
+
 .landing-float {
   animation: landing-float 6.8s ease-in-out infinite;
 }
@@ -216,6 +306,36 @@ body {
 
 .landing-pulse-dot {
   animation: landing-pulse-dot 2.2s ease-in-out infinite;
+}
+
+.agent-breath {
+  animation: agentBreath 7s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.agent-drift {
+  animation: agentDrift 8s ease-in-out infinite;
+  will-change: transform;
+}
+
+.agent-breath-soft {
+  animation: agentBreathSoft 6.8s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.agent-drift-soft {
+  animation: agentDriftSoft 8.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+.agent-sweep {
+  animation: agentSweep 9.2s linear infinite;
+  will-change: transform, opacity;
+}
+
+.agent-grid-shift {
+  animation: agentGridShift 16s linear infinite;
+  will-change: transform, opacity;
 }
 
 input:-webkit-autofill,
