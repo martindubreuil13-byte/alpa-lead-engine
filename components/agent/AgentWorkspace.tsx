@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Crosshair,
@@ -40,6 +40,20 @@ type AgentWorkspaceProps = {
   initialActiveMission: AgentMissionRecord | null
 }
 
+type MissionRunSummary = {
+  discovered: number
+  qualified: number
+  rejected: number
+  queued: number
+}
+
+const MISSION_RUN_STAGES = [
+  'Scanning sources...',
+  'Discovering businesses...',
+  'Validating contact data...',
+  'Filtering qualified leads...',
+] as const
+
 const NO_MISSION_LABEL = 'No mission yet'
 const NO_LOCATION_LABEL = 'Global'
 
@@ -62,6 +76,10 @@ export default function AgentWorkspace({
   const [actionState, setActionState] = useState<'idle' | 'deleting-target' | 'deleting-mission'>(
     'idle'
   )
+  const [missionRunState, setMissionRunState] = useState<'idle' | 'running'>('idle')
+  const [missionRunSummary, setMissionRunSummary] = useState<MissionRunSummary | null>(null)
+  const [missionRunError, setMissionRunError] = useState<string | null>(null)
+  const [missionRunStageIndex, setMissionRunStageIndex] = useState(0)
 
   const hasActiveIcp = activeIcp !== null
   const hasMission = activeMission !== null && missions.length > 0
@@ -71,6 +89,21 @@ export default function AgentWorkspace({
     activeMission && activeMission.name ? activeMission.name : NO_MISSION_LABEL
   const missionLocation =
     activeMission && activeMission.location ? activeMission.location : NO_LOCATION_LABEL
+
+  useEffect(() => {
+    if (missionRunState !== 'running') {
+      setMissionRunStageIndex(0)
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setMissionRunStageIndex((current) => (current + 1) % MISSION_RUN_STAGES.length)
+    }, 1950)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [missionRunState])
 
   function focusIcpView() {
     setActiveView('icp')
@@ -131,6 +164,36 @@ export default function AgentWorkspace({
     } catch (error) {
       console.error(error)
       setActionState('idle')
+    }
+  }
+
+  async function handleRunMission() {
+    if (!activeMission || missionRunState === 'running') return
+
+    setMissionRunState('running')
+    setMissionRunError(null)
+    setMissionRunSummary(null)
+    setMissionRunStageIndex(0)
+
+    try {
+      const response = await fetch('/api/agent/run-mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ missionId: activeMission.id }),
+      })
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok || !data?.success || !data?.summary) {
+        throw new Error(data?.message || data?.error || 'Failed to run mission')
+      }
+
+      setMissionRunSummary(data.summary as MissionRunSummary)
+    } catch (error) {
+      console.error(error)
+      setMissionRunError(error instanceof Error ? error.message : 'Failed to run mission')
+    } finally {
+      setMissionRunState('idle')
     }
   }
 
@@ -386,9 +449,13 @@ export default function AgentWorkspace({
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <button
                   type="button"
-                  className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.2)] transition hover:-translate-y-0.5"
+                  onClick={() => {
+                    void handleRunMission()
+                  }}
+                  disabled={missionRunState === 'running'}
+                  className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.2)] transition hover:-translate-y-0.5 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
                 >
-                  Run Mission
+                  {missionRunState === 'running' ? 'Running mission...' : 'Run Mission'}
                 </button>
 
                 <div className="inline-flex rounded-2xl border border-white/10 bg-white/[0.03] p-1">
@@ -412,6 +479,91 @@ export default function AgentWorkspace({
                   </button>
                 </div>
               </div>
+
+              <div className="text-sm leading-6 text-slate-400">
+                The agent is discovering and qualifying leads for this mission.
+              </div>
+
+              {missionRunState === 'running' ? (
+                <div className="rounded-[24px] border border-blue-400/18 bg-[linear-gradient(180deg,rgba(12,29,53,0.7),rgba(4,10,20,0.92))] p-4 shadow-[0_0_36px_rgba(59,130,246,0.12)] transition-all duration-300">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex h-3 w-3 items-center justify-center">
+                        <span className="absolute inline-flex h-3 w-3 rounded-full bg-blue-400/40 animate-pulse" />
+                        <span className="relative h-2 w-2 rounded-full bg-blue-300 shadow-[0_0_14px_rgba(96,165,250,0.72)]" />
+                      </div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-200/80">
+                        Agent Executing
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-lg font-semibold text-white">Agent executing mission</h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-300">
+                        The agent is discovering and qualifying leads in real time.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 transition-opacity duration-500">
+                      {MISSION_RUN_STAGES[missionRunStageIndex]}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {missionRunError ? (
+                <div className="rounded-2xl border border-rose-400/18 bg-rose-500/8 p-4 text-sm leading-6 text-rose-100">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-200/80">
+                    Mission Error
+                  </div>
+                  <div className="mt-2">Mission failed. Please try again.</div>
+                  <div className="mt-1 text-rose-100/70">{missionRunError}</div>
+                </div>
+              ) : null}
+
+              {missionRunSummary && missionRunState !== 'running' ? (
+                <div className="rounded-[24px] border border-emerald-400/16 bg-[linear-gradient(180deg,rgba(6,78,59,0.18),rgba(4,10,20,0.86))] p-4 shadow-[0_0_32px_rgba(16,185,129,0.08)]">
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-200/80">
+                        Run Summary
+                      </div>
+                      <h4 className="mt-1 text-lg font-semibold text-white">Mission complete</h4>
+                      <div className="mt-1 text-sm text-slate-300">
+                        Qualified leads were added directly to your workspace inbox.
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <DetailPill label="Discovered" value={String(missionRunSummary.discovered)} />
+                      <DetailPill label="Qualified" value={String(missionRunSummary.qualified)} />
+                      <DetailPill label="Rejected" value={String(missionRunSummary.rejected)} />
+                      <DetailPill label="Added to workspace" value={String(missionRunSummary.queued)} />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
+                      <DetailPill label="Delivered" value={String(missionRunSummary.queued)} />
+                    </div>
+
+                    {missionRunSummary.queued < activeMission.leadsPerDay ? (
+                      <div className="text-sm leading-6 text-slate-300">
+                        Partial completion — agent will need additional runs to reach target.
+                      </div>
+                    ) : null}
+
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/dashboard/leads?mission_id=${activeMission.id}`)}
+                        className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.18)] transition hover:-translate-y-0.5 active:scale-[0.98]"
+                      >
+                        View Leads
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

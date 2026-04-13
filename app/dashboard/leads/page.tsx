@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
@@ -16,6 +16,8 @@ import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 
 type Lead = TrialLead & {
   user_id?: string
+  mission_id?: string | null
+  queue_source?: 'inbox' | 'agent_mission'
 }
 
 type LeadContactFilter = 'all' | 'email' | 'phone' | 'fully_enriched'
@@ -62,8 +64,9 @@ function isFullyEnrichedLead(lead: Pick<Lead, 'email' | 'phone'>) {
   return hasEmail(lead) && hasPhone(lead)
 }
 
-export default function LeadsPage() {
+function LeadsPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [filtered, setFiltered] = useState<Lead[]>([])
@@ -79,6 +82,8 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
   const [contactFilter, setContactFilter] = useState<LeadContactFilter>('all')
+  const missionIdFilter = searchParams.get('mission_id')?.trim() || ''
+  const missionScopedView = Boolean(missionIdFilter)
   const plan = profile?.plan || 'free'
   const isFree = isGuest || (!profileLoading && plan === 'free')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
@@ -95,7 +100,7 @@ export default function LeadsPage() {
     }
 
     const syncGuestLeads = () => {
-      if (!isGuest) return
+      if (!isGuest || missionScopedView) return
       const guestLeads = getGuestLeads()
       setLeads(guestLeads)
       setLoading(false)
@@ -105,7 +110,7 @@ export default function LeadsPage() {
     return () => {
       window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeads)
     }
-  }, [isGuest])
+  }, [isGuest, missionScopedView, missionIdFilter])
 
   useEffect(() => {
     applyFilters()
@@ -123,6 +128,11 @@ export default function LeadsPage() {
 
     if (!user) {
       setIsGuest(true)
+      if (missionScopedView) {
+        setLeads([])
+        setLoading(false)
+        return
+      }
       const guestLeads = getGuestLeads()
       setLeads(guestLeads)
       setLoading(false)
@@ -130,6 +140,47 @@ export default function LeadsPage() {
     }
 
     setIsGuest(false)
+
+    if (missionScopedView) {
+      const { data, error } = await supabase
+        .from('agent_lead_queue')
+        .select('id, mission_id, business_name, website, email, phone, created_at')
+        .eq('user_id', user.id)
+        .eq('mission_id', missionIdFilter)
+        .eq('qualification_status', 'qualified')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Mission lead fetch failed:', error.message)
+        setLeads([])
+        setLoading(false)
+        return
+      }
+
+      setLeads(
+        (data || []).map((lead) => ({
+          id: lead.id,
+          mission_id: lead.mission_id,
+          company_name: lead.business_name || 'Untitled business',
+          city: null,
+          industry: null,
+          email: lead.email,
+          email_source: 'agent mission',
+          is_generic_email: false,
+          phone: lead.phone,
+          website: lead.website,
+          status: 'inbox',
+          pipeline_stage: null,
+          close_reason: null,
+          source: 'agent_mission',
+          cost_estimate: null,
+          created_at: lead.created_at,
+          queue_source: 'agent_mission',
+        })) as Lead[]
+      )
+      setLoading(false)
+      return
+    }
 
     const { data } = await supabase
       .from('leads')
@@ -319,10 +370,25 @@ export default function LeadsPage() {
           </div>
         </div>
 
+        {missionScopedView ? (
+          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-400/18 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">
+            Showing leads from this mission
+          </div>
+        ) : null}
+
         {!hasLeads ? (
           <div className="glass rounded-xl p-12 text-center text-slate-400">
-            No leads in this view yet. <br />
-            <span className="text-sm">Run Prospector to add new session results.</span>
+            {missionScopedView ? (
+              <>
+                No leads from this mission yet. <br />
+                <span className="text-sm">Run the mission again to discover more qualified businesses.</span>
+              </>
+            ) : (
+              <>
+                No leads in this view yet. <br />
+                <span className="text-sm">Run Prospector to add new session results.</span>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -386,7 +452,7 @@ export default function LeadsPage() {
             </div>
 
             <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-4">
-              {!limitedMode ? (
+              {!limitedMode && !missionScopedView ? (
                 <label className="flex h-10 items-center gap-2 text-sm text-slate-300">
                   <input
                     type="checkbox"
@@ -397,7 +463,7 @@ export default function LeadsPage() {
                 </label>
               ) : null}
 
-              {!limitedMode ? (
+              {!limitedMode && !missionScopedView ? (
                 <select
                   value={cityFilter}
                   onChange={(event) => setCityFilter(event.target.value)}
@@ -427,7 +493,7 @@ export default function LeadsPage() {
               <div className="text-xs italic text-slate-500">
                 Pick the most promising opportunity and start the first conversation.
               </div>
-            ) : selected.length > 0 ? (
+            ) : selected.length > 0 && !missionScopedView ? (
               <div className="glass flex flex-wrap items-center justify-between gap-3 rounded-xl p-4">
                 <div className="text-sm text-slate-300">{selected.length} selected</div>
 
@@ -510,13 +576,13 @@ export default function LeadsPage() {
                     isNew={lead.status === 'inbox'}
                     context="inbox"
                     sourceUrl={lead.website}
-                    sourceLabel={!limitedMode ? lead.email_source : null}
-                    selected={!limitedMode && selected.includes(lead.id)}
-                    onToggleSelect={!limitedMode ? () => toggleSelect(lead.id) : undefined}
-                    onView={() => router.push(`/dashboard/leads/${lead.id}`)}
-                    onAddToPipeline={() => void moveToPipeline([lead.id])}
+                    sourceLabel={missionScopedView ? 'Agent mission' : !limitedMode ? lead.email_source : null}
+                    selected={!limitedMode && !missionScopedView && selected.includes(lead.id)}
+                    onToggleSelect={!limitedMode && !missionScopedView ? () => toggleSelect(lead.id) : undefined}
+                    onView={!missionScopedView ? () => router.push(`/dashboard/leads/${lead.id}`) : undefined}
+                    onAddToPipeline={!missionScopedView ? () => void moveToPipeline([lead.id]) : undefined}
                     onContact={
-                      lead.email
+                      !missionScopedView && lead.email
                         ? () => {
                             if (emailLocked) {
                               openContactLock()
@@ -564,5 +630,13 @@ export default function LeadsPage() {
         summaryLine={`${leads.length} leads ready from your ALPA trial`}
       />
     </>
+  )
+}
+
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<div className="text-slate-400">Loading leads...</div>}>
+      <LeadsPageContent />
+    </Suspense>
   )
 }
