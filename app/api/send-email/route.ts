@@ -257,6 +257,8 @@ export async function POST(req: Request) {
       console.log('=== RESEND SUCCESS ===')
       console.log(resendResponse)
 
+      let newCount = 1
+
       try {
         if (userId) {
           const today = new Date().toISOString().slice(0, 10)
@@ -267,13 +269,15 @@ export async function POST(req: Request) {
             .eq('usage_date', today)
             .maybeSingle()
 
+          newCount = (existingUsage?.emails_sent || 0) + 1
+
           const { error: usageError } = await supabase
             .from('email_usage')
             .upsert(
               {
                 user_id: userId,
                 usage_date: today,
-                emails_sent: (existingUsage?.emails_sent ?? 0) + 1,
+                emails_sent: newCount,
               },
               {
                 onConflict: 'user_id,usage_date',
@@ -290,6 +294,8 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
+        result: 'sent',
+        usage: buildUsageSnapshot(newCount),
       })
     } catch (error: any) {
       console.error('=== FULL ERROR OBJECT ===')
@@ -300,6 +306,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
+          result: 'failed',
           error: 'SEND_FAILED',
           message: error?.message || 'No message',
           name: error?.name || 'No name',
@@ -318,6 +325,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
+        result: 'failed',
         error: 'SEND_FAILED',
         message: error?.message || 'No message',
         name: error?.name || 'No name',

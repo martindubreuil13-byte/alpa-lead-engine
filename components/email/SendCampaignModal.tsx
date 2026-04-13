@@ -514,6 +514,7 @@ export default function SendCampaignModal({
       return {
         ok: false as const,
         skipped: false as const,
+        result: result?.result || 'failed',
         error: result?.error || 'Failed to send email',
         message: result?.message || 'Email failed to send. Check configuration.',
         usage: (result?.usage as EmailUsageSnapshot | undefined) ?? undefined,
@@ -523,6 +524,7 @@ export default function SendCampaignModal({
     return {
       ok: true as const,
       skipped: false as const,
+      result: result?.result || 'sent',
       usage: (result?.usage as EmailUsageSnapshot | undefined) ?? undefined,
     }
   }
@@ -559,12 +561,12 @@ export default function SendCampaignModal({
     setTestStatusMessage('')
     setCampaignFeedback(null)
 
-    let sentCount = 0
-    let skippedCount = 0
+    let sent = 0
+    let skipped = 0
+    let failed = 0
     const sentLeadIds: string[] = []
-    const failed: string[] = []
-    let limitError: string | null = null
-    let firstFailureMessage = ''
+    let lastErrorMessage = ''
+    let lastUsage: EmailUsageSnapshot | null = null
 
     try {
       console.log('MODAL IDS:', modalSelectedIds)
@@ -596,6 +598,11 @@ export default function SendCampaignModal({
       }
 
       for (const lead of leadsToSend) {
+        if (!sendAsTest && !lead.email?.trim()) {
+          skipped += 1
+          continue
+        }
+
         const result = await sendLeadEmail(
           lead,
           selectedTemplate || DEFAULT_TEMPLATE,
@@ -607,25 +614,20 @@ export default function SendCampaignModal({
 
         if (result.ok) {
           if (result.usage) {
-            setEmailUsage(result.usage)
+            lastUsage = result.usage
           }
-          sentCount += 1
+          sent += 1
           sentLeadIds.push(lead.id)
           continue
         }
 
         if (result.skipped) {
-          skippedCount += 1
+          skipped += 1
           continue
         }
 
         if (result.usage) {
-          setEmailUsage(result.usage)
-        }
-
-        if (result.error === 'DAILY_LIMIT_REACHED') {
-          limitError = result.error
-          break
+          lastUsage = result.usage
         }
 
         console.error('Campaign email failed:', result.error, {
@@ -633,44 +635,29 @@ export default function SendCampaignModal({
           to: lead.email,
           message: result.message,
         })
-        firstFailureMessage = firstFailureMessage || result.message || ''
-        failed.push(lead.company_name || lead.email || lead.id)
+        failed += 1
+        lastErrorMessage = result.message || lastErrorMessage
       }
 
       if (sentLeadIds.length > 0) {
         onSent(sentLeadIds)
       }
 
-      if (limitError) {
-        const feedback = getEmailLimitFeedback(limitError)
-        setCampaignFeedback({
-          tone: 'warning',
-          title: feedback.title,
-          message: feedback.message,
-          subtext: feedback.subtext,
-        })
-        return
-      }
-
-      if (failed.length > 0) {
-        setCampaignFeedback({
-          tone: 'error',
-          title: 'Some Emails Were Not Sent',
-          message: firstFailureMessage || 'Email failed to send. Check configuration.',
-          subtext: 'You can review the selection and retry the remaining leads.',
-        })
-        return
+      if (lastUsage) {
+        setEmailUsage(lastUsage)
+      } else {
+        await fetchEmailUsage()
       }
 
       setCampaignFeedback({
-        tone: 'success',
-        title: 'Campaign Sent',
-        message: `Sent ${sentCount} email(s). Skipped ${skippedCount}.`,
+        tone: failed > 0 ? 'warning' : 'success',
+        title: 'Campaign Complete',
+        message: `Sent ${sent} email(s). Skipped ${skipped}. Failed ${failed}.`,
+        subtext:
+          failed > 0
+            ? `You can retry failed leads.${lastErrorMessage ? ` Last error: ${lastErrorMessage}` : ''}`
+            : undefined,
       })
-
-      if (sentLeadIds.length > 0) {
-        onClose()
-      }
     } catch (error) {
       console.error('Campaign email failed:', error)
       setCampaignFeedback({
@@ -1040,7 +1027,7 @@ export default function SendCampaignModal({
                       : 'btn-primary'
                   }`}
                 >
-                  {loading ? 'Sending...' : 'Send emails'}
+                  {loading ? 'Sending emails...' : 'Send emails'}
                 </button>
               )
             })()}
