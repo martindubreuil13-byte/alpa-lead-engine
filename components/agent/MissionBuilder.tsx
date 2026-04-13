@@ -154,19 +154,8 @@ export default function MissionBuilder({ icpId, embedded = false }: MissionBuild
   }
 
   return (
-    <section className="glass overflow-hidden p-4 sm:p-6">
-      <div className="space-y-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/55">
-          Mission Builder
-        </div>
-        <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
-          Create a mission from this active ICP
-        </h2>
-      </div>
-
-      <div className="mt-5 space-y-4">
-        {content}
-      </div>
+    <section className="overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,15,29,0.82),rgba(5,10,18,0.94))] p-4 shadow-[0_18px_40px_rgba(2,8,23,0.18)] sm:p-6">
+      <div className="space-y-4">{content}</div>
     </section>
   )
 }
