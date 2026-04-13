@@ -16,11 +16,13 @@ export default function MissionBuilder({ icpId, embedded = false }: MissionBuild
   const [location, setLocation] = useState('Global')
   const [loading, setLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLoading(true)
     setSuccessMessage(null)
+    setErrorMessage(null)
 
     try {
       const response = await fetch('/api/agent/missions/create', {
@@ -54,7 +56,7 @@ export default function MissionBuilder({ icpId, embedded = false }: MissionBuild
       router.refresh()
     } catch (error) {
       console.error(error)
-      alert('Failed to create mission')
+      setErrorMessage('Failed to create mission')
     } finally {
       setLoading(false)
     }
@@ -63,6 +65,15 @@ export default function MissionBuilder({ icpId, embedded = false }: MissionBuild
   const content = (
     <>
       <div className="space-y-2">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/55">
+          Mission Builder
+        </div>
+        <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+          Launch Mission
+        </h2>
+        <p className="text-sm leading-6 text-slate-400">
+          Define what the agent should do daily.
+        </p>
         <p className="text-sm leading-6 text-slate-400">
           Email is currently supported. Phone support coming soon.
         </p>
@@ -126,6 +137,12 @@ export default function MissionBuilder({ icpId, embedded = false }: MissionBuild
         {successMessage ? (
           <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
             {successMessage}
+          </div>
+        ) : null}
+
+        {errorMessage ? (
+          <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            {errorMessage}
           </div>
         ) : null}
       </form>

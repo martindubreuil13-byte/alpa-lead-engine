@@ -1,12 +1,11 @@
 import { redirect } from 'next/navigation'
 
 import AgentWorkspace from '@/components/agent/AgentWorkspace'
-import ICPInput from '@/components/agent/ICPInput'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { isAdmin } from '@/lib/auth/access'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import type { ICPData } from '@/lib/ai/icp'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,25 +88,27 @@ export default async function AgentModePage() {
     redirect('/')
   }
 
-  const supabase = await createSupabaseServerClient()
-  const { data: savedIcpRows } = await supabase
-    .from('agent_icp')
-    .select('id, structured_output, is_active, status, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
+  const supabase = await createServerClient()
+  const [{ data: savedIcpRows }, { data: missionRows }] = await Promise.all([
+    supabase
+      .from('agent_icp')
+      .select('id, structured_output, is_active, status, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('agent_missions')
+      .select('id, name, status, leads_per_day, contact_mode, location')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }),
+  ])
 
-  const initialSavedIcps = (savedIcpRows || [])
+  const initialSavedIcps: SavedIcpRecord[] = (savedIcpRows ?? [])
     .map(mapStoredIcpRecord)
     .filter((row): row is SavedIcpRecord => Boolean(row))
-  const activeIcp = initialSavedIcps.find((icp) => icp.isActive) ?? null
+  const initialActiveIcp: SavedIcpRecord | null =
+    initialSavedIcps.find((icp) => icp.isActive) ?? null
 
-  const { data: missionRows } = await supabase
-    .from('agent_missions')
-    .select('id, name, status, leads_per_day, contact_mode, location')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-
-  const missions: AgentMissionRecord[] = (missionRows || []).map((mission) => ({
+  const initialMissions: AgentMissionRecord[] = (missionRows ?? []).map((mission) => ({
     id: mission.id,
     name: mission.name,
     status: mission.status,
@@ -116,7 +117,22 @@ export default async function AgentModePage() {
     location: mission.location,
   }))
 
-  const activeMission = missions.find((mission) => mission.status === 'active') ?? missions[0] ?? null
+  const initialActiveMission =
+    initialMissions.find((mission) => mission.status === 'active') ?? initialMissions[0] ?? null
+  const workspaceSnapshotKey = JSON.stringify({
+    savedIcps: initialSavedIcps.map((icp) => ({
+      id: icp.id,
+      isActive: icp.isActive,
+      status: icp.status,
+    })),
+    activeIcpId: initialActiveIcp?.id ?? null,
+    missions: initialMissions.map((mission) => ({
+      id: mission.id,
+      name: mission.name,
+      status: mission.status,
+    })),
+    activeMissionId: initialActiveMission?.id ?? null,
+  })
 
   return (
     <DashboardShell>
@@ -139,9 +155,11 @@ export default async function AgentModePage() {
         </header>
 
         <AgentWorkspace
+          key={workspaceSnapshotKey}
           initialSavedIcps={initialSavedIcps}
-          activeIcp={activeIcp}
-          activeMission={activeMission}
+          initialActiveIcp={initialActiveIcp}
+          initialMissions={initialMissions}
+          initialActiveMission={initialActiveMission}
         />
       </div>
     </DashboardShell>
