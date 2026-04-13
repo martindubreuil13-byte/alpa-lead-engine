@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import AgentInsightPanel from '@/components/agent/AgentInsightPanel'
+import AgentWorkspace from '@/components/agent/AgentWorkspace'
 import ICPInput from '@/components/agent/ICPInput'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { isAdmin } from '@/lib/auth/access'
@@ -16,6 +16,15 @@ type SavedIcpRecord = {
   isActive: boolean
   status: string
   createdAt: string
+}
+
+type AgentMissionRecord = {
+  id: string
+  name: string | null
+  status: string
+  leadsPerDay: number
+  contactMode: string
+  location: string
 }
 
 function mapStoredIcp(structuredOutput: unknown): ICPData | null {
@@ -90,6 +99,24 @@ export default async function AgentModePage() {
   const initialSavedIcps = (savedIcpRows || [])
     .map(mapStoredIcpRecord)
     .filter((row): row is SavedIcpRecord => Boolean(row))
+  const activeIcp = initialSavedIcps.find((icp) => icp.isActive) ?? null
+
+  const { data: missionRows } = await supabase
+    .from('agent_missions')
+    .select('id, name, status, leads_per_day, contact_mode, location')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+
+  const missions: AgentMissionRecord[] = (missionRows || []).map((mission) => ({
+    id: mission.id,
+    name: mission.name,
+    status: mission.status,
+    leadsPerDay: mission.leads_per_day,
+    contactMode: mission.contact_mode,
+    location: mission.location,
+  }))
+
+  const activeMission = missions.find((mission) => mission.status === 'active') ?? missions[0] ?? null
 
   return (
     <DashboardShell>
@@ -111,15 +138,11 @@ export default async function AgentModePage() {
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
-          <div className="min-w-0">
-            <ICPInput initialSavedIcps={initialSavedIcps} />
-          </div>
-
-          <div className="hidden lg:block">
-            <AgentInsightPanel />
-          </div>
-        </div>
+        <AgentWorkspace
+          initialSavedIcps={initialSavedIcps}
+          activeIcp={activeIcp}
+          activeMission={activeMission}
+        />
       </div>
     </DashboardShell>
   )

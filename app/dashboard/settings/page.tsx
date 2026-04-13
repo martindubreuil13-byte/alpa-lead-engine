@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import SignaturePreview from '@/components/email/SignaturePreview'
+import { getEmailLimitFeedback } from '@/lib/email/send-limits'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 import { supabase } from '@/lib/supabase'
 
@@ -20,6 +21,7 @@ type SenderSettingsRow = {
 }
 
 type ViewMode = 'form' | 'preview'
+type TestStatusTone = 'default' | 'success' | 'warning' | 'error'
 
 type SenderProfile = {
   name?: string
@@ -81,6 +83,8 @@ export default function SettingsPage() {
   const [uploading, setUploading] = useState(false)
   const [testSending, setTestSending] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
+  const [testStatusMessage, setTestStatusMessage] = useState('')
+  const [testStatusTone, setTestStatusTone] = useState<TestStatusTone>('default')
   const [viewMode, setViewMode] = useState<ViewMode>('form')
 
   const [senderName, setSenderName] = useState('')
@@ -267,6 +271,8 @@ export default function SettingsPage() {
     }
 
     setTestSending(true)
+    setTestStatusMessage('')
+    setTestStatusTone('default')
 
     try {
       const {
@@ -316,14 +322,24 @@ export default function SettingsPage() {
 
       if (!response.ok) {
         console.error('Test email failed:', result?.error || 'Unknown error')
-        alert('Failed to send test email.')
+        if (result?.error === 'DAILY_LIMIT_REACHED') {
+          const feedback = getEmailLimitFeedback(result.error)
+          setTestStatusTone('warning')
+          setTestStatusMessage(feedback.message)
+          return
+        }
+
+        setTestStatusTone('error')
+        setTestStatusMessage('ALPA could not send the test email right now.')
         return
       }
 
-      alert('Test email sent. Check your inbox or spam.')
+      setTestStatusTone('success')
+      setTestStatusMessage('Test email sent. Check your inbox or spam.')
     } catch (error) {
       console.error('Test email failed:', error)
-      alert('Failed to send test email.')
+      setTestStatusTone('error')
+      setTestStatusMessage('ALPA could not send the test email right now.')
     } finally {
       setTestSending(false)
     }
@@ -542,6 +558,22 @@ export default function SettingsPage() {
                 >
                   {testSending ? 'Sending test...' : 'Send Test Email'}
                 </button>
+
+                {testStatusMessage ? (
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      testStatusTone === 'success'
+                        ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-50'
+                        : testStatusTone === 'warning'
+                          ? 'border-amber-300/20 bg-amber-400/10 text-amber-50'
+                          : testStatusTone === 'error'
+                            ? 'border-rose-300/20 bg-rose-400/10 text-rose-50'
+                            : 'border-white/10 bg-white/[0.04] text-slate-300'
+                    }`}
+                  >
+                    {testStatusMessage}
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>

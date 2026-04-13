@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
+import { getEmailLimitFeedback } from '@/lib/email/send-limits'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
@@ -58,6 +59,12 @@ type SenderProfile = {
 }
 
 type ViewMode = 'details' | 'preview'
+type SendFeedback = {
+  tone: 'success' | 'warning' | 'error'
+  title: string
+  message: string
+  subtext?: string
+}
 
 const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
 
@@ -213,6 +220,7 @@ export default function Page() {
   const [sending, setSending] = useState(false)
   const [showFeatureLock, setShowFeatureLock] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('details')
+  const [sendFeedback, setSendFeedback] = useState<SendFeedback | null>(null)
   const plan = profile?.plan || 'free'
   const isFree = plan === 'free'
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
@@ -347,17 +355,26 @@ export default function Page() {
     }
 
     if (!lead.email?.trim()) {
-      alert('This lead does not have an email address.')
+      setSendFeedback({
+        tone: 'error',
+        title: 'Email Address Missing',
+        message: 'This lead does not have an email address yet.',
+      })
       return
     }
 
     if (!currentUserIdentity?.email) {
-      alert('Your account email is missing. Please update your account before sending.')
+      setSendFeedback({
+        tone: 'error',
+        title: 'Reply-To Email Missing',
+        message: 'Add your account email before sending so replies can route back to your inbox.',
+      })
       return
     }
 
     try {
       setSending(true)
+      setSendFeedback(null)
 
       const to = lead.email.trim().toLowerCase()
       const subject = selectedTemplate.subject?.trim() || 'Quick question'
@@ -390,14 +407,37 @@ export default function Page() {
 
       if (!response.ok) {
         console.error('Single lead email failed:', data?.error || 'Unknown error')
-        alert('Failed to send email: ' + (data?.error || 'Unknown error'))
+        if (data?.error === 'DAILY_LIMIT_REACHED') {
+          const feedback = getEmailLimitFeedback(data.error)
+          setSendFeedback({
+            tone: 'warning',
+            title: feedback.title,
+            message: feedback.message,
+            subtext: feedback.subtext,
+          })
+          return
+        }
+
+        setSendFeedback({
+          tone: 'error',
+          title: 'Email Sending Unavailable',
+          message: 'ALPA could not send this email right now. Please try again in a moment.',
+        })
         return
       }
 
-      alert('Email sent successfully')
+      setSendFeedback({
+        tone: 'success',
+        title: 'Email Sent',
+        message: 'Your email was sent successfully and replies will route back to your inbox.',
+      })
     } catch (error) {
       console.error('Single lead email failed:', error)
-      alert('Error sending email')
+      setSendFeedback({
+        tone: 'error',
+        title: 'Email Sending Unavailable',
+        message: 'ALPA could not send this email right now. Please try again in a moment.',
+      })
     } finally {
       setSending(false)
     }
@@ -569,6 +609,24 @@ export default function Page() {
                 />
               </div>
             )}
+
+            {sendFeedback ? (
+              <div
+                className={`mt-6 rounded-[24px] border px-4 py-4 text-sm ${
+                  sendFeedback.tone === 'success'
+                    ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-50'
+                    : sendFeedback.tone === 'warning'
+                      ? 'border-amber-300/20 bg-amber-400/10 text-amber-50'
+                      : 'border-rose-300/20 bg-rose-400/10 text-rose-50'
+                }`}
+              >
+                <div className="font-medium">{sendFeedback.title}</div>
+                <div className="mt-1 leading-6">{sendFeedback.message}</div>
+                {sendFeedback.subtext ? (
+                  <div className="mt-2 text-xs text-current/80">{sendFeedback.subtext}</div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="mt-6 sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:hidden">
               <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">

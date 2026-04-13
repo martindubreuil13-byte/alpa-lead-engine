@@ -53,6 +53,23 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["usage"]["Insert"]>;
       };
+      email_usage: {
+        Row: {
+          user_id: string;
+          usage_date: string;
+          emails_sent: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          usage_date: string;
+          emails_sent?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["email_usage"]["Insert"]>;
+      };
       users: {
         Row: UserProfile;
         Insert: {
@@ -141,6 +158,72 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_icp"]["Insert"]>;
+      };
+      agent_missions: {
+        Row: {
+          id: string;
+          user_id: string;
+          icp_id: string;
+          name: string | null;
+          status: string;
+          leads_per_day: number;
+          contact_mode: string;
+          require_email: boolean;
+          require_phone: boolean;
+          require_website: boolean;
+          location: string;
+          outreach_mode: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          icp_id: string;
+          name?: string | null;
+          status?: string;
+          leads_per_day?: number;
+          contact_mode?: string;
+          require_email?: boolean;
+          require_phone?: boolean;
+          require_website?: boolean;
+          location?: string;
+          outreach_mode?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_missions"]["Insert"]>;
+      };
+      agent_lead_queue: {
+        Row: {
+          id: string;
+          user_id: string;
+          mission_id: string;
+          icp_id: string;
+          business_name: string | null;
+          website: string | null;
+          email: string | null;
+          phone: string | null;
+          qualification_status: string;
+          context_status: string;
+          draft_status: string;
+          draft_email: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          mission_id: string;
+          icp_id: string;
+          business_name?: string | null;
+          website?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          qualification_status?: string;
+          context_status?: string;
+          draft_status?: string;
+          draft_email?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_lead_queue"]["Insert"]>;
       };
       guest_lead_captures: {
         Row: {
@@ -250,6 +333,20 @@ export interface Database {
       };
     };
     Functions: {
+      increment_email_usage: {
+        Args: {
+          target_user_id: string;
+          target_date: string;
+          increment_by?: number;
+        };
+        Returns: {
+          user_id: string;
+          usage_date: string;
+          emails_sent: number;
+          created_at: string;
+          updated_at: string;
+        }[];
+      };
       mark_followup_due: {
         Args: {
           user_id_input: string;

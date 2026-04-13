@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ChevronDown,
   ChevronUp,
@@ -16,6 +17,7 @@ import {
 import type { ICPData } from '@/lib/ai/icp'
 import AgentInsightPanel, { INSIGHT_POINTS } from '@/components/agent/AgentInsightPanel'
 import ICPPreview from '@/components/agent/ICPPreview'
+import MissionBuilder from '@/components/agent/MissionBuilder'
 
 type SavedIcpRecord = {
   id: string
@@ -27,6 +29,7 @@ type SavedIcpRecord = {
 
 type ICPInputProps = {
   initialSavedIcps?: SavedIcpRecord[]
+  builderOnly?: boolean
 }
 
 const EXAMPLE_COPY = `I help freelancers and small agencies generate leads automatically.
@@ -44,12 +47,13 @@ const STEPS = [
   'Finalizing your ICP',
 ]
 
-export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
+export default function ICPInput({ initialSavedIcps = [], builderOnly = false }: ICPInputProps) {
+  const router = useRouter()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [preview, setPreview] = useState<{ id: string | null; data: ICPData } | null>(null)
   const [savedIcps, setSavedIcps] = useState<SavedIcpRecord[]>(initialSavedIcps)
-  const [showBuilder, setShowBuilder] = useState(() => initialSavedIcps.length === 0)
+  const [showBuilder, setShowBuilder] = useState(() => builderOnly || initialSavedIcps.length === 0)
   const [showExample, setShowExample] = useState(false)
   const [showMobileHowItWorks, setShowMobileHowItWorks] = useState(false)
   const [stepIndex, setStepIndex] = useState(0)
@@ -160,7 +164,7 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
     setError(null)
     setWarning(null)
     setStepIndex(0)
-    setShowBuilder(savedIcps.length === 0)
+    setShowBuilder(builderOnly || savedIcps.length === 0)
   }
 
   async function activateIcp(id: string | null) {
@@ -193,7 +197,8 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
       )
 
       setPreview(null)
-      setShowBuilder(false)
+      setShowBuilder(builderOnly ? true : false)
+      router.refresh()
     } catch (err) {
       console.error(err)
       setError('Failed to activate ICP')
@@ -226,7 +231,8 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
       const remainingIcps = savedIcps.filter((item) => item.id !== id)
       setSavedIcps(remainingIcps)
       setPreview((current) => (current?.id === id ? null : current))
-      setShowBuilder((current) => current || remainingIcps.length === 0)
+      setShowBuilder((current) => current || builderOnly || remainingIcps.length === 0)
+      router.refresh()
     } catch (err) {
       console.error(err)
       setError('Failed to delete ICP')
@@ -321,7 +327,7 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
 
   return (
     <div className="space-y-4">
-      {activeIcp ? (
+      {!builderOnly && activeIcp ? (
         <section className="glass overflow-hidden p-4 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
@@ -363,6 +369,10 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
 
           <div className="mt-5">
             <ICPPreview data={activeIcp.data} />
+          </div>
+
+          <div className="mt-5">
+            <MissionBuilder icpId={activeIcp.id} />
           </div>
         </section>
       ) : null}
@@ -550,6 +560,7 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
         </section>
       ) : null}
 
+      {!builderOnly ? (
       <section className="glass p-4 lg:hidden">
         <button
           type="button"
@@ -578,6 +589,7 @@ export default function ICPInput({ initialSavedIcps = [] }: ICPInputProps) {
           </div>
         ) : null}
       </section>
+      ) : null}
     </div>
   )
 }

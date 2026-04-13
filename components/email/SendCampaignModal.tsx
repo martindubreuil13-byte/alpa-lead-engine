@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
+import {
+  DAILY_LIMIT_WARNING_THRESHOLD,
+  getEmailLimitFeedback,
+  type EmailUsageSnapshot,
+} from '@/lib/email/send-limits'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
@@ -52,6 +57,13 @@ type SenderProfile = {
 }
 
 type ViewMode = 'details' | 'preview'
+type FeedbackTone = 'success' | 'warning' | 'error'
+type CampaignFeedback = {
+  tone: FeedbackTone
+  title: string
+  message: string
+  subtext?: string
+}
 
 const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
 const DEFAULT_TEMPLATE: Template = {
@@ -231,12 +243,16 @@ export default function SendCampaignModal({
   const [sendAsTest, setSendAsTest] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
   const [testStatusMessage, setTestStatusMessage] = useState('')
+  const [campaignFeedback, setCampaignFeedback] = useState<CampaignFeedback | null>(null)
+  const [emailUsage, setEmailUsage] = useState<EmailUsageSnapshot | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('details')
 
   useEffect(() => {
     if (isOpen) {
       setModalSelectedIds(selectedIds)
       setViewMode('details')
+      setCampaignFeedback(null)
+      setTestStatusMessage('')
     }
   }, [isOpen, selectedIds])
 
@@ -273,6 +289,10 @@ export default function SendCampaignModal({
     [currentUserIdentity, senderSettings]
   )
   const testEmail = senderSettings?.test_email?.trim() || currentUserIdentity?.email || ''
+  const isNearDailyLimit =
+    emailUsage !== null &&
+    emailUsage.remaining > 0 &&
+    emailUsage.remaining <= DAILY_LIMIT_WARNING_THRESHOLD
 
   const previewContent = useMemo(() => {
     const subject = safeTemplate.subject?.trim() || 'Test Email from ALPA'
@@ -301,10 +321,22 @@ export default function SendCampaignModal({
     }
   }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail, modalSelectedIds])
 
+  async function fetchEmailUsage() {
+    const response = await fetch('/api/send-email', {
+      cache: 'no-store',
+    })
+    const result = await response.json().catch(() => null)
+
+    if (response.ok && result?.usage) {
+      setEmailUsage(result.usage as EmailUsageSnapshot)
+    }
+  }
+
   async function fetchEmailSetup() {
     setLoadingPreview(true)
     setTemplateMessage('')
     setTestStatusMessage('')
+    setCampaignFeedback(null)
 
     const {
       data: { user },
@@ -324,6 +356,7 @@ export default function SendCampaignModal({
       email: user.email?.trim().toLowerCase() || '',
       name: getCurrentUserName(user),
     })
+    await fetchEmailUsage()
 
     const templateRequest = supabase
       .from('templates')
@@ -482,35 +515,54 @@ export default function SendCampaignModal({
         ok: false as const,
         skipped: false as const,
         error: result?.error || 'Failed to send email',
+        usage: (result?.usage as EmailUsageSnapshot | undefined) ?? undefined,
       }
     }
 
-    return { ok: true as const, skipped: false as const }
+    return {
+      ok: true as const,
+      skipped: false as const,
+      usage: (result?.usage as EmailUsageSnapshot | undefined) ?? undefined,
+    }
   }
 
   async function sendCampaign() {
-  if (!sendAsTest && selectedIds.length === 0) {
-  alert('Please select at least one lead before sending emails.')
-  return
-}
+    if (!sendAsTest && selectedIds.length === 0) {
+      setCampaignFeedback({
+        tone: 'error',
+        title: 'No Leads Selected',
+        message: 'Select at least one lead before starting a campaign send.',
+      })
+      return
+    }
 
     if (!currentUserIdentity?.email) {
-      alert('Your account email is missing. Please update your account before sending.')
+      setCampaignFeedback({
+        tone: 'error',
+        title: 'Reply-To Email Missing',
+        message: 'Add your account email before sending so replies can route back to your inbox.',
+      })
       return
     }
 
     if (!selectedTemplateId) {
-      alert('Please choose a template before sending emails.')
+      setCampaignFeedback({
+        tone: 'error',
+        title: 'Template Required',
+        message: 'Choose a template before sending emails.',
+      })
       return
     }
 
     setLoading(true)
     setTestStatusMessage('')
+    setCampaignFeedback(null)
 
     let sentCount = 0
     let skippedCount = 0
     const sentLeadIds: string[] = []
     const failed: string[] = []
+    let limitError: string | null = null
 
     try {
       console.log('MODAL IDS:', modalSelectedIds)
@@ -530,7 +582,11 @@ export default function SendCampaignModal({
         ]
       } else {
         if (selectedLeads.length === 0) {
-          alert('The selected leads could not be loaded. Please close this window and try again.')
+          setCampaignFeedback({
+            tone: 'error',
+            title: 'Leads Unavailable',
+            message: 'The selected leads could not be loaded. Close this window and try again.',
+          })
           return
         }
 
@@ -548,6 +604,9 @@ export default function SendCampaignModal({
         )
 
         if (result.ok) {
+          if (result.usage) {
+            setEmailUsage(result.usage)
+          }
           sentCount += 1
           sentLeadIds.push(lead.id)
           continue
@@ -556,6 +615,15 @@ export default function SendCampaignModal({
         if (result.skipped) {
           skippedCount += 1
           continue
+        }
+
+        if (result.usage) {
+          setEmailUsage(result.usage)
+        }
+
+        if (result.error === 'DAILY_LIMIT_REACHED') {
+          limitError = result.error
+          break
         }
 
         console.error('Campaign email failed:', result.error, {
@@ -569,19 +637,43 @@ export default function SendCampaignModal({
         onSent(sentLeadIds)
       }
 
-      if (failed.length > 0) {
-        alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`)
+      if (limitError) {
+        const feedback = getEmailLimitFeedback(limitError)
+        setCampaignFeedback({
+          tone: 'warning',
+          title: feedback.title,
+          message: feedback.message,
+          subtext: feedback.subtext,
+        })
         return
       }
 
-      alert(`Sent ${sentCount} email(s). Skipped ${skippedCount}.`)
+      if (failed.length > 0) {
+        setCampaignFeedback({
+          tone: 'error',
+          title: 'Some Emails Were Not Sent',
+          message: `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`,
+          subtext: 'You can review the selection and retry the remaining leads.',
+        })
+        return
+      }
+
+      setCampaignFeedback({
+        tone: 'success',
+        title: 'Campaign Sent',
+        message: `Sent ${sentCount} email(s). Skipped ${skippedCount}.`,
+      })
 
       if (sentLeadIds.length > 0) {
         onClose()
       }
     } catch (error) {
       console.error('Campaign email failed:', error)
-      alert('Error sending emails')
+      setCampaignFeedback({
+        tone: 'error',
+        title: 'Campaign Send Failed',
+        message: 'ALPA could not send these emails right now. Please try again in a moment.',
+      })
     } finally {
       setLoading(false)
     }
@@ -622,14 +714,31 @@ export default function SendCampaignModal({
 
       if (!result.ok && !result.skipped) {
         console.error('Test email failed:', result.error)
-        setTestStatusMessage(result.error || 'Failed to send test email')
+        if (result.usage) {
+          setEmailUsage(result.usage)
+        }
+        if (result.error === 'DAILY_LIMIT_REACHED') {
+          const feedback = getEmailLimitFeedback(result.error)
+          setCampaignFeedback({
+            tone: 'warning',
+            title: feedback.title,
+            message: feedback.message,
+            subtext: feedback.subtext,
+          })
+          setTestStatusMessage(feedback.title)
+          return
+        }
+        setTestStatusMessage('ALPA could not send the test email right now.')
         return
       }
 
+      if (result.ok && result.usage) {
+        setEmailUsage(result.usage)
+      }
       setTestStatusMessage('Test email sent')
     } catch (error) {
       console.error('Test email failed:', error)
-      setTestStatusMessage('Failed to send test email')
+      setTestStatusMessage('ALPA could not send the test email right now.')
     } finally {
       setTestLoading(false)
     }
@@ -725,6 +834,49 @@ export default function SendCampaignModal({
             </div>
           ) : currentUserIdentity ? (
             <div className="space-y-4">
+              {emailUsage ? (
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Daily sending
+                      </div>
+                      <div className="mt-2 text-base font-medium text-white">
+                        {emailUsage.sent} / {emailUsage.limit} emails sent today
+                      </div>
+                    </div>
+
+                    <div className="text-sm text-slate-400">
+                      {emailUsage.remaining} remaining today
+                    </div>
+                  </div>
+
+                  {isNearDailyLimit ? (
+                    <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm text-amber-50">
+                      You’re near your daily limit. This helps keep your emails landing in inboxes, not spam.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {campaignFeedback ? (
+                <div
+                  className={`rounded-[24px] border px-4 py-4 text-sm ${
+                    campaignFeedback.tone === 'success'
+                      ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-50'
+                      : campaignFeedback.tone === 'warning'
+                        ? 'border-amber-300/20 bg-amber-400/10 text-amber-50'
+                        : 'border-rose-300/20 bg-rose-400/10 text-rose-50'
+                  }`}
+                >
+                  <div className="font-medium">{campaignFeedback.title}</div>
+                  <div className="mt-1 leading-6">{campaignFeedback.message}</div>
+                  {campaignFeedback.subtext ? (
+                    <div className="mt-2 text-xs text-current/80">{campaignFeedback.subtext}</div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {viewMode === 'details' ? (
                 <div className="space-y-4">
                   <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
