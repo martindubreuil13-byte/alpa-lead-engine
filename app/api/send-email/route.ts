@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { z } from 'zod'
 
-import {
-  DAILY_EMAIL_LIMIT,
-  type EmailUsageSnapshot,
-} from '@/lib/email/send-limits'
+import { DAILY_EMAIL_LIMIT, type EmailUsageSnapshot } from '@/lib/email/send-limits'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -13,8 +10,6 @@ export const runtime = 'nodejs'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const FROM_EMAIL = 'ALPA by MINDRA <info@mindrasolutions.com>'
-const RESEND_THROTTLE_DELAY_MS = 300
-const emailSchema = z.string().trim().email()
 
 const senderProfileSchema = z
   .object({
@@ -30,7 +25,7 @@ const senderProfileSchema = z
 
 const sendEmailSchema = z.object({
   to: z.string().trim().email(),
-  subject: z.string().trim().min(4).max(200),
+  subject: z.string().trim().min(1).max(200),
   html: z.string().trim().min(1).max(100_000),
   userEmail: z.string().trim().email(),
   userName: z.string().trim().max(120).optional().catch(''),
@@ -52,17 +47,6 @@ function buildUsageSnapshot(sent: number): EmailUsageSnapshot {
   }
 }
 
-function extractEmailAddress(value: string) {
-  const match = value.match(/<([^>]+)>/)
-  return (match?.[1] || value).trim().toLowerCase()
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -70,18 +54,6 @@ function escapeHtml(value: string) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
-}
-
-function countLinks(html: string) {
-  const anchorLinks = html.match(/<a\b[^>]*href\s*=\s*["'][^"']+["'][^>]*>/gi) ?? []
-  const withoutAnchors = html.replace(/<a\b[^>]*>.*?<\/a>/gis, ' ')
-  const plainUrls = withoutAnchors.match(/https?:\/\/[^\s<>"']+/gi) ?? []
-
-  return anchorLinks.length + plainUrls.length
-}
-
-function containsUnsafeMarkup(html: string) {
-  return /<(script|iframe)\b/i.test(html)
 }
 
 function isValidPublicUrl(url: string | undefined) {
@@ -152,96 +124,39 @@ function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) 
   `
 }
 
-function serializeError(error: unknown) {
-  if (error instanceof Error) {
-    const base = {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    } as Record<string, unknown>
-    const errorRecord = error as unknown as Record<string, unknown>
-
-    for (const key of Object.keys(errorRecord)) {
-      base[key] = errorRecord[key]
-    }
-
-    return base
-  }
-
-  if (typeof error === 'object' && error !== null) {
-    return error
-  }
-
-  return { message: String(error) }
-}
-
-function hasQuotaHint(value: unknown) {
-  return /daily_quota_exceeded|rate_limit_exceeded/i.test(JSON.stringify(value))
-}
-
-async function getAuthenticatedUser() {
+async function getAuthenticatedUsage() {
   const supabase = await createServerClient()
   const {
     data: { user },
-    error,
   } = await supabase.auth.getUser()
 
-  if (error || !user?.id) {
-    return { supabase, user: null }
+  if (!user?.id) {
+    return { userId: null, sent: 0 }
   }
 
-  return { supabase, user }
-}
-
-async function getEmailsSentToday(userId: string, dayKey: string) {
-  const supabase = await createServerClient()
+  const today = getDayKey()
   const { data, error } = await supabase
     .from('email_usage')
     .select('emails_sent')
-    .eq('user_id', userId)
-    .eq('usage_date', dayKey)
+    .eq('user_id', user.id)
+    .eq('usage_date', today)
     .maybeSingle()
 
   if (error) {
-    throw error
+    console.error('EMAIL USAGE GET ERROR:', error)
+    return { userId: user.id, sent: 0 }
   }
 
-  return data?.emails_sent ?? 0
-}
-
-async function incrementEmailsSent(userId: string, dayKey: string) {
-  const supabase = await createServerClient()
-  const { data, error } = await supabase
-    .rpc('increment_email_usage', {
-      target_user_id: userId,
-      target_date: dayKey,
-      increment_by: 1,
-    })
-    .single()
-
-  if (error) {
-    throw error
-  }
-
-  const usageRow = data as { emails_sent: number } | null
-
-  if (!usageRow) {
-    throw new Error('Failed to increment email usage')
-  }
-
-  return usageRow.emails_sent
+  return { userId: user.id, sent: data?.emails_sent ?? 0 }
 }
 
 export async function GET() {
   try {
-    const { user } = await getAuthenticatedUser()
+    const { userId, sent } = await getAuthenticatedUsage()
 
-    if (!user?.id) {
+    if (!userId) {
       return NextResponse.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401 })
     }
-
-    const dayKey = getDayKey()
-    const sent = await getEmailsSentToday(user.id, dayKey)
 
     return NextResponse.json(
       {
@@ -257,12 +172,24 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  console.log('📥 /api/send-email HIT')
+  const supabase = await createServerClient()
+  let userId: string | null = null
+
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    userId = user?.id ?? null
+  } catch (authError) {
+    console.error('SUPABASE AUTH ERROR:', authError)
+  }
+
   console.log('RESEND KEY LOADED:', !!process.env.RESEND_API_KEY)
+  console.log('USER ID:', userId)
 
   try {
     const body = await req.json().catch(() => null)
-    console.log('📦 Payload:', body)
 
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid email payload' }, { status: 400 })
@@ -280,210 +207,122 @@ export async function POST(req: Request) {
       )
     }
 
-    const { user } = await getAuthenticatedUser()
-
-    if (!user?.id) {
-      return NextResponse.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401 })
-    }
-
-    const dayKey = getDayKey()
-    const sentToday = await getEmailsSentToday(user.id, dayKey)
-
-    if (sentToday >= DAILY_EMAIL_LIMIT) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DAILY_LIMIT_REACHED',
-          usage: buildUsageSnapshot(sentToday),
-        },
-        { status: 429 }
-      )
-    }
-
     const to = parsed.data.to.toLowerCase()
-    const authenticatedEmail =
-      user.email?.trim().toLowerCase() || parsed.data.userEmail.toLowerCase()
-    const subject = parsed.data.subject
+    const subject = parsed.data.subject.trim()
     const senderProfile = parsed.data.senderProfile
     const userName = parsed.data.userName?.trim()
     const isTest = parsed.data.isTest === true
-    const html = parsed.data.html
+    const authenticatedEmail = parsed.data.userEmail.toLowerCase()
     const safeUserName =
       userName ||
       senderProfile?.name?.trim() ||
       authenticatedEmail.split('@')[0] ||
       'User'
 
-    if (containsUnsafeMarkup(html)) {
-      return NextResponse.json(
-        { error: 'HTML contains unsupported markup' },
-        { status: 400 }
-      )
-    }
-
-    if (countLinks(html) > 3) {
-      return NextResponse.json(
-        { error: 'Email HTML can contain at most 3 links' },
-        { status: 400 }
-      )
-    }
-
-    if (process.env.EMAIL_SENDING_ENABLED !== 'true') {
+    if (!process.env.RESEND_API_KEY) {
       return NextResponse.json(
         {
-          success: true,
-          id: null,
-          message: 'Email sending disabled',
-          usage: buildUsageSnapshot(sentToday),
+          success: false,
+          error: 'SEND_FAILED',
+          message: 'RESEND_API_KEY is missing',
+          name: 'ConfigurationError',
+          stack: 'No stack',
+          full: JSON.stringify({ message: 'RESEND_API_KEY is missing' }),
         },
-        { status: 200 }
+        { status: 500 }
       )
-    }
-
-    if (!process.env.RESEND_API_KEY) {
-      console.error('❌ Missing RESEND_API_KEY')
-      return NextResponse.json({ success: false, error: 'SERVER_ERROR' }, { status: 500 })
     }
 
     const isTestMode = process.env.EMAIL_TEST_MODE === 'true'
     const testEmail = process.env.TEST_EMAIL?.trim().toLowerCase() || ''
-    const requestedRecipient = isTest && parsed.data.to ? parsed.data.to.toLowerCase() : to
-    const finalRecipient = isTestMode ? testEmail : requestedRecipient
-
-    if (isTestMode && !testEmail) {
-      return NextResponse.json({ error: 'TEST_EMAIL is not configured' }, { status: 500 })
-    }
-
-    if (isTestMode && !z.string().email().safeParse(testEmail).success) {
-      return NextResponse.json({ error: 'TEST_EMAIL is invalid' }, { status: 500 })
-    }
-
-    const finalHtml = buildFinalHtml(html, {
+    const finalRecipient = isTestMode && isTest ? testEmail : to
+    const from = FROM_EMAIL
+    const html = buildFinalHtml(parsed.data.html, {
       ...senderProfile,
       name: senderProfile?.name?.trim() || safeUserName,
       email: senderProfile?.email?.trim() || authenticatedEmail,
     })
 
-    const fromAddress = extractEmailAddress(FROM_EMAIL)
-    const senderDiagnostics = {
-      from: FROM_EMAIL,
-      fromAddress,
-      senderDomain: fromAddress.split('@')[1] || '',
-      senderUsesKnownDomain: fromAddress.endsWith('@mindrasolutions.com'),
-      recipientValid: emailSchema.safeParse(finalRecipient).success,
-      subjectPresent: subject.trim().length > 0,
-      htmlPresent: html.trim().length > 0,
-      apiKeyLoaded: !!process.env.RESEND_API_KEY,
-    }
-
-    console.log('EMAIL PAYLOAD:', {
-      from: FROM_EMAIL,
-      to: finalRecipient,
-      subject,
-    })
-    console.log('EMAIL DIAGNOSTICS:', senderDiagnostics)
-
-    const payload: Parameters<typeof resend.emails.send>[0] & { reply_to: string } = {
-      from: FROM_EMAIL,
-      to: [finalRecipient],
-      subject,
-      html: finalHtml,
-      replyTo: authenticatedEmail,
-      reply_to: authenticatedEmail,
-    }
-
-    await delay(RESEND_THROTTLE_DELAY_MS)
-
-    let resendResponse: Awaited<ReturnType<typeof resend.emails.send>>
-
     try {
-      resendResponse = await resend.emails.send(payload)
-      console.log('RESEND SUCCESS:', resendResponse)
-    } catch (error) {
-      console.error('RESEND ERROR FULL:', error)
+      console.log('=== BEFORE SEND ===')
+      console.log({ from, to: [finalRecipient], subject })
 
-      const details = serializeError(error)
-      console.error('RESEND ERROR FLAGS:', {
-        quotaExceeded: hasQuotaHint(details),
-        senderDomain: senderDiagnostics.senderDomain,
-        senderUsesKnownDomain: senderDiagnostics.senderUsesKnownDomain,
+      const resendResponse = await resend.emails.send({
+        from,
+        to: [finalRecipient],
+        subject,
+        html,
       })
-      const message =
-        (typeof details === 'object' &&
-        details !== null &&
-        'message' in details &&
-        typeof details.message === 'string'
-          ? details.message
-          : undefined) || 'Unknown error'
 
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'SEND_FAILED',
-          message,
-          details,
-        },
-        { status: 500 }
-      )
-    }
+      console.log('=== RESEND SUCCESS ===')
+      console.log(resendResponse)
 
-    const { data, error } = resendResponse
+      try {
+        if (userId) {
+          const today = new Date().toISOString().slice(0, 10)
+          const { data: existingUsage } = await supabase
+            .from('email_usage')
+            .select('emails_sent')
+            .eq('user_id', userId)
+            .eq('usage_date', today)
+            .maybeSingle()
 
-    if (error) {
-      console.error('RESEND ERROR FULL:', error)
+          const { error: usageError } = await supabase
+            .from('email_usage')
+            .upsert(
+              {
+                user_id: userId,
+                usage_date: today,
+                emails_sent: (existingUsage?.emails_sent ?? 0) + 1,
+              },
+              {
+                onConflict: 'user_id,usage_date',
+              }
+            )
 
-      const details = serializeError(error)
-      console.error('RESEND ERROR FLAGS:', {
-        quotaExceeded: hasQuotaHint(details),
-        senderDomain: senderDiagnostics.senderDomain,
-        senderUsesKnownDomain: senderDiagnostics.senderUsesKnownDomain,
-      })
-      const message =
-        (typeof details === 'object' &&
-        details !== null &&
-        'message' in details &&
-        typeof details.message === 'string'
-          ? details.message
-          : undefined) || 'Unknown error'
+          if (usageError) {
+            console.error('SUPABASE USAGE ERROR:', usageError)
+          }
+        }
+      } catch (dbError) {
+        console.error('SUPABASE CRASH:', dbError)
+      }
 
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'SEND_FAILED',
-          message,
-          details,
-        },
-        { status: 500 }
-      )
-    }
-
-    const updatedSent = await incrementEmailsSent(user.id, dayKey)
-
-    console.log('✅ Email sent:', data?.id)
-
-    if (subject === 'Test Email from ALPA') {
-      console.log('🧪 Test email sent to:', finalRecipient)
-    }
-
-    return NextResponse.json(
-      {
+      return NextResponse.json({
         success: true,
-        data,
-        id: data?.id ?? null,
-        usage: buildUsageSnapshot(updatedSent),
-      },
-      { status: 200 }
-    )
-  } catch (error) {
-    console.error('❌ Email error:', error)
-    const details = serializeError(error)
+      })
+    } catch (error: any) {
+      console.error('=== FULL ERROR OBJECT ===')
+      console.error(error)
+      console.error('=== STRINGIFIED ERROR ===')
+      console.error(JSON.stringify(error, Object.getOwnPropertyNames(error)))
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'SEND_FAILED',
+          message: error?.message || 'No message',
+          name: error?.name || 'No name',
+          stack: error?.stack || 'No stack',
+          full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        },
+        { status: 500 }
+      )
+    }
+  } catch (error: any) {
+    console.error('=== FULL ERROR OBJECT ===')
+    console.error(error)
+    console.error('=== STRINGIFIED ERROR ===')
+    console.error(JSON.stringify(error, Object.getOwnPropertyNames(error)))
 
     return NextResponse.json(
       {
         success: false,
         error: 'SEND_FAILED',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        details,
+        message: error?.message || 'No message',
+        name: error?.name || 'No name',
+        stack: error?.stack || 'No stack',
+        full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
       },
       { status: 500 }
     )
