@@ -15,6 +15,7 @@ import {
   sanitizeWebsite,
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
+import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { isCountableLead } from '@/lib/usage/usage'
 
 export const runtime = 'nodejs'
@@ -977,229 +978,23 @@ async function runScraper(
       return
     }
 
-    let totalApiCost = 0
-    let googleCalls = 0
-    const discoveredLeads: DiscoveryLead[] = []
-    const sentPhases = new Set<ScrapePhase>()
-
-    const targetStrongSignalLeads = Math.min(HIGH_CONFIDENCE_TARGET, maxLeads)
-    const websiteTarget = Math.min(MIN_WEBSITE_TARGET, maxLeads)
-    const sendPhase = (phase: ScrapePhase) => {
-      if (sentPhases.has(phase)) {
-        return
-      }
-
-      sentPhases.add(phase)
-      send(phase)
-    }
-
-    send('🚀 starting scraper')
-    sendPhase('Finding businesses')
-
-    const serperQueries = buildSerperQueries(query, defaultCity)
-    const serperLeadTarget = Math.min(maxLeads, SERPER_EARLY_STOP_LEADS)
-
-    for (const currentQuery of serperQueries) {
-      if (discoveredLeads.length >= serperLeadTarget) {
-        send('Processing results...')
-        break
-      }
-
-      if (!canSpend(totalApiCost, SERPER_DISCOVERY_COST_ESTIMATE)) {
-        send(`💸 budget reached before Serper query (${SCRAPE_COST_BUDGET})`)
-        break
-      }
-
-      totalApiCost = roundCostEstimate(totalApiCost + SERPER_DISCOVERY_COST_ESTIMATE)
-      send(`🔎 ${currentQuery}`)
-      send('🛰️ Serper priority pass')
-
-      let serperResults: Awaited<ReturnType<typeof searchSerperMaps>> = []
-
-      try {
-        serperResults =
-          (await searchSerperMaps({
-            query: currentQuery,
-            city: defaultCity,
-            region,
-            maxResults: Math.max(1, serperLeadTarget - discoveredLeads.length),
-            send,
-          })) || []
-      } catch {
-        send('⚠️ Serper failed')
-      }
-
-      for (const lead of serperResults) {
-        if (discoveredLeads.length >= maxLeads) break
-
-        const upserted = upsertDiscoveredLead(
-          discoveredLeads,
-          createDiscoveryLead({
-            company_name: lead.company_name,
-            website: lead.website || null,
-            phone: normalizePhone(lead.phone || null),
-            city: lead.city || defaultCity,
-            industry: lead.industry || null,
-            source: 'serper',
-            source_url: lead.source_url || lead.website || null,
-            cost_estimate: SERPER_DISCOVERY_COST_ESTIMATE,
-          })
-        )
-
-        if (upserted.isNew) {
-          send(`📥 ${lead.company_name}`)
-        }
-      }
-
-      if (discoveredLeads.length >= serperLeadTarget) {
-        send('Processing results...')
-        break
-      }
-    }
-
-    const validDiscoveredLeads = discoveredLeads.filter(isValidDiscoveredLead).slice(0, maxLeads)
-    send(`📦 discovered: ${validDiscoveredLeads.length}`)
-
-    await enrichLeadQueue(
-      validDiscoveredLeads.filter(shouldAttemptEnrichment),
-      send,
-      sendPhase
+    const discovery = await runSharedProspectorDiscovery(
+      {
+        query,
+        defaultCity,
+        region,
+        country,
+        maxLeads,
+      },
+      send
     )
-
-    let metrics = calculateMetrics(validDiscoveredLeads)
-
-    send(
-      `📊 websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, enrichment rate: ${metrics.enrichmentRate}`
-    )
-
-    const shouldStopAfterSerper =
-      metrics.strongSignalLeads >= targetStrongSignalLeads ||
-      !shouldEscalateToGoogle(metrics, targetStrongSignalLeads, websiteTarget)
-
-    if (!shouldStopAfterSerper && googleCalls < MAX_GOOGLE_CALLS) {
-      if (!canSpend(totalApiCost, GOOGLE_DISCOVERY_COST_ESTIMATE)) {
-        send(`💸 budget reached before Google improvement (${SCRAPE_COST_BUDGET})`)
-      } else {
-        sendPhase('Improving results')
-
-        googleCalls += 1
-        totalApiCost = roundCostEstimate(totalApiCost + GOOGLE_DISCOVERY_COST_ESTIMATE)
-
-        const weakLeadCount = validDiscoveredLeads.filter(
-          (lead) => !lead.email || lead.email_confidence !== 'high'
-        ).length
-        const missingLeadCount = Math.max(0, maxLeads - validDiscoveredLeads.length)
-        const signalGap = Math.max(0, targetStrongSignalLeads - metrics.strongSignalLeads)
-        const websiteGap = Math.max(0, websiteTarget - metrics.leadsWithWebsite)
-        const googleBudget = Math.max(
-          1,
-          Math.min(
-            maxLeads,
-            missingLeadCount + Math.max(signalGap, websiteGap) + Math.min(weakLeadCount, 2)
-          )
-        )
-
-        send('⚡ Improving results with Google...')
-        send(
-          `🛰️ Google improvement pass (${metrics.leadsWithWebsite}/${websiteTarget} websites, rate ${metrics.enrichmentRate})`
-        )
-
-        let googleResults: Awaited<ReturnType<typeof searchGooglePlaces>> = []
-
-        try {
-          googleResults =
-            (await searchGooglePlaces({
-              query,
-              city: defaultCity,
-              region,
-              country,
-              maxResults: googleBudget,
-              send,
-            })) || []
-        } catch {
-          send('⚠️ Google failed')
-        }
-
-        const googleEnrichmentTargets: DiscoveryLead[] = []
-        const queuedKeys = new Set<string>()
-
-        for (const lead of googleResults) {
-          const upserted = upsertDiscoveredLead(
-            validDiscoveredLeads,
-            createDiscoveryLead({
-              company_name: lead.company_name,
-              website: lead.website || null,
-              phone: normalizePhone(lead.phone || null),
-              city: lead.city || defaultCity,
-              industry: lead.industry || null,
-              source: 'google',
-              source_url: lead.source_url || lead.website || null,
-              cost_estimate: GOOGLE_DISCOVERY_COST_ESTIMATE,
-            }),
-            {
-              allowNew: validDiscoveredLeads.length < maxLeads,
-            }
-          )
-
-          if (!upserted.lead) {
-            continue
-          }
-
-          if (upserted.isNew) {
-            send(`📥 ${lead.company_name}`)
-          } else {
-            send(`🧩 improved ${lead.company_name}`)
-          }
-
-          const shouldQueue =
-            shouldAttemptEnrichment(upserted.lead) &&
-            (
-              upserted.isNew ||
-              !upserted.previousLead?.website ||
-              getWebsiteKey(upserted.previousLead.website) !== getWebsiteKey(upserted.lead.website) ||
-              !upserted.previousLead.email ||
-              upserted.previousLead.email_confidence === 'low'
-            )
-
-          if (!shouldQueue) {
-            continue
-          }
-
-          const queueKey = buildLeadQueueKey(upserted.lead)
-          if (queuedKeys.has(queueKey)) {
-            continue
-          }
-
-          queuedKeys.add(queueKey)
-          googleEnrichmentTargets.push(upserted.lead)
-        }
-
-        await enrichLeadQueue(googleEnrichmentTargets, send, sendPhase)
-        metrics = calculateMetrics(validDiscoveredLeads)
-
-        send(
-          `📊 improved websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, enrichment rate: ${metrics.enrichmentRate}`
-        )
-      }
-    } else if (metrics.strongSignalLeads >= targetStrongSignalLeads) {
-      send('✅ early stop: enrichment target reached')
-    } else {
-      send('✅ Serper satisfied quality targets')
-    }
-
-    const fullyEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
-    const finalEnrichedLeads = fullyEnrichedLeads.filter((lead) => hasContactMethod(lead))
-    const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
+    const validDiscoveredLeads = discovery.discoveredLeads
+    const finalEnrichedLeads = discovery.finalEnrichedLeads
+    const filteredOutWithoutContactCount = discovery.filteredOutWithoutContactCount
     const allowedOutputCount = Math.max(0, outputLeadLimit)
-    const locationLabel = formatLocationLabel(defaultCity, region, country)
-    const summaryLine = formatLeadSummary(finalEnrichedLeads.length)
-    const detailLine = null
-
-    send(`📦 enriched: ${finalEnrichedLeads.length}`)
-
-    if (filteredOutWithoutContactCount > 0) {
-      send(`Filtered out ${filteredOutWithoutContactCount} leads without contact info`)
-    }
+    const locationLabel = discovery.locationLabel
+    const summaryLine = discovery.summaryLine
+    const detailLine = discovery.detailLine
 
     let addedCount = 0
     let duplicateCount = 0
@@ -1277,10 +1072,6 @@ async function runScraper(
         `💾 saved: ${addedCount}, duplicates: ${duplicateCount}, invalid: ${invalidCount}, db errors: ${dbErrorCount}`
       )
     }
-    console.log(
-      `SCRAPER API COST: ${roundCostEstimate(totalApiCost)}/${SCRAPE_COST_BUDGET}`
-    )
-
     const limitMessage =
       finalEnrichedLeads.length > allowedOutputCount
         ? formatOutputLimitMessage(addedCount)

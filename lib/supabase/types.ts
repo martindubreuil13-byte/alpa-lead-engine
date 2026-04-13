@@ -202,6 +202,7 @@ export interface Database {
           website: string | null;
           email: string | null;
           phone: string | null;
+          location: string | null;
           qualification_status: string;
           context_status: string;
           draft_status: string;
@@ -217,6 +218,7 @@ export interface Database {
           website?: string | null;
           email?: string | null;
           phone?: string | null;
+          location?: string | null;
           qualification_status?: string;
           context_status?: string;
           draft_status?: string;

@@ -45,6 +45,7 @@ type MissionRunSummary = {
   qualified: number
   rejected: number
   queued: number
+  overflow: number
 }
 
 const MISSION_RUN_STAGES = [
@@ -545,6 +546,10 @@ export default function AgentWorkspace({
                       <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
                       <DetailPill label="Delivered" value={String(missionRunSummary.queued)} />
                     </div>
+
+                    {missionRunSummary.overflow > 0 ? (
+                      <DetailPill label="Overflow" value={String(missionRunSummary.overflow)} />
+                    ) : null}
 
                     {missionRunSummary.queued < activeMission.leadsPerDay ? (
                       <div className="text-sm leading-6 text-slate-300">

@@ -144,7 +144,7 @@ function LeadsPageContent() {
     if (missionScopedView) {
       const { data, error } = await supabase
         .from('agent_lead_queue')
-        .select('id, mission_id, business_name, website, email, phone, created_at')
+        .select('id, mission_id, business_name, website, email, phone, location, created_at')
         .eq('user_id', user.id)
         .eq('mission_id', missionIdFilter)
         .eq('qualification_status', 'qualified')
@@ -162,7 +162,7 @@ function LeadsPageContent() {
           id: lead.id,
           mission_id: lead.mission_id,
           company_name: lead.business_name || 'Untitled business',
-          city: null,
+          city: lead.location || null,
           industry: null,
           email: lead.email,
           email_source: 'agent mission',
@@ -568,7 +568,13 @@ function LeadsPageContent() {
                     key={lead.id}
                     id={lead.id}
                     name={lead.company_name}
-                    location={formatLocation(lead.city)}
+                    location={
+                      missionScopedView
+                        ? lead.city
+                          ? formatLocation(lead.city)
+                          : undefined
+                        : formatLocation(lead.city)
+                    }
                     email={lead.email}
                     phone={lead.phone}
                     inPipeline={lead.status === 'pipeline'}

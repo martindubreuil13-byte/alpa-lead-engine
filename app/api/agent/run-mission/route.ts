@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { runMissionV1 } from '@/lib/agent/mission-runner'
+import { runMissionWithProspector } from '@/lib/agent/run-mission-with-prospector'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'ICP_NOT_FOUND' }, { status: 404 })
     }
 
-    const summary = await runMissionV1({
+    const summary = await runMissionWithProspector({
       supabase,
       mission,
       icp,
