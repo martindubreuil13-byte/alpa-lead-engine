@@ -57,12 +57,10 @@ type SenderProfile = {
 }
 
 type ViewMode = 'details' | 'preview'
-type FeedbackTone = 'success' | 'warning' | 'error'
-type CampaignFeedback = {
-  tone: FeedbackTone
+type SendStatus = {
+  type: 'success' | 'error' | 'info'
   title: string
   message: string
-  subtext?: string
 }
 
 const FIXED_SENDER_LABEL = 'ALPA by MINDRA <info@mindrasolutions.com>'
@@ -243,7 +241,7 @@ export default function SendCampaignModal({
   const [sendAsTest, setSendAsTest] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
   const [testStatusMessage, setTestStatusMessage] = useState('')
-  const [campaignFeedback, setCampaignFeedback] = useState<CampaignFeedback | null>(null)
+  const [sendStatus, setSendStatus] = useState<SendStatus | null>(null)
   const [emailUsage, setEmailUsage] = useState<EmailUsageSnapshot | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('details')
 
@@ -251,7 +249,6 @@ export default function SendCampaignModal({
     if (isOpen) {
       setModalSelectedIds(selectedIds)
       setViewMode('details')
-      setCampaignFeedback(null)
       setTestStatusMessage('')
     }
   }, [isOpen, selectedIds])
@@ -336,7 +333,6 @@ export default function SendCampaignModal({
     setLoadingPreview(true)
     setTemplateMessage('')
     setTestStatusMessage('')
-    setCampaignFeedback(null)
 
     const {
       data: { user },
@@ -531,8 +527,8 @@ export default function SendCampaignModal({
 
   async function sendCampaign() {
     if (!sendAsTest && selectedIds.length === 0) {
-      setCampaignFeedback({
-        tone: 'error',
+      setSendStatus({
+        type: 'error',
         title: 'No Leads Selected',
         message: 'Select at least one lead before starting a campaign send.',
       })
@@ -540,8 +536,8 @@ export default function SendCampaignModal({
     }
 
     if (!currentUserIdentity?.email) {
-      setCampaignFeedback({
-        tone: 'error',
+      setSendStatus({
+        type: 'error',
         title: 'Reply-To Email Missing',
         message: 'Add your account email before sending so replies can route back to your inbox.',
       })
@@ -549,8 +545,8 @@ export default function SendCampaignModal({
     }
 
     if (!selectedTemplateId) {
-      setCampaignFeedback({
-        tone: 'error',
+      setSendStatus({
+        type: 'error',
         title: 'Template Required',
         message: 'Choose a template before sending emails.',
       })
@@ -559,14 +555,17 @@ export default function SendCampaignModal({
 
     setLoading(true)
     setTestStatusMessage('')
-    setCampaignFeedback(null)
+    setSendStatus({
+      type: 'info',
+      title: 'Sending emails...',
+      message: 'Please wait while we process your campaign.',
+    })
 
-    let sent = 0
-    let skipped = 0
-    let failed = 0
+    let sent = 0,
+      failed = 0,
+      skipped = 0,
+      lastError = ''
     const sentLeadIds: string[] = []
-    let lastErrorMessage = ''
-    let lastUsage: EmailUsageSnapshot | null = null
 
     try {
       console.log('MODAL IDS:', modalSelectedIds)
@@ -586,8 +585,8 @@ export default function SendCampaignModal({
         ]
       } else {
         if (selectedLeads.length === 0) {
-          setCampaignFeedback({
-            tone: 'error',
+          setSendStatus({
+            type: 'error',
             title: 'Leads Unavailable',
             message: 'The selected leads could not be loaded. Close this window and try again.',
           })
@@ -614,7 +613,7 @@ export default function SendCampaignModal({
 
         if (result.ok) {
           if (result.usage) {
-            lastUsage = result.usage
+            setEmailUsage(result.usage)
           }
           sent += 1
           sentLeadIds.push(lead.id)
@@ -627,7 +626,7 @@ export default function SendCampaignModal({
         }
 
         if (result.usage) {
-          lastUsage = result.usage
+          setEmailUsage(result.usage)
         }
 
         console.error('Campaign email failed:', result.error, {
@@ -636,32 +635,30 @@ export default function SendCampaignModal({
           message: result.message,
         })
         failed += 1
-        lastErrorMessage = result.message || lastErrorMessage
+        lastError = result.message || lastError
       }
 
       if (sentLeadIds.length > 0) {
         onSent(sentLeadIds)
       }
 
-      if (lastUsage) {
-        setEmailUsage(lastUsage)
-      } else {
-        await fetchEmailUsage()
+      const usageRes = await fetch('/api/send-email', {
+        cache: 'no-store',
+      })
+      const usageData = await usageRes.json().catch(() => null)
+      if (usageData?.usage) {
+        setEmailUsage(usageData.usage as EmailUsageSnapshot)
       }
 
-      setCampaignFeedback({
-        tone: failed > 0 ? 'warning' : 'success',
+      setSendStatus({
+        type: failed > 0 ? 'error' : 'success',
         title: 'Campaign Complete',
-        message: `Sent ${sent} email(s). Skipped ${skipped}. Failed ${failed}.`,
-        subtext:
-          failed > 0
-            ? `You can retry failed leads.${lastErrorMessage ? ` Last error: ${lastErrorMessage}` : ''}`
-            : undefined,
+        message: `Sent ${sent} email(s). Skipped ${skipped}. Failed ${failed}.${failed > 0 ? ' You can retry failed leads.' : ''}${failed > 0 && lastError ? ` Last error: ${lastError}` : ''}`,
       })
     } catch (error) {
       console.error('Campaign email failed:', error)
-      setCampaignFeedback({
-        tone: 'error',
+      setSendStatus({
+        type: 'error',
         title: 'Campaign Send Failed',
         message: 'ALPA could not send these emails right now. Please try again in a moment.',
       })
@@ -710,11 +707,10 @@ export default function SendCampaignModal({
         }
         if (result.error === 'DAILY_LIMIT_REACHED') {
           const feedback = getEmailLimitFeedback(result.error)
-          setCampaignFeedback({
-            tone: 'warning',
+          setSendStatus({
+            type: 'error',
             title: feedback.title,
             message: feedback.message,
-            subtext: feedback.subtext,
           })
           setTestStatusMessage(feedback.title)
           return
@@ -846,24 +842,6 @@ export default function SendCampaignModal({
                     <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm text-amber-50">
                       You’re near your daily limit. This helps keep your emails landing in inboxes, not spam.
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {campaignFeedback ? (
-                <div
-                  className={`rounded-[24px] border px-4 py-4 text-sm ${
-                    campaignFeedback.tone === 'success'
-                      ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-50'
-                      : campaignFeedback.tone === 'warning'
-                        ? 'border-amber-300/20 bg-amber-400/10 text-amber-50'
-                        : 'border-rose-300/20 bg-rose-400/10 text-rose-50'
-                  }`}
-                >
-                  <div className="font-medium">{campaignFeedback.title}</div>
-                  <div className="mt-1 leading-6">{campaignFeedback.message}</div>
-                  {campaignFeedback.subtext ? (
-                    <div className="mt-2 text-xs text-current/80">{campaignFeedback.subtext}</div>
                   ) : null}
                 </div>
               ) : null}
@@ -1001,6 +979,32 @@ export default function SendCampaignModal({
         </div>
 
         <div className="border-t border-white/8 px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-6">
+          {sendStatus ? (
+            <div
+              className={`mb-4 rounded-[24px] border px-4 py-4 text-sm ${
+                sendStatus.type === 'success'
+                  ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-50'
+                  : sendStatus.type === 'info'
+                    ? 'border-blue-300/20 bg-blue-400/10 text-blue-50'
+                    : 'border-rose-300/20 bg-rose-400/10 text-rose-50'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{sendStatus.title}</div>
+                  <div className="mt-1 leading-6">{sendStatus.message}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSendStatus(null)}
+                  className="shrink-0 text-xs font-medium text-current/80 transition hover:text-current"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               type="button"
