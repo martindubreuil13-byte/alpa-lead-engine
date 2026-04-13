@@ -330,7 +330,7 @@ export default function SettingsPage() {
         }
 
         setTestStatusTone('error')
-        setTestStatusMessage('ALPA could not send the test email right now.')
+        setTestStatusMessage(result?.message || 'Email failed to send. Check configuration.')
         return
       }
 
@@ -339,7 +339,7 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Test email failed:', error)
       setTestStatusTone('error')
-      setTestStatusMessage('ALPA could not send the test email right now.')
+      setTestStatusMessage('Email failed to send. Check configuration.')
     } finally {
       setTestSending(false)
     }

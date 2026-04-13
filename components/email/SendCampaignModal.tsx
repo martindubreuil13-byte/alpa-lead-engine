@@ -515,6 +515,7 @@ export default function SendCampaignModal({
         ok: false as const,
         skipped: false as const,
         error: result?.error || 'Failed to send email',
+        message: result?.message || 'Email failed to send. Check configuration.',
         usage: (result?.usage as EmailUsageSnapshot | undefined) ?? undefined,
       }
     }
@@ -563,6 +564,7 @@ export default function SendCampaignModal({
     const sentLeadIds: string[] = []
     const failed: string[] = []
     let limitError: string | null = null
+    let firstFailureMessage = ''
 
     try {
       console.log('MODAL IDS:', modalSelectedIds)
@@ -629,7 +631,9 @@ export default function SendCampaignModal({
         console.error('Campaign email failed:', result.error, {
           leadId: lead.id,
           to: lead.email,
+          message: result.message,
         })
+        firstFailureMessage = firstFailureMessage || result.message || ''
         failed.push(lead.company_name || lead.email || lead.id)
       }
 
@@ -652,7 +656,7 @@ export default function SendCampaignModal({
         setCampaignFeedback({
           tone: 'error',
           title: 'Some Emails Were Not Sent',
-          message: `Sent ${sentCount} email(s). Skipped ${skippedCount}. Failed ${failed.length}.`,
+          message: firstFailureMessage || 'Email failed to send. Check configuration.',
           subtext: 'You can review the selection and retry the remaining leads.',
         })
         return
@@ -728,7 +732,7 @@ export default function SendCampaignModal({
           setTestStatusMessage(feedback.title)
           return
         }
-        setTestStatusMessage('ALPA could not send the test email right now.')
+        setTestStatusMessage(result.message || 'Email failed to send. Check configuration.')
         return
       }
 
@@ -738,7 +742,7 @@ export default function SendCampaignModal({
       setTestStatusMessage('Test email sent')
     } catch (error) {
       console.error('Test email failed:', error)
-      setTestStatusMessage('ALPA could not send the test email right now.')
+      setTestStatusMessage('Email failed to send. Check configuration.')
     } finally {
       setTestLoading(false)
     }

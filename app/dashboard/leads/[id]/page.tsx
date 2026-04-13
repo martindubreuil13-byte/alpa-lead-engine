@@ -421,7 +421,7 @@ export default function Page() {
         setSendFeedback({
           tone: 'error',
           title: 'Email Sending Unavailable',
-          message: 'ALPA could not send this email right now. Please try again in a moment.',
+          message: data?.message || 'Email failed to send. Check configuration.',
         })
         return
       }
@@ -436,7 +436,7 @@ export default function Page() {
       setSendFeedback({
         tone: 'error',
         title: 'Email Sending Unavailable',
-        message: 'ALPA could not send this email right now. Please try again in a moment.',
+        message: 'Email failed to send. Check configuration.',
       })
     } finally {
       setSending(false)

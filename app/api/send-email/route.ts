@@ -14,6 +14,7 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 
 const FROM_EMAIL = 'ALPA by MINDRA <info@mindrasolutions.com>'
 const RESEND_THROTTLE_DELAY_MS = 300
+const emailSchema = z.string().trim().email()
 
 const senderProfileSchema = z
   .object({
@@ -49,6 +50,11 @@ function buildUsageSnapshot(sent: number): EmailUsageSnapshot {
     limit: DAILY_EMAIL_LIMIT,
     remaining: Math.max(DAILY_EMAIL_LIMIT - sent, 0),
   }
+}
+
+function extractEmailAddress(value: string) {
+  const match = value.match(/<([^>]+)>/)
+  return (match?.[1] || value).trim().toLowerCase()
 }
 
 function delay(ms: number) {
@@ -146,6 +152,33 @@ function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) 
   `
 }
 
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    const base = {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    } as Record<string, unknown>
+    const errorRecord = error as unknown as Record<string, unknown>
+
+    for (const key of Object.keys(errorRecord)) {
+      base[key] = errorRecord[key]
+    }
+
+    return base
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    return error
+  }
+
+  return { message: String(error) }
+}
+
+function hasQuotaHint(value: unknown) {
+  return /daily_quota_exceeded|rate_limit_exceeded/i.test(JSON.stringify(value))
+}
+
 async function getAuthenticatedUser() {
   const supabase = await createServerClient()
   const {
@@ -225,6 +258,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   console.log('📥 /api/send-email HIT')
+  console.log('RESEND KEY LOADED:', !!process.env.RESEND_API_KEY)
 
   try {
     const body = await req.json().catch(() => null)
@@ -330,12 +364,24 @@ export async function POST(req: Request) {
       email: senderProfile?.email?.trim() || authenticatedEmail,
     })
 
-    console.log('📨 Email request:', {
+    const fromAddress = extractEmailAddress(FROM_EMAIL)
+    const senderDiagnostics = {
+      from: FROM_EMAIL,
+      fromAddress,
+      senderDomain: fromAddress.split('@')[1] || '',
+      senderUsesKnownDomain: fromAddress.endsWith('@mindrasolutions.com'),
+      recipientValid: emailSchema.safeParse(finalRecipient).success,
+      subjectPresent: subject.trim().length > 0,
+      htmlPresent: html.trim().length > 0,
+      apiKeyLoaded: !!process.env.RESEND_API_KEY,
+    }
+
+    console.log('EMAIL PAYLOAD:', {
+      from: FROM_EMAIL,
       to: finalRecipient,
       subject,
-      userId: user.id,
-      testMode: process.env.EMAIL_TEST_MODE,
     })
+    console.log('EMAIL DIAGNOSTICS:', senderDiagnostics)
 
     const payload: Parameters<typeof resend.emails.send>[0] & { reply_to: string } = {
       from: FROM_EMAIL,
@@ -348,14 +394,67 @@ export async function POST(req: Request) {
 
     await delay(RESEND_THROTTLE_DELAY_MS)
 
-    const resendResponse = await resend.emails.send(payload)
-    console.log('📨 Resend response:', resendResponse)
+    let resendResponse: Awaited<ReturnType<typeof resend.emails.send>>
+
+    try {
+      resendResponse = await resend.emails.send(payload)
+      console.log('RESEND SUCCESS:', resendResponse)
+    } catch (error) {
+      console.error('RESEND ERROR FULL:', error)
+
+      const details = serializeError(error)
+      console.error('RESEND ERROR FLAGS:', {
+        quotaExceeded: hasQuotaHint(details),
+        senderDomain: senderDiagnostics.senderDomain,
+        senderUsesKnownDomain: senderDiagnostics.senderUsesKnownDomain,
+      })
+      const message =
+        (typeof details === 'object' &&
+        details !== null &&
+        'message' in details &&
+        typeof details.message === 'string'
+          ? details.message
+          : undefined) || 'Unknown error'
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'SEND_FAILED',
+          message,
+          details,
+        },
+        { status: 500 }
+      )
+    }
 
     const { data, error } = resendResponse
 
     if (error) {
-      console.error('❌ Email error:', error)
-      return NextResponse.json({ error: error.message || 'Failed to send email' }, { status: 500 })
+      console.error('RESEND ERROR FULL:', error)
+
+      const details = serializeError(error)
+      console.error('RESEND ERROR FLAGS:', {
+        quotaExceeded: hasQuotaHint(details),
+        senderDomain: senderDiagnostics.senderDomain,
+        senderUsesKnownDomain: senderDiagnostics.senderUsesKnownDomain,
+      })
+      const message =
+        (typeof details === 'object' &&
+        details !== null &&
+        'message' in details &&
+        typeof details.message === 'string'
+          ? details.message
+          : undefined) || 'Unknown error'
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'SEND_FAILED',
+          message,
+          details,
+        },
+        { status: 500 }
+      )
     }
 
     const updatedSent = await incrementEmailsSent(user.id, dayKey)
@@ -377,10 +476,14 @@ export async function POST(req: Request) {
     )
   } catch (error) {
     console.error('❌ Email error:', error)
+    const details = serializeError(error)
 
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Failed to send email',
+        success: false,
+        error: 'SEND_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        details,
       },
       { status: 500 }
     )
