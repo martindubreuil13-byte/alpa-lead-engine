@@ -48,6 +48,11 @@ type MissionRunSummary = {
   overflow: number
 }
 
+type MissionRunResult = {
+  missionId: string
+  summary: MissionRunSummary
+}
+
 const MISSION_RUN_STAGES = [
   'Scanning sources...',
   'Discovering businesses...',
@@ -57,6 +62,7 @@ const MISSION_RUN_STAGES = [
 
 const NO_MISSION_LABEL = 'No mission yet'
 const NO_LOCATION_LABEL = 'Global'
+const LAST_MISSION_RUN_STORAGE_KEY = 'alpa:last-mission-run'
 
 export default function AgentWorkspace({
   initialSavedIcps,
@@ -78,7 +84,7 @@ export default function AgentWorkspace({
     'idle'
   )
   const [missionRunState, setMissionRunState] = useState<'idle' | 'running'>('idle')
-  const [missionRunSummary, setMissionRunSummary] = useState<MissionRunSummary | null>(null)
+  const [missionRunResult, setMissionRunResult] = useState<MissionRunResult | null>(null)
   const [missionRunError, setMissionRunError] = useState<string | null>(null)
   const [missionRunStageIndex, setMissionRunStageIndex] = useState(0)
 
@@ -90,6 +96,55 @@ export default function AgentWorkspace({
     activeMission && activeMission.name ? activeMission.name : NO_MISSION_LABEL
   const missionLocation =
     activeMission && activeMission.location ? activeMission.location : NO_LOCATION_LABEL
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const navigationEntry = performance.getEntriesByType('navigation')[0] as
+      | PerformanceNavigationTiming
+      | undefined
+    const navigationType = navigationEntry?.type
+
+    if (navigationType !== 'reload') {
+      window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
+      return
+    }
+
+    const stored = window.sessionStorage.getItem(LAST_MISSION_RUN_STORAGE_KEY)
+    if (!stored) return
+
+    try {
+      const parsed = JSON.parse(stored) as MissionRunResult
+
+      if (!parsed?.missionId || !parsed?.summary) {
+        window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
+        return
+      }
+
+      if (activeMission?.id && parsed.missionId !== activeMission.id) {
+        window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
+        return
+      }
+
+      setMissionRunResult(parsed)
+    } catch {
+      window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
+    }
+  }, [activeMission?.id])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    if (!missionRunResult) {
+      window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
+      return
+    }
+
+    window.sessionStorage.setItem(
+      LAST_MISSION_RUN_STORAGE_KEY,
+      JSON.stringify(missionRunResult)
+    )
+  }, [missionRunResult])
 
   useEffect(() => {
     if (missionRunState !== 'running') {
@@ -173,7 +228,7 @@ export default function AgentWorkspace({
 
     setMissionRunState('running')
     setMissionRunError(null)
-    setMissionRunSummary(null)
+    setMissionRunResult(null)
     setMissionRunStageIndex(0)
 
     try {
@@ -189,7 +244,10 @@ export default function AgentWorkspace({
         throw new Error(data?.message || data?.error || 'Failed to run mission')
       }
 
-      setMissionRunSummary(data.summary as MissionRunSummary)
+      setMissionRunResult({
+        missionId: activeMission.id,
+        summary: data.summary as MissionRunSummary,
+      })
     } catch (error) {
       console.error(error)
       setMissionRunError(error instanceof Error ? error.message : 'Failed to run mission')
@@ -522,7 +580,7 @@ export default function AgentWorkspace({
                 </div>
               ) : null}
 
-              {missionRunSummary && missionRunState !== 'running' ? (
+              {missionRunResult && missionRunState !== 'running' ? (
                 <div className="rounded-[24px] border border-emerald-400/16 bg-[linear-gradient(180deg,rgba(6,78,59,0.18),rgba(4,10,20,0.86))] p-4 shadow-[0_0_32px_rgba(16,185,129,0.08)]">
                   <div className="space-y-3">
                     <div>
@@ -533,25 +591,28 @@ export default function AgentWorkspace({
                       <div className="mt-1 text-sm text-slate-300">
                         Qualified leads were added directly to your workspace inbox.
                       </div>
+                      <div className="mt-1 text-sm text-slate-300">
+                        These leads were added to your workspace inbox for this mission.
+                      </div>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-4">
-                      <DetailPill label="Discovered" value={String(missionRunSummary.discovered)} />
-                      <DetailPill label="Qualified" value={String(missionRunSummary.qualified)} />
-                      <DetailPill label="Rejected" value={String(missionRunSummary.rejected)} />
-                      <DetailPill label="Added to workspace" value={String(missionRunSummary.queued)} />
+                      <DetailPill label="Discovered" value={String(missionRunResult.summary.discovered)} />
+                      <DetailPill label="Qualified" value={String(missionRunResult.summary.qualified)} />
+                      <DetailPill label="Rejected" value={String(missionRunResult.summary.rejected)} />
+                      <DetailPill label="Added to workspace" value={String(missionRunResult.summary.queued)} />
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
                       <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
-                      <DetailPill label="Delivered" value={String(missionRunSummary.queued)} />
+                      <DetailPill label="Delivered" value={String(missionRunResult.summary.queued)} />
                     </div>
 
-                    {missionRunSummary.overflow > 0 ? (
-                      <DetailPill label="Overflow" value={String(missionRunSummary.overflow)} />
+                    {missionRunResult.summary.overflow > 0 ? (
+                      <DetailPill label="Overflow" value={String(missionRunResult.summary.overflow)} />
                     ) : null}
 
-                    {missionRunSummary.queued < activeMission.leadsPerDay ? (
+                    {missionRunResult.summary.queued < activeMission.leadsPerDay ? (
                       <div className="text-sm leading-6 text-slate-300">
                         Partial completion — agent will need additional runs to reach target.
                       </div>
@@ -560,7 +621,7 @@ export default function AgentWorkspace({
                     <div className="pt-1">
                       <button
                         type="button"
-                        onClick={() => router.push(`/dashboard/leads?mission_id=${activeMission.id}`)}
+                        onClick={() => router.push(`/dashboard/leads?mission_id=${missionRunResult.missionId}`)}
                         className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.18)] transition hover:-translate-y-0.5 active:scale-[0.98]"
                       >
                         View Leads
