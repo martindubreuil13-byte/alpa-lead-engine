@@ -145,7 +145,7 @@ export default async function AgentModePage() {
   })
 
   return (
-    <DashboardShell>
+    <DashboardShell adminEmail={process.env.ADMIN_EMAIL || null}>
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 pb-4">
         <header className="glass relative overflow-hidden p-5 sm:p-6">
           <div className="pointer-events-none absolute inset-0 z-0">

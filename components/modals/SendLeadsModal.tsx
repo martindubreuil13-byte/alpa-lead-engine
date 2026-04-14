@@ -4,6 +4,7 @@ import { Mail, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { saveGuestCaptureEmail } from '@/lib/guest-session'
+import { trackEvent } from '@/lib/track'
 import type { TrialLead } from '@/lib/trial'
 
 export default function SendLeadsModal({
@@ -79,6 +80,10 @@ export default function SendLeadsModal({
         return
       }
 
+      void trackEvent('email_captured', {
+        email: targetEmail,
+        leads_count: leads.length,
+      })
       onSent?.('Email sent. It may take a few minutes to arrive.')
       onClose()
     } catch {

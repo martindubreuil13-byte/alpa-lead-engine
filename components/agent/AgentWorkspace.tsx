@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Crosshair,
@@ -51,13 +51,30 @@ type MissionRunSummary = {
 type MissionRunResult = {
   missionId: string
   summary: MissionRunSummary
+  elapsedSeconds?: number
 }
 
 const MISSION_RUN_STAGES = [
-  'Scanning sources...',
   'Discovering businesses...',
-  'Validating contact data...',
+  'Extracting contact data...',
   'Filtering qualified leads...',
+] as const
+const STAGE_MESSAGES = [
+  [
+    'Discovering businesses...',
+    'Scanning local listings...',
+    'Checking company directories...',
+  ],
+  [
+    'Extracting contact data...',
+    'Reading business websites...',
+    'Collecting contact details...',
+  ],
+  [
+    'Filtering qualified leads...',
+    'Removing incomplete profiles...',
+    'Selecting high-value leads...',
+  ],
 ] as const
 
 const NO_MISSION_LABEL = 'No mission yet'
@@ -87,6 +104,12 @@ export default function AgentWorkspace({
   const [missionRunResult, setMissionRunResult] = useState<MissionRunResult | null>(null)
   const [missionRunError, setMissionRunError] = useState<string | null>(null)
   const [missionRunStageIndex, setMissionRunStageIndex] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+  const [discovered, setDiscovered] = useState(0)
+  const [qualified, setQualified] = useState(0)
+  const [agentStatus, setAgentStatus] = useState('Initializing')
+  const [messageIndex, setMessageIndex] = useState(0)
+  const elapsedRef = useRef(0)
 
   const hasActiveIcp = activeIcp !== null
   const hasMission = activeMission !== null && missions.length > 0
@@ -96,6 +119,14 @@ export default function AgentWorkspace({
     activeMission && activeMission.name ? activeMission.name : NO_MISSION_LABEL
   const missionLocation =
     activeMission && activeMission.location ? activeMission.location : NO_LOCATION_LABEL
+  const showExecutionPanel = missionRunState === 'running' || missionRunResult !== null
+
+  function applyMissionRunMetrics(summary: MissionRunSummary) {
+    setDiscovered(summary.discovered)
+    setQualified(summary.qualified)
+    setMissionRunStageIndex(MISSION_RUN_STAGES.length - 1)
+    setMessageIndex(0)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -127,6 +158,8 @@ export default function AgentWorkspace({
       }
 
       setMissionRunResult(parsed)
+      setElapsed(parsed.elapsedSeconds ?? 0)
+      applyMissionRunMetrics(parsed.summary)
     } catch {
       window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
     }
@@ -147,19 +180,92 @@ export default function AgentWorkspace({
   }, [missionRunResult])
 
   useEffect(() => {
+    elapsedRef.current = elapsed
+  }, [elapsed])
+
+  useEffect(() => {
     if (missionRunState !== 'running') {
-      setMissionRunStageIndex(0)
+      return
+    }
+
+    if (missionRunStageIndex >= MISSION_RUN_STAGES.length - 1) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setMissionRunStageIndex((current) =>
+        Math.min(current + 1, MISSION_RUN_STAGES.length - 1)
+      )
+    }, 2800)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [missionRunStageIndex, missionRunState])
+
+  useEffect(() => {
+    if (missionRunState !== 'running') {
+      setMessageIndex(0)
+      return
+    }
+
+    const stageMessages = STAGE_MESSAGES[missionRunStageIndex] || STAGE_MESSAGES[0]
+    const intervalId = window.setInterval(() => {
+      setMessageIndex((current) => (current + 1) % stageMessages.length)
+    }, 2000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [missionRunStageIndex, missionRunState])
+
+  useEffect(() => {
+    if (missionRunState !== 'running') {
       return
     }
 
     const intervalId = window.setInterval(() => {
-      setMissionRunStageIndex((current) => (current + 1) % MISSION_RUN_STAGES.length)
-    }, 1950)
+      setElapsed((current) => current + 1)
+    }, 1000)
 
     return () => {
       window.clearInterval(intervalId)
     }
   }, [missionRunState])
+
+  useEffect(() => {
+    if (missionRunResult) {
+      setAgentStatus('Mission complete')
+      return
+    }
+
+    if (missionRunState !== 'running') {
+      setAgentStatus('Initializing')
+      return
+    }
+
+    if (elapsed === 0) {
+      setAgentStatus('Initializing agent...')
+      return
+    }
+
+    if (missionRunStageIndex === 0) {
+      setAgentStatus('Scanning businesses...')
+      return
+    }
+
+    if (missionRunStageIndex === 1) {
+      setAgentStatus('Extracting contact data...')
+      return
+    }
+
+    if (missionRunStageIndex >= MISSION_RUN_STAGES.length - 1 && elapsed >= 9) {
+      setAgentStatus('Finalizing results...')
+      return
+    }
+
+    setAgentStatus('Filtering qualified leads...')
+  }, [elapsed, missionRunResult, missionRunStageIndex, missionRunState])
 
   function focusIcpView() {
     setActiveView('icp')
@@ -230,6 +336,11 @@ export default function AgentWorkspace({
     setMissionRunError(null)
     setMissionRunResult(null)
     setMissionRunStageIndex(0)
+    setElapsed(0)
+    setDiscovered(0)
+    setQualified(0)
+    setAgentStatus('Initializing agent...')
+    setMessageIndex(0)
 
     try {
       const response = await fetch('/api/agent/run-mission', {
@@ -240,14 +351,23 @@ export default function AgentWorkspace({
 
       const data = await response.json().catch(() => null)
 
-      if (!response.ok || !data?.success || !data?.summary) {
+      if (!data?.summary) {
+        setAgentStatus('Completed with warnings')
+        return
+      }
+
+      if (!response.ok || !data?.success) {
         throw new Error(data?.message || data?.error || 'Failed to run mission')
       }
 
-      setMissionRunResult({
+      const nextResult = {
         missionId: activeMission.id,
         summary: data.summary as MissionRunSummary,
-      })
+        elapsedSeconds: elapsedRef.current,
+      }
+
+      applyMissionRunMetrics(nextResult.summary)
+      setMissionRunResult(nextResult)
     } catch (error) {
       console.error(error)
       setMissionRunError(error instanceof Error ? error.message : 'Failed to run mission')
@@ -543,28 +663,73 @@ export default function AgentWorkspace({
                 The agent is discovering and qualifying leads for this mission.
               </div>
 
-              {missionRunState === 'running' ? (
+              {showExecutionPanel ? (
                 <div className="rounded-[24px] border border-blue-400/18 bg-[linear-gradient(180deg,rgba(12,29,53,0.7),rgba(4,10,20,0.92))] p-4 shadow-[0_0_36px_rgba(59,130,246,0.12)] transition-all duration-300">
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="flex items-center gap-3">
                       <div className="relative flex h-3 w-3 items-center justify-center">
-                        <span className="absolute inline-flex h-3 w-3 rounded-full bg-blue-400/40 animate-pulse" />
+                        <span
+                          className="absolute inline-flex h-4 w-4 rounded-full bg-blue-400/60 opacity-95 animate-pulse"
+                          style={{ animationDuration: '3.6s' }}
+                        />
                         <span className="relative h-2 w-2 rounded-full bg-blue-300 shadow-[0_0_14px_rgba(96,165,250,0.72)]" />
                       </div>
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-200/80">
-                        Agent Executing
+                        {missionRunState === 'running' ? 'Agent Executing' : 'Execution Complete'}
                       </div>
                     </div>
 
-                    <div>
-                      <h4 className="text-lg font-semibold text-white">Agent executing mission</h4>
-                      <p className="mt-1 text-sm leading-6 text-slate-300">
-                        The agent is discovering and qualifying leads in real time.
-                      </p>
-                    </div>
+                    <div className="relative overflow-hidden rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
+                      <div
+                        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.18),transparent_58%)] opacity-90 animate-pulse"
+                        style={{ animationDuration: '3.8s' }}
+                      />
+                      <div className="relative space-y-4">
+                        <div>
+                          <h4 className="text-lg font-semibold text-white">
+                            {missionRunState === 'running'
+                              ? 'Agent executing mission'
+                              : 'Mission execution finished'}
+                          </h4>
+                          <p className="mt-1 text-sm leading-6 text-slate-300">
+                            The agent is working through one controlled execution flow for this mission.
+                          </p>
+                        </div>
 
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 transition-opacity duration-500">
-                      {MISSION_RUN_STAGES[missionRunStageIndex]}
+                        <div
+                          className={`text-sm font-medium text-blue-100 transition-opacity duration-300 ${
+                            missionRunState === 'running' && elapsed === 0 ? 'opacity-0' : 'opacity-100'
+                          }`}
+                        >
+                          ⏱ {elapsed}s elapsed
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium text-slate-100">
+                            Agent status: {agentStatus}
+                          </div>
+                          <div className="text-sm text-slate-100">
+                            → {missionRunResult
+                              ? 'Results ready for review.'
+                              : STAGE_MESSAGES[missionRunStageIndex]?.[messageIndex] || STAGE_MESSAGES[0][0]}
+                          </div>
+                          {missionRunState === 'running' && discovered === 0 ? (
+                            <div className="text-xs text-slate-400">(working...)</div>
+                          ) : null}
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <DetailPill label="Discovered" value={String(discovered)} />
+                          <DetailPill label="Qualified" value={String(qualified)} />
+                          <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
+                        </div>
+
+                        <div className="text-sm text-slate-300">
+                          {missionRunResult
+                            ? `Delivered: ${missionRunResult.summary.queued} / ${activeMission.leadsPerDay}`
+                            : '→ Preparing to reach target...'}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -588,9 +753,6 @@ export default function AgentWorkspace({
                         Run Summary
                       </div>
                       <h4 className="mt-1 text-lg font-semibold text-white">Mission complete</h4>
-                      <div className="mt-1 text-sm text-slate-300">
-                        Qualified leads were added directly to your workspace inbox.
-                      </div>
                       <div className="mt-1 text-sm text-slate-300">
                         These leads were added to your workspace inbox for this mission.
                       </div>

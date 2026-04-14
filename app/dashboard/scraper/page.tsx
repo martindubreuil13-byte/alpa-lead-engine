@@ -41,6 +41,7 @@ import {
   writeStoredUsage,
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import { trackEvent } from '@/lib/track'
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 
 const COUNTRY_OPTIONS = [
@@ -823,6 +824,14 @@ export default function Page() {
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
       }
 
+      void trackEvent('scrape_started', {
+        query: payload.query,
+        location: payload.defaultCity,
+        metadata: {
+          target: requestedLeadCount,
+        },
+      })
+
       const controller = new AbortController()
       abortRef.current = controller
 
@@ -973,6 +982,11 @@ export default function Page() {
 
       if (latestResult) {
         const finalResult: ScrapeResultPayload = latestResult as ScrapeResultPayload
+        void trackEvent('scrape_completed', {
+          query: payload.query,
+          location: payload.defaultCity,
+          leads_count: finalResult.addedCount,
+        })
         const sessionLeads = isGuest
           ? mergeGuestLeads(getGuestLeads(), finalResult.addedLeads)
           : finalResult.addedLeads
@@ -1055,6 +1069,7 @@ export default function Page() {
     link.download = 'alpa-leads-preview.csv'
     link.click()
     URL.revokeObjectURL(link.href)
+    void trackEvent('csv_downloaded', { leads_count: previewLeads.length })
   }
 
   async function addPreviewLeadToPipeline(id: string) {

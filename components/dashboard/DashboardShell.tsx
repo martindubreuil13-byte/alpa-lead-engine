@@ -26,6 +26,7 @@ import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getOrCreateGuestSessionId } from '@/lib/guest-session'
+import { getSessionId } from '@/lib/session'
 import { supabase } from '@/lib/supabase'
 import { isGuestTrialModeForced } from '@/lib/session/guest-trial-mode'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
@@ -103,7 +104,13 @@ const HOME_BACK_ROUTES = new Set([
   '/dashboard/scraper',
 ])
 
-export default function DashboardShell({ children }: { children: ReactNode }) {
+export default function DashboardShell({
+  children,
+  adminEmail = null,
+}: {
+  children: ReactNode
+  adminEmail?: string | null
+}) {
   const pathname = usePathname()
   const [forcedGuestTrial, setForcedGuestTrial] = useState(() => isGuestTrialModeForced())
   const [lockedFeature, setLockedFeature] = useState<{
@@ -181,10 +188,26 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   }, [pathname, viewerMode, visibleNavItems])
 
   const showHomeBackButton = HOME_BACK_ROUTES.has(pathname)
+  const normalizedAdminEmail = String(adminEmail || '').trim().toLowerCase()
+  const isAdminEmail = Boolean(
+    profile?.email && normalizedAdminEmail && profile.email.toLowerCase() === normalizedAdminEmail
+  )
+  const adminToggleHref = pathname.startsWith('/admin') ? '/dashboard' : '/admin/activity'
 
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  async function handleManualTrackTest() {
+    await fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'manual_test_click',
+        session_id: getSessionId(),
+      }),
+    })
   }
 
   function isLocked(item: NavItem) {
@@ -241,6 +264,15 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                   : 'Trial mode active. Explore the dashboard and upgrade when you want full execution tools.'}
             </div>
           </div>
+
+          {isAdminEmail ? (
+            <Link
+              href={adminToggleHref}
+              className="mt-4 flex min-h-[48px] items-center justify-center rounded-2xl border border-blue-400/18 bg-blue-500/10 px-4 text-sm font-medium text-blue-100 transition hover:bg-blue-500/14"
+            >
+              Admin Mode
+            </Link>
+          ) : null}
 
           <nav className="mt-8 space-y-2">
             {visibleNavItems.map((item) => {
@@ -326,6 +358,16 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
               </Link>
             )}
 
+            {process.env.NODE_ENV !== 'production' ? (
+              <button
+                type="button"
+                onClick={() => void handleManualTrackTest()}
+                className="flex min-h-[44px] w-full items-center justify-center rounded-2xl border border-emerald-400/18 bg-emerald-500/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/14"
+              >
+                TEST TRACK
+              </button>
+            ) : null}
+
             <div className="px-1 text-xs text-slate-500">
               Need help fast? Reach us at{' '}
               <a href="mailto:info@mindrasolutions.com" className="text-blue-200 hover:text-white">
@@ -351,15 +393,26 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
                 </div>
               </div>
 
-              <button
-                type="button"
-                aria-label="Open navigation"
-                aria-expanded={mobileMenuOpen}
-                onClick={() => setMobileMenuOpen(true)}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-slate-100 transition hover:bg-white/[0.08]"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdminEmail ? (
+                  <Link
+                    href={adminToggleHref}
+                    className="inline-flex min-h-[44px] items-center rounded-2xl border border-blue-400/18 bg-blue-500/10 px-3 text-xs font-medium text-blue-100"
+                  >
+                    Admin Mode
+                  </Link>
+                ) : null}
+
+                <button
+                  type="button"
+                  aria-label="Open navigation"
+                  aria-expanded={mobileMenuOpen}
+                  onClick={() => setMobileMenuOpen(true)}
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-slate-100 transition hover:bg-white/[0.08]"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           </div>
 

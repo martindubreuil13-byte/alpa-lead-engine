@@ -70,6 +70,33 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["email_usage"]["Insert"]>;
       };
+      activity_logs: {
+        Row: {
+          id: string;
+          session_id: string;
+          user_id: string | null;
+          email: string | null;
+          event: string;
+          query: string | null;
+          location: string | null;
+          leads_count: number | null;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          user_id?: string | null;
+          email?: string | null;
+          event: string;
+          query?: string | null;
+          location?: string | null;
+          leads_count?: number | null;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["activity_logs"]["Insert"]>;
+      };
       users: {
         Row: UserProfile;
         Insert: {

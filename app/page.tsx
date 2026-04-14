@@ -6,6 +6,7 @@ import FreshStartCta from '@/components/landing/FreshStartCta'
 import LiveLogPanel from '@/components/landing/LiveLogPanel'
 import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
+import LandingPageTracker from '@/components/tracking/LandingPageTracker'
 
 export const metadata: Metadata = {
   title: {
@@ -46,6 +47,7 @@ const secondaryCtaClass = `${ctaBaseClass} border border-white/35 bg-transparent
 export default function HomePage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
+      <LandingPageTracker />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{

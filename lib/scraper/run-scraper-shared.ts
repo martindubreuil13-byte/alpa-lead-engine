@@ -30,6 +30,7 @@ export type SharedScrapeConfig = {
   region: string
   country: string
   maxLeads: number
+  mode?: 'deep' | 'fast'
 }
 
 type HtmlPage = {
@@ -101,6 +102,13 @@ function normalizeLocation(value: string | null | undefined) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
+}
+
+function normalizeQueryToken(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '')
+    .trim()
 }
 
 function formatLocationLabel(city: string, region: string, country: string) {
@@ -316,9 +324,99 @@ export function buildDiscoveryLeadKey(lead: Pick<DiscoveryLead, 'website' | 'pho
   ].join('::')
 }
 
+function matchesTokenSequence(tokens: string[], index: number, sequence: string[]) {
+  if (sequence.length === 0 || index + sequence.length > tokens.length) {
+    return false
+  }
+
+  return sequence.every((token, offset) => tokens[index + offset] === token)
+}
+
+function sanitizeQuery(query: string, location: string) {
+  const rawTokens = String(query || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+
+  if (rawTokens.length === 0) {
+    return ''
+  }
+
+  const normalizedTokens = rawTokens.map(normalizeQueryToken)
+  const locationTokens = String(location || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map(normalizeQueryToken)
+    .filter(Boolean)
+  const nearLocationTokens = locationTokens.length > 0 ? ['near', ...locationTokens] : []
+  const hasNearLocation =
+    nearLocationTokens.length > 0 &&
+    normalizedTokens.some((_, index) => matchesTokenSequence(normalizedTokens, index, nearLocationTokens))
+
+  const sanitizedTokens: string[] = []
+  const sanitizedNormalizedTokens: string[] = []
+  let locationAdded = false
+  let nearLocationAdded = false
+
+  for (let index = 0; index < rawTokens.length; index += 1) {
+    if (
+      hasNearLocation &&
+      nearLocationTokens.length > 0 &&
+      matchesTokenSequence(normalizedTokens, index, nearLocationTokens)
+    ) {
+      if (!nearLocationAdded) {
+        const slice = rawTokens.slice(index, index + nearLocationTokens.length)
+        sanitizedTokens.push(...slice)
+        sanitizedNormalizedTokens.push(...nearLocationTokens)
+        nearLocationAdded = true
+        locationAdded = true
+      }
+
+      index += nearLocationTokens.length - 1
+      continue
+    }
+
+    if (
+      locationTokens.length > 0 &&
+      matchesTokenSequence(normalizedTokens, index, locationTokens)
+    ) {
+      if (hasNearLocation || locationAdded) {
+        index += locationTokens.length - 1
+        continue
+      }
+
+      const slice = rawTokens.slice(index, index + locationTokens.length)
+      sanitizedTokens.push(...slice)
+      sanitizedNormalizedTokens.push(...locationTokens)
+      locationAdded = true
+      index += locationTokens.length - 1
+      continue
+    }
+
+    const normalizedToken = normalizedTokens[index]
+    if (!normalizedToken) {
+      continue
+    }
+
+    if (sanitizedNormalizedTokens[sanitizedNormalizedTokens.length - 1] === normalizedToken) {
+      continue
+    }
+
+    sanitizedTokens.push(rawTokens[index])
+    sanitizedNormalizedTokens.push(normalizedToken)
+  }
+
+  return sanitizedTokens.join(' ').replace(/\s+/g, ' ').trim()
+}
+
 function buildSerperQueries(query: string, city: string) {
+  const exactQuery = sanitizeQuery(`${query} ${city}`.trim(), city)
+  const nearQuery = sanitizeQuery(`${query} near ${city}`.trim(), city)
+
   return Array.from(
-    new Set([`${query} ${city}`.trim(), `${query} near ${city}`.trim()].filter(Boolean))
+    new Set([exactQuery, nearQuery].filter(Boolean))
   ).slice(0, MAX_SERPER_QUERIES)
 }
 
@@ -573,11 +671,13 @@ export async function runSharedProspectorDiscovery(
   config: SharedScrapeConfig,
   send: (msg: string) => void
 ): Promise<SharedProspectorDiscoveryResult> {
-  const { query, defaultCity, region, country, maxLeads } = config
+  const { query, defaultCity, region, country, maxLeads, mode = 'deep' } = config
 
   if (!query || !defaultCity) {
     throw new Error('Invalid scraper input')
   }
+
+  console.log('SCRAPER MODE:', mode)
 
   let totalApiCost = 0
   let googleCalls = 0
@@ -598,8 +698,10 @@ export async function runSharedProspectorDiscovery(
   send('🚀 starting scraper')
   sendPhase('Finding businesses')
 
-  const serperQueries = buildSerperQueries(query, defaultCity)
-  const serperLeadTarget = Math.min(maxLeads, SERPER_EARLY_STOP_LEADS)
+  const sanitizedQuery = sanitizeQuery(query, defaultCity)
+  const serperQueries =
+    mode === 'fast' ? [sanitizedQuery].filter(Boolean) : buildSerperQueries(sanitizedQuery, defaultCity)
+  const serperLeadTarget = mode === 'fast' ? maxLeads : Math.min(maxLeads, SERPER_EARLY_STOP_LEADS)
 
   for (const currentQuery of serperQueries) {
     if (discoveredLeads.length >= serperLeadTarget) {
@@ -651,6 +753,11 @@ export async function runSharedProspectorDiscovery(
       if (upserted.isNew) {
         send(`📥 ${lead.company_name}`)
       }
+
+      if (mode === 'fast' && discoveredLeads.length >= maxLeads) {
+        send('Processing results...')
+        break
+      }
     }
 
     if (discoveredLeads.length >= serperLeadTarget) {
@@ -673,6 +780,40 @@ export async function runSharedProspectorDiscovery(
   send(
     `📊 websites: ${metrics.leadsWithWebsite}, valid emails: ${metrics.leadsWithValidEmail}, enrichment rate: ${metrics.enrichmentRate}`
   )
+
+  if (mode === 'fast') {
+    const fullyEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
+    const finalEnrichedLeads = fullyEnrichedLeads.filter((lead) => hasContactMethod(lead))
+    const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
+    const locationLabel = formatLocationLabel(defaultCity, region, country)
+    const summaryLine = formatLeadSummary(finalEnrichedLeads.length)
+    const detailLine = null
+
+    send(`📦 enriched: ${finalEnrichedLeads.length}`)
+
+    if (filteredOutWithoutContactCount > 0) {
+      send(`Filtered out ${filteredOutWithoutContactCount} leads without contact info`)
+    }
+
+    if (validDiscoveredLeads.length === 0) {
+      send('⚠️ no leads found')
+    }
+
+    console.log(
+      `SCRAPER API COST: ${roundCostEstimate(totalApiCost)}/${SCRAPE_COST_BUDGET}`
+    )
+
+    return {
+      discoveredLeads: validDiscoveredLeads,
+      finalEnrichedLeads,
+      discoveredCount: validDiscoveredLeads.length,
+      enrichedCount: finalEnrichedLeads.length,
+      filteredOutWithoutContactCount,
+      locationLabel,
+      summaryLine,
+      detailLine,
+    }
+  }
 
   const shouldStopAfterSerper =
     metrics.strongSignalLeads >= targetStrongSignalLeads ||
@@ -711,7 +852,7 @@ export async function runSharedProspectorDiscovery(
       try {
         googleResults =
           (await searchGooglePlaces({
-            query,
+            query: sanitizedQuery,
             city: defaultCity,
             region,
             country,

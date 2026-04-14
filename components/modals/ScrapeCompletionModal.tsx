@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { saveGuestCaptureEmail } from '@/lib/guest-session'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import { trackEvent } from '@/lib/track'
 import type { TrialLead } from '@/lib/trial'
 
 function formatLocationSegment(segment: string) {
@@ -100,6 +101,7 @@ export default function ScrapeCompletionModal({
     link.download = 'alpa-leads.csv'
     link.click()
     URL.revokeObjectURL(url)
+    void trackEvent('csv_downloaded', { leads_count: addedLeads.length })
     onDownload?.()
   }
 
@@ -150,6 +152,10 @@ export default function ScrapeCompletionModal({
       }
 
       const nextMessage = 'Email sent. It may take a few minutes to arrive.'
+      void trackEvent('email_captured', {
+        email: targetEmail,
+        leads_count: addedLeads.length,
+      })
       setResponseMessage('')
       setSuccessMessage(nextMessage)
       onEmailSent?.(nextMessage)

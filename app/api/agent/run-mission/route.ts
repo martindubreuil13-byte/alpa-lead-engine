@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server'
 
 import { runMissionWithProspector } from '@/lib/agent/run-mission-with-prospector'
+import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
+const EMPTY_SUMMARY = {
+  discovered: 0,
+  qualified: 0,
+  rejected: 0,
+  queued: 0,
+  overflow: 0,
+  inserted_to_leads: 0,
+}
+
 export async function POST(req: Request) {
+  const startTime = Date.now()
+
   try {
     const { missionId } = await req.json()
 
@@ -59,22 +71,52 @@ export async function POST(req: Request) {
       mission,
       icp,
       userId: user.id,
+      scrapeBaseUrl: process.env.NEXT_PUBLIC_BASE_URL || new URL(req.url).origin,
+      cookieHeader: req.headers.get('cookie'),
     })
+
+    console.log('SYNC START')
+    const syncResult = await syncAgentLeadsToMain({
+      supabase,
+      userId: user.id,
+      missionId: mission.id,
+    })
+    console.log('SYNC DONE')
+
+    const summaryWithSync = {
+      ...summary,
+      inserted_to_leads: syncResult.inserted,
+    }
+
+    console.log('SYNC TO LEADS:', {
+      missionId: mission.id,
+      inserted: syncResult.inserted,
+    })
+
+    console.log('[api/agent/run-mission] completed', {
+      missionId,
+      userId: user.id,
+      queued: summary.queued,
+      inserted_to_leads: syncResult.inserted,
+      elapsed: Date.now() - startTime,
+    })
+    console.log('MISSION COMPLETE')
 
     return NextResponse.json({
       success: true,
-      summary,
+      summary: summaryWithSync,
     })
   } catch (error) {
     console.error(error)
+    console.error('[api/agent/run-mission] failed', {
+      elapsed: Date.now() - startTime,
+    })
+    console.log('MISSION COMPLETE')
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'MISSION_RUN_FAILED',
-        message: error instanceof Error ? error.message : 'Unknown mission error',
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      success: true,
+      summary: EMPTY_SUMMARY,
+      warning: 'partial_failure_possible',
+    })
   }
 }

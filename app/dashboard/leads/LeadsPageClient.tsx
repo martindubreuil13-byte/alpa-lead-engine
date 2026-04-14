@@ -14,6 +14,7 @@ import { buildLeadCsv } from '@/lib/leads/csv'
 import type { MissionInboxLead } from '@/lib/leads/mission-leads'
 import { consumeInboxFocusRequest } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
+import { trackEvent } from '@/lib/track'
 import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
 
 type Lead = TrialLead & {
@@ -265,6 +266,7 @@ export default function LeadsPageClient({
     link.download = 'alpa-trial-leads.csv'
     link.click()
     URL.revokeObjectURL(url)
+    void trackEvent('csv_downloaded', { leads_count: leads.length })
   }
 
   function exportCsv() {
@@ -284,6 +286,7 @@ export default function LeadsPageClient({
     link.download = 'alpa-leads.csv'
     link.click()
     URL.revokeObjectURL(url)
+    void trackEvent('csv_downloaded', { leads_count: exportLeads.length })
   }
 
   async function copySelectedLeads() {

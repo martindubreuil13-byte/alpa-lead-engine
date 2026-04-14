@@ -985,6 +985,7 @@ async function runScraper(
         region,
         country,
         maxLeads,
+        mode: 'deep',
       },
       send
     )
