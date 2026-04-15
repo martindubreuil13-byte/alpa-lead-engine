@@ -9,12 +9,14 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  X,
 } from 'lucide-react'
 
 import ICPInput from '@/components/agent/ICPInput'
 import ICPPreview from '@/components/agent/ICPPreview'
 import MissionBuilder from '@/components/agent/MissionBuilder'
 import type { ICPData } from '@/lib/ai/icp'
+import type { TrialLead } from '@/lib/trial'
 
 type SavedIcpRecord = {
   id: string
@@ -40,42 +42,17 @@ type AgentWorkspaceProps = {
   initialActiveMission: AgentMissionRecord | null
 }
 
-type MissionRunSummary = {
-  discovered: number
-  qualified: number
-  rejected: number
-  queued: number
-  overflow: number
-}
-
 type MissionRunResult = {
+  runKey: string
   missionId: string
-  summary: MissionRunSummary
+  leads: TrialLead[]
+  found: number
+  withEmail: number
+  readyToContact: number
+  query: string
+  location: string
   elapsedSeconds?: number
 }
-
-const MISSION_RUN_STAGES = [
-  'Discovering businesses...',
-  'Extracting contact data...',
-  'Filtering qualified leads...',
-] as const
-const STAGE_MESSAGES = [
-  [
-    'Discovering businesses...',
-    'Scanning local listings...',
-    'Checking company directories...',
-  ],
-  [
-    'Extracting contact data...',
-    'Reading business websites...',
-    'Collecting contact details...',
-  ],
-  [
-    'Filtering qualified leads...',
-    'Removing incomplete profiles...',
-    'Selecting high-value leads...',
-  ],
-] as const
 
 const NO_MISSION_LABEL = 'No mission yet'
 const NO_LOCATION_LABEL = 'Global'
@@ -103,13 +80,13 @@ export default function AgentWorkspace({
   const [missionRunState, setMissionRunState] = useState<'idle' | 'running'>('idle')
   const [missionRunResult, setMissionRunResult] = useState<MissionRunResult | null>(null)
   const [missionRunError, setMissionRunError] = useState<string | null>(null)
-  const [missionRunStageIndex, setMissionRunStageIndex] = useState(0)
   const [elapsed, setElapsed] = useState(0)
-  const [discovered, setDiscovered] = useState(0)
-  const [qualified, setQualified] = useState(0)
-  const [agentStatus, setAgentStatus] = useState('Initializing')
-  const [messageIndex, setMessageIndex] = useState(0)
+  const [visibleLeads, setVisibleLeads] = useState<TrialLead[]>([])
+  const [runPhase, setRunPhase] = useState<'idle' | 'scanning' | 'done'>('idle')
+
   const elapsedRef = useRef(0)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const revealedForKeyRef = useRef<string | null>(null)
 
   const hasActiveIcp = activeIcp !== null
   const hasMission = activeMission !== null && missions.length > 0
@@ -119,24 +96,23 @@ export default function AgentWorkspace({
     activeMission && activeMission.name ? activeMission.name : NO_MISSION_LABEL
   const missionLocation =
     activeMission && activeMission.location ? activeMission.location : NO_LOCATION_LABEL
-  const showExecutionPanel = missionRunState === 'running' || missionRunResult !== null
+  const showExecutionPanel =
+    missionRunState === 'running' ||
+    runPhase !== 'idle' ||
+    missionRunResult !== null ||
+    missionRunError !== null
+  const isScanning = runPhase === 'scanning'
+  const isDone = runPhase === 'done'
 
-  function applyMissionRunMetrics(summary: MissionRunSummary) {
-    setDiscovered(summary.discovered)
-    setQualified(summary.qualified)
-    setMissionRunStageIndex(MISSION_RUN_STAGES.length - 1)
-    setMessageIndex(0)
-  }
-
+  // Restore last result on page reload
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     const navigationEntry = performance.getEntriesByType('navigation')[0] as
       | PerformanceNavigationTiming
       | undefined
-    const navigationType = navigationEntry?.type
 
-    if (navigationType !== 'reload') {
+    if (navigationEntry?.type !== 'reload') {
       window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
       return
     }
@@ -147,7 +123,7 @@ export default function AgentWorkspace({
     try {
       const parsed = JSON.parse(stored) as MissionRunResult
 
-      if (!parsed?.missionId || !parsed?.summary) {
+      if (!parsed?.missionId || !Array.isArray(parsed.leads)) {
         window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
         return
       }
@@ -157,115 +133,77 @@ export default function AgentWorkspace({
         return
       }
 
+      // Mark as already revealed so the reveal effect skips animation
+      revealedForKeyRef.current = parsed.runKey || parsed.missionId
       setMissionRunResult(parsed)
+      setVisibleLeads(parsed.leads || [])
       setElapsed(parsed.elapsedSeconds ?? 0)
-      applyMissionRunMetrics(parsed.summary)
+      setRunPhase('done')
     } catch {
       window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
     }
   }, [activeMission?.id])
 
+  // Persist last result to sessionStorage
   useEffect(() => {
     if (typeof window === 'undefined') return
-
     if (!missionRunResult) {
       window.sessionStorage.removeItem(LAST_MISSION_RUN_STORAGE_KEY)
       return
     }
-
-    window.sessionStorage.setItem(
-      LAST_MISSION_RUN_STORAGE_KEY,
-      JSON.stringify(missionRunResult)
-    )
+    window.sessionStorage.setItem(LAST_MISSION_RUN_STORAGE_KEY, JSON.stringify(missionRunResult))
   }, [missionRunResult])
 
+  // Keep elapsed ref in sync for capturing in run result
   useEffect(() => {
     elapsedRef.current = elapsed
   }, [elapsed])
 
+  // Elapsed timer while running
   useEffect(() => {
-    if (missionRunState !== 'running') {
-      return
-    }
-
-    if (missionRunStageIndex >= MISSION_RUN_STAGES.length - 1) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setMissionRunStageIndex((current) =>
-        Math.min(current + 1, MISSION_RUN_STAGES.length - 1)
-      )
-    }, 2800)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [missionRunStageIndex, missionRunState])
-
-  useEffect(() => {
-    if (missionRunState !== 'running') {
-      setMessageIndex(0)
-      return
-    }
-
-    const stageMessages = STAGE_MESSAGES[missionRunStageIndex] || STAGE_MESSAGES[0]
-    const intervalId = window.setInterval(() => {
-      setMessageIndex((current) => (current + 1) % stageMessages.length)
-    }, 2000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [missionRunStageIndex, missionRunState])
-
-  useEffect(() => {
-    if (missionRunState !== 'running') {
-      return
-    }
-
+    if (missionRunState !== 'running') return
     const intervalId = window.setInterval(() => {
       setElapsed((current) => current + 1)
     }, 1000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
+    return () => window.clearInterval(intervalId)
   }, [missionRunState])
 
+  // Lead reveal animation — runs once per result, skips restored results
   useEffect(() => {
-    if (missionRunResult) {
-      setAgentStatus('Mission complete')
+    if (!missionRunResult) return
+
+    const key = missionRunResult.runKey
+    if (revealedForKeyRef.current === key) return
+    revealedForKeyRef.current = key
+
+    const leads = missionRunResult.leads
+    if (!leads.length) {
+      setRunPhase('done')
       return
     }
 
-    if (missionRunState !== 'running') {
-      setAgentStatus('Initializing')
+    setVisibleLeads([leads[0]])
+    let i = 1
+
+    if (i >= leads.length) {
+      setRunPhase('done')
       return
     }
 
-    if (elapsed === 0) {
-      setAgentStatus('Initializing agent...')
-      return
-    }
+    const id = window.setInterval(() => {
+      if (i < leads.length) {
+        const lead = leads[i]
+        setVisibleLeads((prev) => [...prev, lead])
+        i++
+      }
+      if (i >= leads.length) {
+        window.clearInterval(id)
+        setRunPhase('done')
+      }
+    }, 150)
 
-    if (missionRunStageIndex === 0) {
-      setAgentStatus('Scanning businesses...')
-      return
-    }
-
-    if (missionRunStageIndex === 1) {
-      setAgentStatus('Extracting contact data...')
-      return
-    }
-
-    if (missionRunStageIndex >= MISSION_RUN_STAGES.length - 1 && elapsed >= 9) {
-      setAgentStatus('Finalizing results...')
-      return
-    }
-
-    setAgentStatus('Filtering qualified leads...')
-  }, [elapsed, missionRunResult, missionRunStageIndex, missionRunState])
+    return () => window.clearInterval(id)
+  }, [missionRunResult])
 
   function focusIcpView() {
     setActiveView('icp')
@@ -279,22 +217,15 @@ export default function AgentWorkspace({
 
   async function handleDeleteTarget() {
     if (!activeIcpId) return
-
     setActionState('deleting-target')
-
     try {
       const response = await fetch('/api/agent/icp/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: activeIcpId }),
       })
-
       const data = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to delete target')
-      }
-
+      if (!response.ok) throw new Error(data?.error || 'Failed to delete target')
       focusIcpView()
       router.refresh()
     } catch (error) {
@@ -305,22 +236,15 @@ export default function AgentWorkspace({
 
   async function handleDeleteMission() {
     if (!activeMission) return
-
     setActionState('deleting-mission')
-
     try {
       const response = await fetch('/api/agent/missions/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: activeMission.id }),
       })
-
       const data = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to delete mission')
-      }
-
+      if (!response.ok) throw new Error(data?.error || 'Failed to delete mission')
       focusMissionView()
       router.refresh()
     } catch (error) {
@@ -332,48 +256,66 @@ export default function AgentWorkspace({
   async function handleRunMission() {
     if (!activeMission || missionRunState === 'running') return
 
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setMissionRunState('running')
     setMissionRunError(null)
     setMissionRunResult(null)
-    setMissionRunStageIndex(0)
+    setVisibleLeads([])
+    setRunPhase('scanning')
     setElapsed(0)
-    setDiscovered(0)
-    setQualified(0)
-    setAgentStatus('Initializing agent...')
-    setMessageIndex(0)
+    revealedForKeyRef.current = null
 
     try {
       const response = await fetch('/api/agent/run-mission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ missionId: activeMission.id }),
+        signal: controller.signal,
       })
 
       const data = await response.json().catch(() => null)
 
-      if (!data?.summary) {
-        setAgentStatus('Completed with warnings')
-        return
-      }
-
       if (!response.ok || !data?.success) {
-        throw new Error(data?.message || data?.error || 'Failed to run mission')
+        throw new Error(data?.error || 'Mission failed')
       }
 
-      const nextResult = {
+      const nextResult: MissionRunResult = {
+        runKey: `${activeMission.id}:${Date.now()}`,
         missionId: activeMission.id,
-        summary: data.summary as MissionRunSummary,
+        leads: Array.isArray(data.leads)
+          ? data.leads.filter(
+              (l: unknown): l is TrialLead => typeof l === 'object' && l !== null
+            )
+          : [],
+        found: Number(data.found ?? 0),
+        withEmail: Number(data.withEmail ?? 0),
+        readyToContact: Number(data.readyToContact ?? 0),
+        query: String(data.query || ''),
+        location: String(data.location || missionLocation),
         elapsedSeconds: elapsedRef.current,
       }
 
-      applyMissionRunMetrics(nextResult.summary)
       setMissionRunResult(nextResult)
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setRunPhase('idle')
+        setVisibleLeads([])
+        setMissionRunResult(null)
+        return
+      }
       console.error(error)
       setMissionRunError(error instanceof Error ? error.message : 'Failed to run mission')
+      setRunPhase('idle')
     } finally {
       setMissionRunState('idle')
+      abortControllerRef.current = null
     }
+  }
+
+  function handleStopMission() {
+    abortControllerRef.current?.abort()
   }
 
   const flowSegments = [
@@ -420,7 +362,7 @@ export default function AgentWorkspace({
   ] as const
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-5 px-0 sm:space-y-6">
+    <div className="w-full space-y-6 px-4 sm:space-y-8 sm:px-6 lg:px-10 xl:px-12">
       <section className="overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max gap-3 pr-1">
           {flowSegments.map((segment) => {
@@ -559,7 +501,6 @@ export default function AgentWorkspace({
           {activeView === 'icp' && hasActiveIcp && icpMode === 'edit' ? (
             <div className="space-y-4 transition-all duration-300">
               <ICPInput initialSavedIcps={savedIcps} builderOnly />
-
               <button
                 type="button"
                 onClick={() => setIcpMode('view')}
@@ -584,7 +525,6 @@ export default function AgentWorkspace({
                     Define who you&apos;re targeting before launching a mission.
                   </p>
                 </div>
-
                 <button
                   type="button"
                   onClick={focusIcpView}
@@ -616,7 +556,6 @@ export default function AgentWorkspace({
                       {missionName}
                     </h3>
                   </div>
-
                   <div className="grid gap-3 sm:grid-cols-3">
                     <DetailPill label="Throughput" value={`${activeMission.leadsPerDay} leads/day`} />
                     <DetailPill label="Mode" value={activeMission.contactMode} />
@@ -654,142 +593,152 @@ export default function AgentWorkspace({
                     className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-[14px] px-4 text-sm font-medium text-rose-200 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:text-rose-200/60"
                   >
                     <Trash2 className="h-4 w-4" />
-                    <span>{actionState === 'deleting-mission' ? 'Deleting...' : 'Delete Mission'}</span>
+                    <span>
+                      {actionState === 'deleting-mission' ? 'Deleting...' : 'Delete Mission'}
+                    </span>
                   </button>
                 </div>
               </div>
 
-              <div className="text-sm leading-6 text-slate-400">
-                The agent is discovering and qualifying leads for this mission.
-              </div>
-
               {showExecutionPanel ? (
-                <div className="rounded-[24px] border border-blue-400/18 bg-[linear-gradient(180deg,rgba(12,29,53,0.7),rgba(4,10,20,0.92))] p-4 shadow-[0_0_36px_rgba(59,130,246,0.12)] transition-all duration-300">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="relative flex h-3 w-3 items-center justify-center">
-                        <span
-                          className="absolute inline-flex h-4 w-4 rounded-full bg-blue-400/60 opacity-95 animate-pulse"
-                          style={{ animationDuration: '3.6s' }}
+                <div className="space-y-5">
+                  {/* Scanning state */}
+                  {isScanning ? (
+                    <div className="relative overflow-hidden rounded-[28px] border border-white/12 bg-[linear-gradient(180deg,rgba(8,15,29,0.9),rgba(4,10,20,0.96))] p-6 shadow-[0_20px_60px_rgba(2,8,23,0.3)] backdrop-blur-xl sm:p-8">
+                      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(96,165,250,0.14),transparent_60%)]" />
+                      <div className="relative space-y-6">
+                        <div className="flex items-start justify-between gap-6">
+                          <div className="space-y-3">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-blue-300/20 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-100">
+                              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-300" />
+                              Live Market Scan
+                            </div>
+                            <h3 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                              Scanning the market
+                            </h3>
+                            <p className="text-sm leading-7 text-slate-400">
+                              Searching {missionName} in {missionLocation}&nbsp;&mdash;&nbsp;this takes about 20–30 seconds.
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-3">
+                            <div className="text-sm font-semibold tabular-nums text-slate-400">
+                              ⏱ {elapsed}s
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleStopMission}
+                              className="inline-flex items-center gap-2 rounded-[14px] border border-rose-400/22 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:border-rose-400/35 hover:bg-rose-500/16 active:scale-[0.97]"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Stop
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                          {[0, 1, 2, 3, 4, 5].map((i) => (
+                            <div
+                              key={i}
+                              className="h-[140px] animate-pulse rounded-[22px] border border-white/8 bg-white/[0.03]"
+                              style={{ animationDelay: `${i * 110}ms` }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Results state */}
+                  {isDone && missionRunResult ? (
+                    <div className="space-y-5">
+                      {/* Metrics */}
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <MetricTile label="Leads Found" value={String(missionRunResult.found)} />
+                        <MetricTile label="With Email" value={String(missionRunResult.withEmail)} />
+                        <MetricTile
+                          label="Ready to Contact"
+                          value={String(missionRunResult.readyToContact)}
                         />
-                        <span className="relative h-2 w-2 rounded-full bg-blue-300 shadow-[0_0_14px_rgba(96,165,250,0.72)]" />
                       </div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-200/80">
-                        {missionRunState === 'running' ? 'Agent Executing' : 'Execution Complete'}
-                      </div>
-                    </div>
 
-                    <div className="relative overflow-hidden rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
-                      <div
-                        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.18),transparent_58%)] opacity-90 animate-pulse"
-                        style={{ animationDuration: '3.8s' }}
-                      />
-                      <div className="relative space-y-4">
-                        <div>
-                          <h4 className="text-lg font-semibold text-white">
-                            {missionRunState === 'running'
-                              ? 'Agent executing mission'
-                              : 'Mission execution finished'}
-                          </h4>
-                          <p className="mt-1 text-sm leading-6 text-slate-300">
-                            The agent is working through one controlled execution flow for this mission.
-                          </p>
+                      {/* Leads grid */}
+                      <div>
+                        <div className="mb-5 flex items-end justify-between gap-4">
+                          <div>
+                            <h4 className="text-lg font-semibold tracking-tight text-white">
+                              Live opportunities
+                            </h4>
+                            <p className="mt-1 text-sm text-slate-400">
+                              {missionRunResult.query}
+                              {missionRunResult.location
+                                ? ` · ${missionRunResult.location}`
+                                : null}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-xs font-medium text-slate-500">
+                            ⏱ {missionRunResult.elapsedSeconds ?? elapsed}s
+                          </div>
                         </div>
 
-                        <div
-                          className={`text-sm font-medium text-blue-100 transition-opacity duration-300 ${
-                            missionRunState === 'running' && elapsed === 0 ? 'opacity-0' : 'opacity-100'
-                          }`}
+                        {visibleLeads.length > 0 ? (
+                          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                            {visibleLeads.map((lead, index) => {
+                              const hasEmail = Boolean(String(lead.email || '').trim())
+                              return (
+                                <LeadCard
+                                  key={lead.email || lead.website || lead.company_name || index}
+                                  lead={lead}
+                                  hasEmail={hasEmail}
+                                />
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-10 text-center">
+                            <p className="text-sm text-slate-400">
+                              No leads found for this mission. Try adjusting your target profile or
+                              location.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/dashboard/leads?mission_id=${missionRunResult.missionId}`
+                            )
+                          }
+                          className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.18)] transition hover:-translate-y-0.5 active:scale-[0.98]"
                         >
-                          ⏱ {elapsed}s elapsed
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium text-slate-100">
-                            Agent status: {agentStatus}
-                          </div>
-                          <div className="text-sm text-slate-100">
-                            → {missionRunResult
-                              ? 'Results ready for review.'
-                              : STAGE_MESSAGES[missionRunStageIndex]?.[messageIndex] || STAGE_MESSAGES[0][0]}
-                          </div>
-                          {missionRunState === 'running' && discovered === 0 ? (
-                            <div className="text-xs text-slate-400">(working...)</div>
-                          ) : null}
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          <DetailPill label="Discovered" value={String(discovered)} />
-                          <DetailPill label="Qualified" value={String(qualified)} />
-                          <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
-                        </div>
-
-                        <div className="text-sm text-slate-300">
-                          {missionRunResult
-                            ? `Delivered: ${missionRunResult.summary.queued} / ${activeMission.leadsPerDay}`
-                            : '→ Preparing to reach target...'}
-                        </div>
+                          View Leads
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleRunMission()
+                          }}
+                          className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.08]"
+                        >
+                          Generate more leads
+                        </button>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ) : null}
+                  ) : null}
 
-              {missionRunError ? (
-                <div className="rounded-2xl border border-rose-400/18 bg-rose-500/8 p-4 text-sm leading-6 text-rose-100">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-200/80">
-                    Mission Error
-                  </div>
-                  <div className="mt-2">Mission failed. Please try again.</div>
-                  <div className="mt-1 text-rose-100/70">{missionRunError}</div>
-                </div>
-              ) : null}
-
-              {missionRunResult && missionRunState !== 'running' ? (
-                <div className="rounded-[24px] border border-emerald-400/16 bg-[linear-gradient(180deg,rgba(6,78,59,0.18),rgba(4,10,20,0.86))] p-4 shadow-[0_0_32px_rgba(16,185,129,0.08)]">
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-200/80">
-                        Run Summary
+                  {/* Error state */}
+                  {missionRunError ? (
+                    <div className="rounded-2xl border border-rose-400/18 bg-rose-500/8 p-4 text-sm leading-6 text-rose-100">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-200/80">
+                        Mission Error
                       </div>
-                      <h4 className="mt-1 text-lg font-semibold text-white">Mission complete</h4>
-                      <div className="mt-1 text-sm text-slate-300">
-                        These leads were added to your workspace inbox for this mission.
-                      </div>
+                      <div className="mt-2">Mission failed. Please try again.</div>
+                      <div className="mt-1 text-rose-100/70">{missionRunError}</div>
                     </div>
-
-                    <div className="grid gap-3 sm:grid-cols-4">
-                      <DetailPill label="Discovered" value={String(missionRunResult.summary.discovered)} />
-                      <DetailPill label="Qualified" value={String(missionRunResult.summary.qualified)} />
-                      <DetailPill label="Rejected" value={String(missionRunResult.summary.rejected)} />
-                      <DetailPill label="Added to workspace" value={String(missionRunResult.summary.queued)} />
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <DetailPill label="Target" value={`${activeMission.leadsPerDay} leads`} />
-                      <DetailPill label="Delivered" value={String(missionRunResult.summary.queued)} />
-                    </div>
-
-                    {missionRunResult.summary.overflow > 0 ? (
-                      <DetailPill label="Overflow" value={String(missionRunResult.summary.overflow)} />
-                    ) : null}
-
-                    {missionRunResult.summary.queued < activeMission.leadsPerDay ? (
-                      <div className="text-sm leading-6 text-slate-300">
-                        Partial completion — agent will need additional runs to reach target.
-                      </div>
-                    ) : null}
-
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/dashboard/leads?mission_id=${missionRunResult.missionId}`)}
-                        className="btn-primary min-h-[48px] rounded-2xl px-5 shadow-[0_12px_28px_rgba(59,130,246,0.18)] transition hover:-translate-y-0.5 active:scale-[0.98]"
-                      >
-                        View Leads
-                      </button>
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -798,7 +747,6 @@ export default function AgentWorkspace({
           {activeView === 'mission' && hasMission && missionMode === 'edit' && activeIcpId ? (
             <div className="space-y-4 transition-all duration-300">
               <MissionBuilder icpId={activeIcpId} />
-
               <button
                 type="button"
                 onClick={() => setMissionMode('view')}
@@ -821,6 +769,80 @@ function DetailPill({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="mt-2 text-sm font-medium text-white">{value}</div>
+    </div>
+  )
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+        {label}
+      </div>
+      <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{value}</div>
+    </div>
+  )
+}
+
+function LeadCard({ lead, hasEmail }: { lead: TrialLead; hasEmail: boolean }) {
+  const websiteDisplay = lead.website
+    ? lead.website.replace(/^https?:\/\//i, '').replace(/\/$/, '')
+    : null
+
+  return (
+    <div
+      className={`rounded-[24px] border p-5 transition-all duration-300 ${
+        hasEmail
+          ? 'border-blue-300/20 bg-[linear-gradient(160deg,rgba(59,130,246,0.12),rgba(8,15,29,0.82))] shadow-[0_8px_28px_rgba(59,130,246,0.1)]'
+          : 'border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.04),rgba(5,10,18,0.72))]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[17px] font-semibold leading-snug tracking-tight text-white">
+            {lead.company_name || 'Unknown company'}
+          </div>
+          {lead.city ? (
+            <div className="mt-1 text-[13px] text-slate-400">{lead.city}</div>
+          ) : null}
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${
+            hasEmail
+              ? 'border border-blue-300/22 bg-blue-500/15 text-blue-100'
+              : 'border border-white/10 bg-white/[0.05] text-slate-400'
+          }`}
+        >
+          {hasEmail ? 'Email' : 'Website'}
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {lead.email ? (
+          <div className="flex items-center gap-2.5 text-sm">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-[11px]">
+              ✉
+            </span>
+            <span className="truncate font-medium text-blue-200">{lead.email}</span>
+          </div>
+        ) : null}
+        {!lead.email && websiteDisplay ? (
+          <div className="flex items-center gap-2.5 text-sm">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[11px]">
+              🌐
+            </span>
+            <span className="truncate text-slate-300">{websiteDisplay}</span>
+          </div>
+        ) : null}
+        {lead.phone ? (
+          <div className="flex items-center gap-2.5 text-sm">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-[11px]">
+              📞
+            </span>
+            <span className="text-slate-400">{lead.phone}</span>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
