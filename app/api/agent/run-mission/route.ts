@@ -1,3 +1,20 @@
+/**
+ * POST /api/agent/run-mission
+ *
+ * Entry point for a single mission cycle.
+ *
+ * HTTP response is returned immediately after auth + mission validation.
+ * All heavy work (scraping, enrichment, email generation, completion check)
+ * runs in after() so the client never waits for it.
+ *
+ * Background pipeline (after()):
+ *   1. runMission()          — batch scrape up to 5× until target met, persist leads
+ *   2. syncAgentLeadsToMain  — copy qualified leads into main `leads` table
+ *   3. runEmailPipeline()    — generate outreach drafts for newly found leads
+ *   4. generateMissingDrafts() — backfill any leads that still lack a draft
+ *   5. checkMissionCompletion() — mark completed + schedule next_run_at
+ */
+
 import { NextResponse, after } from 'next/server'
 
 import { enrichLeadContext } from '@/lib/agent/enrich-context'
@@ -10,6 +27,8 @@ import type { TrialLead } from '@/lib/trial'
 
 export const runtime = 'nodejs'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type OfferContext = {
   what_you_do: string
   who_you_help: string
@@ -17,71 +36,23 @@ type OfferContext = {
   angle: string
 }
 
-function buildDedupKey(lead: { email?: string | null; website?: string | null }) {
-  const email = String(lead.email || '').trim().toLowerCase()
-  if (email) return email
-  return String(lead.website || '').trim().toLowerCase()
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Compute next run timestamp: tomorrow at 09:00 UTC. */
+function computeNextRunAt(): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() + 1)
+  d.setUTCHours(9, 0, 0, 0)
+  return d.toISOString()
 }
 
-/** Insert new leads into agent_lead_queue, deduping against existing rows. Returns only the newly inserted leads. */
-async function persistLeads(params: {
-  supabase: Awaited<ReturnType<typeof createServerClient>>
-  missionId: string
-  icpId: string
-  userId: string
-  leads: TrialLead[]
-}): Promise<TrialLead[]> {
-  const { supabase, missionId, icpId, userId, leads } = params
-  if (!leads.length) return []
+// ─── Email pipeline ───────────────────────────────────────────────────────────
 
-  try {
-    const { data: existingRows } = await supabase
-      .from('agent_lead_queue')
-      .select('email, website')
-      .eq('user_id', userId)
-      .eq('mission_id', missionId)
-
-    const existingKeys = new Set(
-      (existingRows || []).map(buildDedupKey).filter(Boolean)
-    )
-
-    const newLeads = leads.filter((lead) => {
-      const key = buildDedupKey(lead)
-      if (!key) return true
-      if (existingKeys.has(key)) return false
-      existingKeys.add(key)
-      return true
-    })
-
-    if (newLeads.length > 0) {
-      const { error: insertError } = await supabase.from('agent_lead_queue').insert(
-        newLeads.map((lead) => ({
-          user_id: userId,
-          mission_id: missionId,
-          icp_id: icpId,
-          business_name: lead.company_name,
-          website: lead.website,
-          email: lead.email,
-          phone: lead.phone,
-          location: lead.city ?? null,
-          qualification_status: 'qualified',
-          context_status: 'pending',
-          draft_status: 'pending',
-        }))
-      )
-      if (insertError) {
-        console.error('[run-mission] queue insert error (ignored):', insertError)
-      }
-    }
-
-    return newLeads
-  } catch (err) {
-    console.error('[run-mission] persist error (ignored):', err)
-    return []
-  }
-}
-
-/** Enrich + generate email drafts for new leads, inserting into outreach_queue. Sequential for visibility. */
+/**
+ * Generate and store outreach drafts for a list of leads.
+ * Deduplicates against existing outreach_queue rows (by email + website).
+ * Sequential loop for full traceability.
+ */
 async function runEmailPipeline(params: {
   supabase: Awaited<ReturnType<typeof createServerClient>>
   userId: string
@@ -95,10 +66,14 @@ async function runEmailPipeline(params: {
   missionCta: string | null
   senderSignature: string | null
 }) {
-  const { supabase, userId, missionId, leads, offerContext, offerInput, audienceInput, locationInput, icpAngles, missionCta, senderSignature } = params
+  const {
+    supabase, userId, missionId, leads, offerContext, offerInput,
+    audienceInput, locationInput, icpAngles, missionCta, senderSignature,
+  } = params
+
   if (!leads.length) return
 
-  // Dedup against existing outreach drafts for this mission
+  // Load existing outreach keys to avoid generating duplicate drafts
   const { data: existingDrafts } = await supabase
     .from('outreach_queue')
     .select('contact_email, website')
@@ -110,19 +85,22 @@ async function runEmailPipeline(params: {
     if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
   })
 
-  const leadsToProcess = leads.filter((lead) => {
+  const toProcess = leads.filter((lead) => {
     if (!lead.email && !lead.website) return false
     if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
     if (lead.website && existingKeys.has(`w:${lead.website.toLowerCase()}`)) return false
     return true
   })
 
-  if (!leadsToProcess.length) return
+  if (!toProcess.length) {
+    console.log('[runEmailPipeline] no leads to process (all already have drafts)')
+    return
+  }
 
-  for (const lead of leadsToProcess) {
+  console.log(`[runEmailPipeline] generating drafts for ${toProcess.length} leads`)
+
+  for (const lead of toProcess) {
     const name = lead.company_name || 'Unknown'
-    console.log('[run-mission] START GENERATION', { company_name: name, missionId })
-
     try {
       const context = await enrichLeadContext({
         company_name: lead.company_name,
@@ -142,11 +120,9 @@ async function runEmailPipeline(params: {
       })
 
       if (!draft.subject || !draft.body) {
-        console.log('[run-mission] INVALID DRAFT STRUCTURE', { company_name: name, draft })
+        console.log('[runEmailPipeline] invalid draft, skipping', { name })
         continue
       }
-
-      console.log('[run-mission] DRAFT GENERATED', { company_name: name, subject: draft.subject })
 
       const { error: insertError } = await supabase.from('outreach_queue').insert({
         user_id: userId,
@@ -172,20 +148,19 @@ async function runEmailPipeline(params: {
       })
 
       if (insertError) {
-        console.log('[run-mission] INSERT FAILED', { company_name: name, error: insertError })
+        console.log('[runEmailPipeline] insert failed', { name, error: insertError })
       } else {
-        console.log('[run-mission] INSERT SUCCESS', { company_name: name })
+        console.log('[runEmailPipeline] draft created', { name, subject: draft.subject })
       }
     } catch (err) {
-      console.log('[run-mission] GENERATION FAILED', { company_name: name, error: err })
+      console.log('[runEmailPipeline] generation failed', { name, error: err })
     }
   }
 }
 
 /**
- * Find all leads in the queue that don't have an outreach draft yet and generate them.
- * Runs every cycle so no lead is permanently skipped. Sequential for full traceability.
- * Capped at `cap` per call to avoid overloading a single after() run.
+ * Backfill: find any leads in agent_lead_queue that still lack an outreach draft
+ * and generate them. Capped at `cap` per call to avoid runaway runs.
  */
 async function generateMissingDrafts(params: {
   supabase: Awaited<ReturnType<typeof createServerClient>>
@@ -200,9 +175,11 @@ async function generateMissingDrafts(params: {
   senderSignature: string | null
   cap?: number
 }) {
-  const { supabase, userId, missionId, offerContext, offerInput, audienceInput, locationInput, icpAngles, missionCta, senderSignature, cap = 10 } = params
+  const {
+    supabase, userId, missionId, offerContext, offerInput, audienceInput,
+    locationInput, icpAngles, missionCta, senderSignature, cap = 10,
+  } = params
 
-  // All leads for this mission
   const { data: allLeads } = await supabase
     .from('agent_lead_queue')
     .select('id, business_name, email, website, location')
@@ -211,7 +188,6 @@ async function generateMissingDrafts(params: {
 
   if (!allLeads?.length) return
 
-  // All existing outreach for this mission (any review_status)
   const { data: existingOutreach } = await supabase
     .from('outreach_queue')
     .select('contact_email, website')
@@ -223,7 +199,7 @@ async function generateMissingDrafts(params: {
     if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
   })
 
-  const leadsNeedingDraft = allLeads
+  const needingDraft = allLeads
     .filter((lead) => {
       if (!lead.email && !lead.website) return false
       if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
@@ -232,18 +208,12 @@ async function generateMissingDrafts(params: {
     })
     .slice(0, cap)
 
-  console.log('[run-mission] missing drafts', {
-    leadsCount: allLeads.length,
-    draftsCount: existingOutreach?.length ?? 0,
-    generating: leadsNeedingDraft.length,
-  })
+  if (!needingDraft.length) return
 
-  if (!leadsNeedingDraft.length) return
+  console.log(`[generateMissingDrafts] backfilling ${needingDraft.length} leads`)
 
-  for (const lead of leadsNeedingDraft) {
+  for (const lead of needingDraft) {
     const name = lead.business_name || 'Unknown'
-    console.log('[run-mission] START GENERATION', { company_name: name, missionId })
-
     try {
       const context = await enrichLeadContext({
         company_name: lead.business_name,
@@ -262,14 +232,9 @@ async function generateMissingDrafts(params: {
         offer_context: offerContext,
       })
 
-      if (!draft.subject || !draft.body) {
-        console.log('[run-mission] INVALID DRAFT STRUCTURE', { company_name: name, draft })
-        continue
-      }
+      if (!draft.subject || !draft.body) continue
 
-      console.log('[run-mission] DRAFT GENERATED', { company_name: name, subject: draft.subject })
-
-      const { error: insertError } = await supabase.from('outreach_queue').insert({
+      const { error } = await supabase.from('outreach_queue').insert({
         user_id: userId,
         mission_id: missionId,
         lead_id: lead.id,
@@ -292,38 +257,32 @@ async function generateMissingDrafts(params: {
         review_status: 'draft',
       })
 
-      if (insertError) {
-        console.log('[run-mission] INSERT FAILED', { company_name: name, error: insertError })
+      if (error) {
+        console.log('[generateMissingDrafts] insert failed', { name, error })
       } else {
-        console.log('[run-mission] INSERT SUCCESS', { company_name: name })
+        console.log('[generateMissingDrafts] draft created', { name })
       }
     } catch (err) {
-      console.log('[run-mission] GENERATION FAILED', { company_name: name, error: err })
+      console.log('[generateMissingDrafts] generation failed', { name, error: err })
     }
   }
 }
 
-/** Compute next run timestamp: tomorrow at 09:00 UTC. */
-function computeNextRunAt(): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() + 1)
-  d.setUTCHours(9, 0, 0, 0)
-  return d.toISOString()
-}
+// ─── Completion check ─────────────────────────────────────────────────────────
 
 /**
- * Transition mission to 'completed' once:
- * - leads_today >= daily_target
- * - AND all today's leads have outreach drafts
- * Sets completed_at + next_run_at (tomorrow 09:00 UTC).
+ * Transition mission to 'completed' when either condition is met:
+ *   A) leadsToday >= dailyTarget AND all leads have drafts
+ *   B) Stagnation: newLeadsThisRun === 0 AND leadsToday >= 80% of target
  */
 async function checkMissionCompletion(params: {
   supabase: Awaited<ReturnType<typeof createServerClient>>
   missionId: string
   userId: string
   dailyTarget: number
+  newLeadsThisRun: number
 }) {
-  const { supabase, missionId, userId, dailyTarget } = params
+  const { supabase, missionId, userId, dailyTarget, newLeadsThisRun } = params
 
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
@@ -334,16 +293,43 @@ async function checkMissionCompletion(params: {
     .eq('mission_id', missionId)
     .gte('created_at', todayStart.toISOString())
 
-  if ((leadsToday ?? 0) < dailyTarget) return
+  const leadsTodayCount = leadsToday ?? 0
 
-  // Require all today's leads to have drafts before marking complete
-  const { count: draftsTotal } = await supabase
-    .from('outreach_queue')
-    .select('id', { count: 'exact', head: true })
-    .eq('mission_id', missionId)
+  // Condition A: hit target + all leads have drafts
+  if (leadsTodayCount >= dailyTarget) {
+    const { count: draftsTotal } = await supabase
+      .from('outreach_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('mission_id', missionId)
 
-  if ((draftsTotal ?? 0) < (leadsToday ?? 0)) return
+    if ((draftsTotal ?? 0) >= leadsTodayCount) {
+      console.log('[checkMissionCompletion] condition A — target reached with full draft coverage', {
+        leadsTodayCount,
+        dailyTarget,
+        draftsTotal,
+      })
+      await markCompleted(supabase, missionId, userId)
+      return
+    }
+  }
 
+  // Condition B: stagnation — search pool exhausted before target
+  const stagnationThreshold = Math.ceil(dailyTarget * 0.8)
+  if (newLeadsThisRun === 0 && leadsTodayCount >= stagnationThreshold) {
+    console.log('[checkMissionCompletion] condition B — stagnation, forcing completion', {
+      leadsTodayCount,
+      stagnationThreshold,
+      dailyTarget,
+    })
+    await markCompleted(supabase, missionId, userId)
+  }
+}
+
+async function markCompleted(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  missionId: string,
+  userId: string
+) {
   await supabase
     .from('agent_missions')
     .update({
@@ -355,6 +341,8 @@ async function checkMissionCompletion(params: {
     .eq('user_id', userId)
     .in('status', ['active', 'needs_review'])
 }
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   const startTime = Date.now()
@@ -394,7 +382,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    // Execution guard: run only if active, or if completed and next_run_at has passed (new day)
+    // Execution guard: only run if active, or if completed and next_run_at has passed
     const now = new Date()
     const isScheduledRun =
       mission.status === 'completed' &&
@@ -402,7 +390,10 @@ export async function POST(req: Request) {
       now >= new Date(mission.next_run_at)
 
     if (mission.status !== 'active' && !isScheduledRun) {
-      return NextResponse.json({ error: 'MISSION_NOT_ACTIVE', status: mission.status }, { status: 200 })
+      return NextResponse.json(
+        { error: 'MISSION_NOT_ACTIVE', status: mission.status },
+        { status: 200 }
+      )
     }
 
     // Reset completed → active for this new cycle
@@ -414,70 +405,63 @@ export async function POST(req: Request) {
         .eq('user_id', user.id)
     }
 
-    // ICP is optional — missions created via new setup flow use search_patterns directly
-    let icp = null
-    if (mission.icp_id) {
-      const { data: icpData, error: icpError } = await supabase
-        .from('agent_icp')
-        .select('*')
-        .eq('id', mission.icp_id)
-        .eq('user_id', user.id)
-        .maybeSingle()
+    // Validate mission has enough config to run
+    const hasSearchConfig =
+      (Array.isArray(mission.search_patterns) && (mission.search_patterns as unknown[]).length > 0) ||
+      Boolean(mission.audience_input)
 
-      if (icpError) {
-        console.error('[run-mission] icp lookup error:', icpError)
-        return NextResponse.json({ error: 'ICP_LOOKUP_FAILED' }, { status: 500 })
-      }
-
-      icp = icpData
-    }
-
-    if (!icp && !mission.search_patterns) {
+    if (!hasSearchConfig) {
       return NextResponse.json({ error: 'MISSION_HAS_NO_SEARCH_CONFIG' }, { status: 400 })
     }
 
-    const result = await runMission({
-      supabase,
-      mission,
-      icp,
-      scrapeBaseUrl: process.env.NEXT_PUBLIC_BASE_URL || new URL(req.url).origin,
-      cookieHeader: req.headers.get('cookie'),
-    })
-
-    // Collect context for background pipeline
-    const offerContext = (mission.offer_context ?? null) as OfferContext | null
-    const offerInput = mission.offer_input || ''
-    const audienceInput = mission.audience_input || ''
-    const locationInput = mission.location_input || mission.location || ''
-    const senderSignature = mission.sender_signature || null
-    const icpAngles: string[] = []
-    if (offerContext?.angle) icpAngles.push(offerContext.angle)
-    const icpExpanded = mission.icp_expanded
-    if (Array.isArray(icpExpanded)) {
-      icpAngles.push(...(icpExpanded as string[]).slice(0, 2))
-    }
-
+    // ── Return immediately — all scraping + generation runs in after() ──
     after(async () => {
       try {
-        const newLeads = await persistLeads({
-          supabase,
-          missionId: mission.id,
-          icpId: icp?.id ?? mission.icp_id ?? '',
-          userId: user.id,
-          leads: result.leads,
-        })
+        const dailyTarget = mission.daily_target ?? 10
 
-        await syncAgentLeadsToMain({ supabase, userId: user.id, missionId: mission.id })
-
-        // Use exact mission CTA; null means no CTA line in email
+        // Collect offer context for email generation
+        const offerContext = (mission.offer_context ?? null) as OfferContext | null
+        const offerInput = mission.offer_input || ''
+        const audienceInput = mission.audience_input || ''
+        const locationInput = mission.location_input || mission.location || ''
+        const senderSignature = mission.sender_signature || null
         const missionCta = mission.cta || null
 
-        // Generate drafts for newly found leads immediately
+        const icpAngles: string[] = []
+        if (offerContext?.angle) icpAngles.push(offerContext.angle)
+        const icpExpanded = mission.icp_expanded
+        if (Array.isArray(icpExpanded)) {
+          icpAngles.push(...(icpExpanded as string[]).slice(0, 2))
+        }
+
+        // ── 1. Run scraper rounds + persistence ──
+        const result = await runMission({
+          supabase,
+          mission,
+          target: dailyTarget,
+        })
+
+        console.log('[run-mission] after() scrape done', {
+          collected: result.collected,
+          rounds: result.rounds,
+          query: result.query,
+          location: result.location,
+          elapsed: Date.now() - startTime,
+        })
+
+        // ── 2. Sync to main leads table ──
+        await syncAgentLeadsToMain({
+          supabase,
+          userId: user.id,
+          missionId: mission.id,
+        })
+
+        // ── 3. Generate outreach drafts for newly found leads ──
         await runEmailPipeline({
           supabase,
           userId: user.id,
           missionId: mission.id,
-          leads: newLeads,
+          leads: result.newLeads,
           offerContext,
           offerInput,
           audienceInput,
@@ -487,7 +471,7 @@ export async function POST(req: Request) {
           senderSignature,
         })
 
-        // Always backfill: generate drafts for any lead across all rounds that still lacks one
+        // ── 4. Backfill: generate drafts for any leads still missing one ──
         await generateMissingDrafts({
           supabase,
           userId: user.id,
@@ -502,35 +486,31 @@ export async function POST(req: Request) {
           cap: 10,
         })
 
+        // ── 5. Check completion and schedule next run if done ──
         await checkMissionCompletion({
           supabase,
           missionId: mission.id,
           userId: user.id,
-          dailyTarget: mission.daily_target ?? 10,
+          dailyTarget,
+          newLeadsThisRun: result.collected,
+        })
+
+        console.log('[run-mission] after() pipeline complete', {
+          missionId: mission.id,
+          elapsed: Date.now() - startTime,
         })
       } catch (err) {
-        console.error('[run-mission] after() pipeline error (ignored):', err)
+        console.error('[run-mission] after() pipeline error (non-fatal):', err)
       }
     })
 
-    console.log('[run-mission] complete', {
-      missionId,
-      found: result.found,
-      withEmail: result.withEmail,
-      elapsed: Date.now() - startTime,
-    })
-
+    // Fast response — client polls mission-status for results
     return NextResponse.json({
       success: true,
-      leads: result.leads,
-      found: result.found,
-      withEmail: result.withEmail,
-      readyToContact: result.readyToContact,
-      query: result.query,
-      location: result.location,
+      status: mission.status,
     })
   } catch (err) {
-    console.error('[run-mission] error:', err, { elapsed: Date.now() - startTime })
+    console.error('[run-mission] handler error:', err, { elapsed: Date.now() - startTime })
     return NextResponse.json({ error: 'MISSION_FAILED' }, { status: 500 })
   }
 }

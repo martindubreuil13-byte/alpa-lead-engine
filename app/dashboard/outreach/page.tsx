@@ -139,6 +139,7 @@ export default function OutreachQueuePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set())
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set())
 
   // Toast
   const [toast, setToast] = useState<string | null>(null)
@@ -336,6 +337,27 @@ export default function OutreachQueuePage() {
       }
     }
     setSendingIds((prev) => { const next = new Set(prev); sendable.forEach((id) => next.delete(id)); return next })
+  }
+
+  // ── Send test ────────────────────────────────────────────────────────────
+
+  async function handleSendTest(item: QueueItem) {
+    if (!item.full_email && !item.body) return
+    setTestingIds((prev) => new Set(prev).add(item.id))
+    try {
+      const res = await fetch('/api/agent/outreach-queue/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id }),
+      })
+      if (res.ok) {
+        showToast('Test email sent to your inbox')
+      } else {
+        showToast('Test send failed — check logs')
+      }
+    } finally {
+      setTestingIds((prev) => { const next = new Set(prev); next.delete(item.id); return next })
+    }
   }
 
   // ── Selection helpers ────────────────────────────────────────────────────
@@ -655,6 +677,21 @@ export default function OutreachQueuePage() {
                         Missing email address
                       </span>
                     )
+                  )}
+
+                  {item.review_status !== 'sent' && (item.full_email || item.body) && (
+                    <button
+                      type="button"
+                      disabled={testingIds.has(item.id)}
+                      onClick={() => void handleSendTest(item)}
+                      className="rounded-lg border border-white/8 bg-transparent px-3 py-2 text-sm font-medium text-slate-500 transition hover:border-violet-400/20 hover:text-violet-300 disabled:opacity-40"
+                    >
+                      {testingIds.has(item.id) ? (
+                        <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        'Send test'
+                      )}
+                    </button>
                   )}
 
                   {item.review_status === 'sent' && (

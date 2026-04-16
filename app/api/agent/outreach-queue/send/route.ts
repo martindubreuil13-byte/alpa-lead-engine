@@ -100,25 +100,12 @@ export async function POST(req: Request) {
     if (sentIds.length > 0) {
       const { error: updateError } = await supabase
         .from('outreach_queue')
-        .update({ review_status: 'sent', sent_at: now, updated_at: now })
+        .update({ review_status: 'sent', updated_at: now })
         .in('id', sentIds)
         .eq('user_id', userId)
 
       if (updateError) {
         console.error('[outreach-queue/send] update sent error (non-fatal):', updateError)
-      }
-    }
-
-    // Mark failed rows
-    if (failedIds.length > 0) {
-      const { error: failError } = await supabase
-        .from('outreach_queue')
-        .update({ error_message: 'Failed to send', updated_at: now })
-        .in('id', failedIds)
-        .eq('user_id', userId)
-
-      if (failError) {
-        console.error('[outreach-queue/send] update failed error (non-fatal):', failError)
       }
     }
 

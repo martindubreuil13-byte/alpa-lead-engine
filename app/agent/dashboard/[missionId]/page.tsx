@@ -271,10 +271,23 @@ export default function MissionDashboardPage() {
       const res = await fetch(`/api/agent/mission-status?missionId=${missionId}`)
       if (!res.ok) {
         console.log('Mission load failed', { missionId, status: res.status })
+        if (res.status === 404) {
+          if (pollRef.current) clearInterval(pollRef.current)
+          router.push('/agent')
+          return null
+        }
         setFetchError('Mission not found.')
         return null
       }
       const data = (await res.json()) as StatusData
+
+      // Stop polling if mission was deleted
+      if (!data.mission || data.mission.status === 'deleted') {
+        if (pollRef.current) clearInterval(pollRef.current)
+        router.push('/agent')
+        return null
+      }
+
       setStatus(data)
       setFetchError(null)
 
@@ -415,7 +428,9 @@ export default function MissionDashboardPage() {
       })
 
       if (
-        data?.mission.status === 'active' &&
+        data?.mission &&
+        data.mission.status !== 'deleted' &&
+        data.mission.status === 'active' &&
         data.leadsToday < data.mission.daily_target &&
         !runningRef.current
       ) {
@@ -652,7 +667,7 @@ export default function MissionDashboardPage() {
                   Completed
                 </span>
               )}
-              {running && (
+              {running && !isCompleted && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
                   <span className="h-1.5 w-1.5 animate-ping rounded-full bg-blue-400" />
                   Searching
@@ -670,8 +685,8 @@ export default function MissionDashboardPage() {
               </p>
             )}
 
-            {/* Live agent running indicator */}
-            {isActive && (
+            {/* Live agent running indicator — hidden when completed */}
+            {isActive && !isCompleted && (
               <div className="flex items-center gap-2 pt-0.5">
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -684,18 +699,6 @@ export default function MissionDashboardPage() {
               </div>
             )}
 
-            {/* Scheduled / completed indicator */}
-            {isCompleted && mission.next_run_at && (
-              <div className="flex items-center gap-2 pt-0.5">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/70" />
-                <span className="text-xs text-slate-400">
-                  Next run:{' '}
-                  <span className="text-slate-300">
-                    {formatNextRun(mission.next_run_at)}
-                  </span>
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Primary action: Pause / Resume */}
@@ -716,8 +719,26 @@ export default function MissionDashboardPage() {
           )}
         </div>
 
+        {/* ── Mission complete banner ── */}
+        {isCompleted && (
+          <div className="flex items-center gap-3 rounded-2xl border border-blue-400/15 bg-blue-500/[0.06] px-4 py-3">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/80" />
+            <span className="text-sm text-slate-300">
+              Mission complete for today
+              {mission.next_run_at && (
+                <>
+                  {' '}·{' '}
+                  <span className="text-slate-400">
+                    Next run: {formatNextRun(mission.next_run_at)}
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* ── Round indicator (when actively running a batch) ── */}
-        {(isActive || running) && round > 0 && (
+        {(isActive || running) && !isCompleted && round > 0 && (
           <div className="flex items-center gap-3 rounded-2xl border border-blue-400/12 bg-blue-500/[0.06] px-4 py-3">
             <span className="flex h-2 w-2 shrink-0 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.9)]" />
             <span className="text-sm text-slate-300">
@@ -731,7 +752,7 @@ export default function MissionDashboardPage() {
         )}
 
         {/* ── Idle pulse (active, no round yet) ── */}
-        {isActive && round === 0 && !running && (
+        {isActive && !isCompleted && round === 0 && !running && (
           <div className="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3">
             <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-slate-500" />
             <span className="text-sm text-slate-500">{IDLE_MESSAGES[idleIndex]}</span>
@@ -739,7 +760,7 @@ export default function MissionDashboardPage() {
         )}
 
         {/* ── Generating outreach state ── */}
-        {(isGenerating || (optimisticGenerating && !isOutreachComplete)) && (
+        {!isCompleted && (isGenerating || (optimisticGenerating && !isOutreachComplete)) && (
           <div className="rounded-2xl border border-violet-400/15 bg-violet-500/[0.07] px-4 py-4 space-y-2.5">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">

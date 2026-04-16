@@ -33,11 +33,13 @@ type GenerateParams = {
 function buildPrompt(params: GenerateParams): string {
   const { company_name, audience_input, location_input, mission_cta, offer, angles, context, offer_context } = params
 
-  const contextBlock = context.enriched
-    ? `Website context (use this to personalize line 1):
-- Headline: "${context.h1 || context.title}"
-- Description: "${context.description}"`
-    : `No website data available. Use company name and audience type to personalize.`
+  // Only use real enriched data — never hallucinate context
+  const contextBlock = context.enriched && (context.h1 || context.title || context.description)
+    ? `REAL WEBSITE DATA (you MUST use this to write line 1 — do not ignore it):
+- Page headline: "${context.h1 || context.title || ''}"
+- Description: "${context.description || ''}"
+Use a specific detail from this data in line 1. If unusable, fall back to company name only.`
+    : `No website data. Use company name "${company_name}" and audience type "${audience_input}" for line 1. Do not invent context.`
 
   const offerBlock = offer_context
     ? `What we do: ${offer_context.what_you_do}
@@ -46,115 +48,111 @@ Main benefit: ${offer_context.main_benefit}
 Angle: ${offer_context.angle}`
     : offer
 
-  const angleList = angles.length > 0
-    ? angles.slice(0, 2).map((a) => `- ${a}`).join('\n')
-    : `- Help ${audience_input} work smarter`
+  const angleHint = angles.length > 0
+    ? `Messaging angle (use if it fits naturally): ${angles[0]}`
+    : ''
+
+  const locationHint = location_input
+    ? `Location context (mention only if natural): ${location_input}`
+    : ''
 
   const ctaInstruction = mission_cta
-    ? `Line 4 (CTA): Copy this text EXACTLY, no changes: "${mission_cta}"`
-    : `Line 4: OMIT — no CTA line at all`
+    ? `Line 4 — CTA: Copy this string EXACTLY with zero changes: "${mission_cta}"
+Do NOT rephrase, shorten, expand, or vary this string in any way.`
+    : `CTA: OMIT ENTIRELY. Do not write any call to action. Do not invent one.`
 
-  const ctaFieldInstruction = mission_cta
-    ? `"${mission_cta}" — exact copy, no variation`
-    : `"" — empty string, no CTA`
+  const ctaJsonInstruction = mission_cta
+    ? `"${mission_cta}"`
+    : `""`
 
-  const locationLine = location_input
-    ? `- Mention "${location_input}" naturally if relevant (e.g. "working with ${audience_input} in ${location_input}")`
-    : `- No location available, skip location reference`
+  return `You are writing a short, human cold email. Output ONLY valid JSON. No markdown, no preamble.
 
-  return `You write strict cold outreach emails. Every word must come from the mission inputs below. You may not invent positioning, benefits, or CTAs. Output ONLY valid JSON.
-
-TARGET:
+MISSION INPUTS — use ONLY these, do not add anything:
 - Company: ${company_name}
-- Audience type: ${audience_input}
-- Location: ${location_input || 'not specified'}
+- Audience: ${audience_input}
+${locationHint}
+${angleHint}
 
 ${contextBlock}
 
-OFFER (use ONLY this — do not add to it or rephrase beyond clarity):
+OFFER (copy precisely, do not expand):
 ${offerBlock}
 
-MESSAGING ANGLES:
-${angleList}
+EMAIL STRUCTURE — 3 paragraphs maximum, no filler:
 
-STRUCTURE — 4 lines maximum, no filler between them:
-Line 1 (hook): A conversational, slightly provocative opener that creates immediate recognition.
-  - Frame a frustration, contradiction, or curious question specific to ${audience_input}
-  - Optionally reference ${company_name} or ${location_input} to ground it
-  - Examples of the RIGHT tone:
-      "most ${audience_input}s I talk to spend more time chasing leads than doing actual work"
-      "quick question — how are you currently finding new clients in ${location_input}?"
-      "noticed you're operating in ${location_input} — curious how you're sourcing leads right now"
-  - BANNED for line 1: "I noticed your company", "I came across your website", "I wanted to reach out", any neutral observation
+Paragraph 1 (observation): One conversational sentence grounded in real data.
+  - If website data exists above: reference a specific detail from it.
+  - If no data: reference company name + audience type naturally.
+  - NO generic observations. NO "I came across your company". NO "I noticed your website".
+  - Good examples:
+      "Your headline about [specific thing from website] caught my attention."
+      "[Company] working with [audience] in [location] — quick question."
+      "Saw [Company] is focused on [specific detail from headline]."
 
-Line 2 (pain): One sharp sentence that names the bottleneck — make it feel like you've seen this before.
-  - Tie it directly to ${audience_input} — not generic businesses
-  - Focus on: time waste, inconsistency, dependency on referrals, missed opportunities, or unpredictable pipeline
-  - Examples of the RIGHT tone:
-      "it usually ends up being manual, inconsistent, and a drain on actual billable time"
-      "most end up relying on referrals or platforms, which makes pipeline completely unpredictable"
-      "and it often becomes the bottleneck that slows everything else down"
-  - BANNED for line 2: vague phrases, "many businesses struggle with", anything that could apply to any audience
+Paragraph 2 (pain): One sharp sentence naming the bottleneck this audience faces.
+  - Must be specific to ${audience_input}, not "businesses in general".
+  - Focus on: time lost, unpredictable pipeline, over-reliance on referrals, missed opportunities.
+  - NO: "many businesses", "most companies", "boost your outreach", "increase efficiency", "streamline".
 
-Line 3 (offer): One sentence from the offer above — what it solves specifically for ${audience_input}.
+Paragraph 3 (offer): One sentence — what we solve, grounded in the offer above.
+  - Copy the benefit from the offer. Do not invent a new one.
+
 ${ctaInstruction}
 
-LOCATION:
-${locationLine}
+HARD RULES:
+- Total word count: 60–90 words (body only, excluding subject and CTA)
+- Subject line: max 7 words, no "Boost X" patterns, title-case, relevant to paragraph 1
+- Every sentence starts with a capital letter
+- No invented CTAs under any circumstances
+- No corporate jargon
+- No invented location references
 
-BANNED PHRASES — never use any of these:
-- "I noticed your company"
-- "I came across your website"
-- "I came across your business"
-- "boost your outreach"
-- "increase efficiency"
-- "would you like a demo"
-- "businesses like yours"
-- "take your business to the next level"
-- "I hope this finds you"
-- "I wanted to reach out"
-- "streamline your workflow"
-- "many businesses"
-- "companies like yours"
-- any invented CTA not matching the provided one
-- "globally" as a substitute for location
+BANNED PHRASES (never use):
+"I noticed your company", "I came across your website", "I came across your business",
+"I wanted to reach out", "I hope this finds you", "most people I talk to",
+"many businesses", "companies like yours", "businesses like yours",
+"boost your outreach", "increase efficiency", "streamline your workflow",
+"take your business to the next level", "would you like a demo",
+"globally", any invented CTA
 
-RULES:
-- Body under 100 words
-- Conversational, slightly challenging tone — not aggressive
-- No corporate language
-- Reader should feel "this is about me" after line 1
-- No invented audience types beyond "${audience_input}"
-- No invented CTAs
-
-OUTPUT FORMAT (strict JSON):
+OUTPUT — strict JSON, no other text:
 {
-  "subject": "short subject line, max 60 chars",
-  "hook": "line 1 — observation sentence",
-  "body": "lines 1–3 as a flowing paragraph",
-  "cta": ${ctaFieldInstruction},
-  "full_email": "complete email body${mission_cta ? ' ending with the exact CTA' : ', no CTA line'}",
-  "personalization_score": <0-5 integer>,
-  "quality_score": <0-5 integer>
+  "subject": "<max 7 words, title-case>",
+  "hook": "<paragraph 1 only>",
+  "body": "<paragraphs 1–3 joined with double newlines>",
+  "cta": ${ctaJsonInstruction},
+  "personalization_score": <integer 0–5>,
+  "quality_score": <integer 0–5>
 }
 
-Scoring guide:
-- personalization_score: +2 company name used, +2 website context used, +1 location mentioned
-- quality_score: +2 under 100 words, +2 CTA is exact match (or 0 if no CTA provided), +1 no banned phrases`
+Scoring:
+- personalization_score: +2 if website headline/description used, +2 if company name used naturally, +1 if location mentioned
+- quality_score: +2 if under 90 words, +2 if CTA is exact match (or no CTA required), +1 if no banned phrases`
+}
+
+/**
+ * Build full_email from components — never trust AI to format this correctly.
+ * Structure: body\n\n{cta}\n\n—\n{signature}
+ */
+function buildFullEmail(body: string, cta: string | null, signature: string | null): string {
+  let parts = [body]
+  if (cta) parts.push(cta)
+  let result = parts.join('\n\n')
+  if (signature) result = `${result}\n\n—\n${signature}`
+  return result
 }
 
 function fallbackDraft(company_name: string, mission_cta: string | null, sender_signature: string | null): OutreachDraft {
-  const hook = `I came across ${company_name} and had a quick question.`
-  const body = `We help ${company_name === 'your company' ? 'professionals' : company_name} cut through the noise and reach the right people — without the guesswork.`
+  const name = company_name || 'your company'
+  const hook = `${name} — quick question about your current lead flow.`
+  const body = `${hook}\n\nMost ${name.toLowerCase().includes('agency') ? 'agencies' : 'teams'} we work with hit a wall when referrals slow down and there's no consistent way to fill the gap.\n\nWe help fix that with a predictable outbound system built around your exact audience.`
   const cta = mission_cta ?? ''
-  let full_email = cta ? `${hook}\n\n${body}\n\n${cta}` : `${hook}\n\n${body}`
-  if (sender_signature) full_email = `${full_email}\n\n${sender_signature}`
   return {
-    subject: `Quick question for ${company_name}`,
+    subject: `Quick Question for ${name}`,
     hook,
     body,
     cta,
-    full_email,
+    full_email: buildFullEmail(body, cta || null, sender_signature),
     personalization_score: 1,
     quality_score: 1,
   }
@@ -170,31 +168,35 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     const completion = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
       messages: [
-        { role: 'system', content: 'You output ONLY valid JSON. No markdown. No explanation. Follow the structure exactly.' },
+        {
+          role: 'system',
+          content: 'You output ONLY valid JSON. No markdown, no explanation, no code fences. Follow the structure exactly. Every field must be present.',
+        },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.7,
-      max_tokens: 450,
+      temperature: 0.65,
+      max_tokens: 400,
       response_format: { type: 'json_object' },
     })
 
     const text = completion.choices[0].message.content?.trim() || ''
-    const parsed = JSON.parse(text) as Partial<OutreachDraft>
+    const parsed = JSON.parse(text) as Record<string, unknown>
 
-    const subject = String(parsed.subject || '').trim().slice(0, 120)
+    const subject = String(parsed.subject || '').trim().slice(0, 80)
     const body = String(parsed.body || '').trim().slice(0, 600)
 
-    // Subject or body missing → fallback
+    // Hard safety: subject or body missing → fallback
     if (!subject || !body) {
-      console.log('[generate-outreach-draft] missing subject/body, fallback for', companyName, { subject, body })
+      console.log('[generate-outreach-draft] missing subject/body, using fallback for', companyName)
       return fallbackDraft(companyName, missionCta, senderSignature)
     }
 
-    // CTA validation: if mission has a CTA, the AI must return it exactly
+    // CTA enforcement: if mission has CTA, AI must return exact string
     if (missionCta) {
       const generatedCta = String(parsed.cta || '').trim()
       if (generatedCta !== missionCta.trim()) {
-        console.log('[generate-outreach-draft] CTA mismatch, fallback for', companyName, {
+        console.log('[generate-outreach-draft] CTA mismatch → fallback', {
+          company: companyName,
           expected: missionCta,
           got: generatedCta,
         })
@@ -203,22 +205,22 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     }
 
     const cta = missionCta ? missionCta.trim() : ''
-    let full_email = String(parsed.full_email || '').slice(0, 1200) || (cta ? `${body}\n\n${cta}` : body)
+    const hook = String(parsed.hook || '').trim().slice(0, 300)
 
-    // Append sender signature — never generated by AI, always appended literally
-    if (senderSignature) full_email = `${full_email}\n\n${senderSignature}`
+    // Build full_email ourselves — ensures proper paragraph breaks and signature placement
+    const full_email = buildFullEmail(body, cta || null, senderSignature)
 
     return {
       subject,
-      hook: String(parsed.hook || '').slice(0, 400),
+      hook,
       body,
       cta,
       full_email,
-      personalization_score: Number(parsed.personalization_score ?? 0),
-      quality_score: Number(parsed.quality_score ?? 0),
+      personalization_score: Math.min(5, Math.max(0, Number(parsed.personalization_score ?? 0))),
+      quality_score: Math.min(5, Math.max(0, Number(parsed.quality_score ?? 0))),
     }
   } catch (err) {
-    console.log('[generate-outreach-draft] threw, fallback for', companyName, err)
+    console.log('[generate-outreach-draft] error, using fallback for', companyName, err)
     return fallbackDraft(companyName, missionCta, senderSignature)
   }
 }
