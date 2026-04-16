@@ -19,6 +19,7 @@ import { NextResponse, after } from 'next/server'
 
 import { enrichLeadContext } from '@/lib/agent/enrich-context'
 import { generateOutreachDraft } from '@/lib/agent/generate-outreach-draft'
+import { buildLeadKey } from '@/lib/agent/lead-key'
 import { runMission } from '@/lib/agent/run-mission'
 import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
 import { requireAdmin } from '@/lib/auth/require-admin'
@@ -73,27 +74,30 @@ async function runEmailPipeline(params: {
 
   if (!leads.length) return
 
-  // Load existing outreach keys to avoid generating duplicate drafts
+  // Load existing dedup_keys from outreach_queue — MAX 1 draft per lead per mission
   const { data: existingDrafts } = await supabase
     .from('outreach_queue')
-    .select('contact_email, website')
+    .select('dedup_key, contact_email, website')
     .eq('mission_id', missionId)
 
   const existingKeys = new Set<string>()
   existingDrafts?.forEach((d) => {
-    if (d.contact_email) existingKeys.add(`e:${d.contact_email.toLowerCase()}`)
-    if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
+    if (d.dedup_key) {
+      existingKeys.add(d.dedup_key)
+    } else {
+      // Fallback for rows that predate the migration
+      const k = buildLeadKey({ website: d.website, email: d.contact_email })
+      if (k) existingKeys.add(k)
+    }
   })
 
   const toProcess = leads.filter((lead) => {
-    if (!lead.email && !lead.website) return false
-    if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
-    if (lead.website && existingKeys.has(`w:${lead.website.toLowerCase()}`)) return false
-    return true
+    const key = buildLeadKey({ website: lead.website, email: lead.email, name: lead.company_name, location: lead.city })
+    return key && !existingKeys.has(key)
   })
 
   if (!toProcess.length) {
-    console.log('[runEmailPipeline] no leads to process (all already have drafts)')
+    console.log('[runEmailPipeline] no new leads to process (all already have drafts)')
     return
   }
 
@@ -101,6 +105,12 @@ async function runEmailPipeline(params: {
 
   for (const lead of toProcess) {
     const name = lead.company_name || 'Unknown'
+    const dedupKey = buildLeadKey({ website: lead.website, email: lead.email, name: lead.company_name, location: lead.city })
+
+    // Double-check in-memory set (guards against duplicates within the same batch)
+    if (existingKeys.has(dedupKey)) continue
+    existingKeys.add(dedupKey)
+
     try {
       const context = await enrichLeadContext({
         company_name: lead.company_name,
@@ -133,6 +143,7 @@ async function runEmailPipeline(params: {
         contact_email: lead.email || null,
         location: lead.city || null,
         website: lead.website || null,
+        dedup_key: dedupKey || null,
         subject: draft.subject,
         hook: draft.hook,
         body: draft.body,
@@ -182,29 +193,32 @@ async function generateMissingDrafts(params: {
 
   const { data: allLeads } = await supabase
     .from('agent_lead_queue')
-    .select('id, business_name, email, website, location')
+    .select('id, business_name, email, website, location, dedup_key')
     .eq('mission_id', missionId)
     .eq('user_id', userId)
 
   if (!allLeads?.length) return
 
+  // Load existing outreach dedup_keys — strict 1 draft per lead
   const { data: existingOutreach } = await supabase
     .from('outreach_queue')
-    .select('contact_email, website')
+    .select('dedup_key, contact_email, website')
     .eq('mission_id', missionId)
 
   const existingKeys = new Set<string>()
   existingOutreach?.forEach((d) => {
-    if (d.contact_email) existingKeys.add(`e:${d.contact_email.toLowerCase()}`)
-    if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
+    if (d.dedup_key) {
+      existingKeys.add(d.dedup_key)
+    } else {
+      const k = buildLeadKey({ website: d.website, email: d.contact_email })
+      if (k) existingKeys.add(k)
+    }
   })
 
   const needingDraft = allLeads
     .filter((lead) => {
-      if (!lead.email && !lead.website) return false
-      if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
-      if (lead.website && existingKeys.has(`w:${lead.website.toLowerCase()}`)) return false
-      return true
+      const key = lead.dedup_key || buildLeadKey({ website: lead.website, email: lead.email, name: lead.business_name, location: lead.location })
+      return key && !existingKeys.has(key)
     })
     .slice(0, cap)
 
@@ -214,6 +228,11 @@ async function generateMissingDrafts(params: {
 
   for (const lead of needingDraft) {
     const name = lead.business_name || 'Unknown'
+    const dedupKey = lead.dedup_key || buildLeadKey({ website: lead.website, email: lead.email, name: lead.business_name, location: lead.location })
+
+    if (existingKeys.has(dedupKey)) continue
+    existingKeys.add(dedupKey)
+
     try {
       const context = await enrichLeadContext({
         company_name: lead.business_name,
@@ -243,6 +262,7 @@ async function generateMissingDrafts(params: {
         contact_email: lead.email || null,
         location: lead.location || null,
         website: lead.website || null,
+        dedup_key: dedupKey || null,
         subject: draft.subject,
         hook: draft.hook,
         body: draft.body,

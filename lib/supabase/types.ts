@@ -258,6 +258,7 @@ export interface Database {
           context_status: string;
           draft_status: string;
           draft_email: string | null;
+          dedup_key: string | null;
           created_at: string;
         };
         Insert: {
@@ -274,6 +275,7 @@ export interface Database {
           context_status?: string;
           draft_status?: string;
           draft_email?: string | null;
+          dedup_key?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_lead_queue"]["Insert"]>;
@@ -377,6 +379,7 @@ export interface Database {
           context_h1: string | null;
           status: string;
           review_status: 'draft' | 'approved' | 'sent' | 'rejected';
+          dedup_key: string | null;
           approved_at: string | null;
           rejected_at: string | null;
           created_at: string;
@@ -405,6 +408,7 @@ export interface Database {
           context_h1?: string | null;
           status?: string;
           review_status?: 'draft' | 'approved' | 'rejected';
+          dedup_key?: string | null;
           approved_at?: string | null;
           rejected_at?: string | null;
           created_at?: string;
