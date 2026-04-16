@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { openai } from '@/lib/ai/openai'
+import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -172,7 +173,11 @@ Return ONLY valid JSON.
     }
 
     const supabase = await createServerClient()
+    const { userId, error: adminError } = await requireAdmin(supabase)
+    if (adminError) return adminError
+
     const { data: user } = await supabase.auth.getUser()
+    void userId
     let savedRecordId: string | null = null
     let savedStatus = 'draft'
     let savedIsActive = false

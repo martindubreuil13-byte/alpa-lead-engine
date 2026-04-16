@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 
 import { runMission } from '@/lib/agent/run-mission'
 import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
+import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 import type { TrialLead } from '@/lib/trial'
 
@@ -80,11 +81,14 @@ export async function POST(req: Request) {
     }
 
     const supabase = await createServerClient()
+    const { userId, error: adminError } = await requireAdmin(supabase)
+    if (adminError) return adminError
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || user.id !== userId) {
       return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
     }
 
@@ -104,20 +108,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    const { data: icp, error: icpError } = await supabase
-      .from('agent_icp')
-      .select('*')
-      .eq('id', mission.icp_id)
-      .eq('user_id', user.id)
-      .maybeSingle()
+    // ICP is optional — missions created via new setup flow may use search_patterns directly
+    let icp = null
+    if (mission.icp_id) {
+      const { data: icpData, error: icpError } = await supabase
+        .from('agent_icp')
+        .select('*')
+        .eq('id', mission.icp_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
 
-    if (icpError) {
-      console.error('[run-mission] icp lookup error:', icpError)
-      return NextResponse.json({ error: 'ICP_LOOKUP_FAILED' }, { status: 500 })
+      if (icpError) {
+        console.error('[run-mission] icp lookup error:', icpError)
+        return NextResponse.json({ error: 'ICP_LOOKUP_FAILED' }, { status: 500 })
+      }
+
+      icp = icpData
     }
 
-    if (!icp) {
-      return NextResponse.json({ error: 'ICP_NOT_FOUND' }, { status: 404 })
+    if (!icp && !mission.search_patterns) {
+      return NextResponse.json({ error: 'MISSION_HAS_NO_SEARCH_CONFIG' }, { status: 400 })
     }
 
     const result = await runMission({
@@ -132,7 +142,7 @@ export async function POST(req: Request) {
       await persistLeads({
         supabase,
         missionId: mission.id,
-        icpId: icp.id,
+        icpId: icp?.id ?? mission.icp_id ?? '',
         userId: user.id,
         leads: result.leads,
       })

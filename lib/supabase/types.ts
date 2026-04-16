@@ -190,7 +190,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          icp_id: string;
+          icp_id: string | null;
           name: string | null;
           status: string;
           leads_per_day: number;
@@ -200,12 +200,19 @@ export interface Database {
           require_website: boolean;
           location: string;
           outreach_mode: string;
+          offer_input: string | null;
+          audience_input: string | null;
+          location_input: string | null;
+          offer_context: Json | null;
+          icp_expanded: Json | null;
+          search_patterns: Json | null;
+          daily_target: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           user_id?: string;
-          icp_id: string;
+          icp_id?: string | null;
           name?: string | null;
           status?: string;
           leads_per_day?: number;
@@ -215,6 +222,13 @@ export interface Database {
           require_website?: boolean;
           location?: string;
           outreach_mode?: string;
+          offer_input?: string | null;
+          audience_input?: string | null;
+          location_input?: string | null;
+          offer_context?: Json | null;
+          icp_expanded?: Json | null;
+          search_patterns?: Json | null;
+          daily_target?: number;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_missions"]["Insert"]>;
@@ -328,6 +342,65 @@ export interface Database {
           notes?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["scrape_jobs"]["Insert"]>;
+      };
+      outreach_queue: {
+        Row: {
+          id: string;
+          user_id: string;
+          lead_id: string | null;
+          source: string;
+          mission_id: string | null;
+          company_name: string | null;
+          contact_email: string | null;
+          location: string | null;
+          website: string | null;
+          subject: string | null;
+          hook: string | null;
+          body: string | null;
+          cta: string | null;
+          full_email: string | null;
+          personalization_score: number | null;
+          quality_score: number | null;
+          context_status: string;
+          context_title: string | null;
+          context_description: string | null;
+          context_h1: string | null;
+          status: string;
+          review_status: string;
+          approved_at: string | null;
+          rejected_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          lead_id?: string | null;
+          source?: string;
+          mission_id?: string | null;
+          company_name?: string | null;
+          contact_email?: string | null;
+          location?: string | null;
+          website?: string | null;
+          subject?: string | null;
+          hook?: string | null;
+          body?: string | null;
+          cta?: string | null;
+          full_email?: string | null;
+          personalization_score?: number | null;
+          quality_score?: number | null;
+          context_status?: string;
+          context_title?: string | null;
+          context_description?: string | null;
+          context_h1?: string | null;
+          status?: string;
+          review_status?: string;
+          approved_at?: string | null;
+          rejected_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["outreach_queue"]["Insert"]>;
       };
       app_settings: {
         Row: {

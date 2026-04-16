@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Columns3, ExternalLink, Globe, Mail, Phone } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns3, ExternalLink, Globe, Mail, Phone, Zap } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -24,6 +24,7 @@ type LeadCardProps = {
   sourceLabel?: string | null
   selected?: boolean
   onToggleSelect?: () => void
+  onPrepareOutreach?: () => void
   expandedFooter?: ReactNode
   className?: string
 }
@@ -134,6 +135,7 @@ export default function LeadCard({
   sourceLabel,
   selected = false,
   onToggleSelect,
+  onPrepareOutreach,
   expandedFooter,
   className,
 }: LeadCardProps) {
@@ -245,6 +247,16 @@ export default function LeadCard({
               >
                 <Columns3 className="h-4 w-4" />
               </ActionButton>
+
+              {onPrepareOutreach ? (
+                <ActionButton
+                  label="Prepare outreach"
+                  active={false}
+                  onClick={onPrepareOutreach}
+                >
+                  <Zap className="h-4 w-4 text-violet-300" />
+                </ActionButton>
+              ) : null}
 
               <ActionButton
                 label={detailsOpen ? 'Hide details' : 'Show details'}

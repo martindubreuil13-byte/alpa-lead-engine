@@ -88,23 +88,35 @@ async function readScrapeLeads(response: Response): Promise<TrialLead[]> {
   return leads
 }
 
+function pickSearchQuery(mission: MissionRow, icp: IcpRow): string {
+  // Use mission search_patterns if available (from new conversational setup)
+  if (mission.search_patterns && Array.isArray(mission.search_patterns) && mission.search_patterns.length > 0) {
+    const patterns = mission.search_patterns as string[]
+    // Rotate through patterns based on a time-based index to vary queries
+    const idx = Math.floor(Date.now() / 1000 / 60 / 5) % patterns.length
+    return String(patterns[idx] || patterns[0]).trim()
+  }
+
+  // Fall back to ICP target_businesses + location
+  const targetBusinesses = parseIcpTargetBusinesses(icp.structured_output)
+  if (targetBusinesses.length === 0) {
+    throw new Error('Mission has no search patterns and ICP is missing target businesses')
+  }
+  return buildQuery(targetBusinesses, String(mission.location || '').trim())
+}
+
 export async function runMission(params: {
   supabase: SupabaseServerClient
   mission: MissionRow
-  icp: IcpRow
+  icp: IcpRow | null
   scrapeBaseUrl: string
   cookieHeader?: string | null
 }): Promise<MissionRunOutput> {
   const { supabase, mission, icp, scrapeBaseUrl, cookieHeader } = params
 
-  const targetBusinesses = parseIcpTargetBusinesses(icp.structured_output)
-  if (targetBusinesses.length === 0) {
-    throw new Error('ICP is missing target businesses')
-  }
-
-  const locationLabel = String(mission.location || '').trim()
-  const location = parseMissionLocation(mission.location)
-  const query = buildQuery(targetBusinesses, locationLabel)
+  const locationLabel = String(mission.location_input || mission.location || '').trim()
+  const location = parseMissionLocation(locationLabel)
+  const query = pickSearchQuery(mission, icp ?? { structured_output: null } as unknown as IcpRow)
   const target = Math.max(1, mission.leads_per_day)
 
   const {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
@@ -20,8 +21,11 @@ export async function POST(req: Request) {
     }
 
     const supabase = await createServerClient()
-    const { data: user } = await supabase.auth.getUser()
+    const { userId, error: adminError } = await requireAdmin(supabase)
+    if (adminError) return adminError
+    void userId
 
+    const { data: user } = await supabase.auth.getUser()
     if (!user?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 
 import LeadCard from '@/components/leads/LeadCard'
-import { canAccessFeature } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
@@ -38,6 +38,7 @@ export default function LeadLibraryPage() {
   const [isGuest, setIsGuest] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
+  const isAdminUser = !profileLoading && isAdmin(profile)
 
   useEffect(() => {
     void fetchLeads()
@@ -76,6 +77,21 @@ export default function LeadLibraryPage() {
     setLeads((data || []) as Lead[])
     setLoading(false)
   }
+
+  const prepareOutreach = useCallback(async (id: string) => {
+    try {
+      const res = await fetch('/api/agent/prepare-outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: [id], source: 'manual' }),
+      })
+      if (res.ok) {
+        router.push('/dashboard/outreach')
+      }
+    } catch (err) {
+      console.error('Prepare outreach failed:', err)
+    }
+  }, [router])
 
   async function updateStatus(id: string, status: 'inbox' | 'pipeline' | 'contacted') {
     if (!currentUserId || isGuest) return
@@ -186,6 +202,7 @@ export default function LeadLibraryPage() {
             onAddToPipeline={() =>
               void updateStatus(lead.id, lead.status === 'pipeline' ? 'inbox' : 'pipeline')
             }
+            onPrepareOutreach={isAdminUser ? () => void prepareOutreach(lead.id) : undefined}
           />
         ))}
       </div>

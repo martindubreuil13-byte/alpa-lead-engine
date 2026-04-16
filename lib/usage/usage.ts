@@ -11,7 +11,7 @@ export const LEAD_LIMIT_REACHED_MESSAGE = "You've reached your limit. Upgrade to
 export const STARTER_LOCK_MESSAGE = 'Available on Starter plan'
 
 export function getLeadLimit(plan: string) {
-  if (isAdminPlan(plan)) return 1000
+  if (isAdminPlan(plan)) return 10000
   if (isPaidPlan(plan)) return 300
   return 25
 }

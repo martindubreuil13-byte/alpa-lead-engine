@@ -19,6 +19,7 @@ import {
   Settings,
   Sparkles,
   X,
+  Zap,
 } from 'lucide-react'
 
 import HomeBackButton from '@/components/dashboard/HomeBackButton'
@@ -76,6 +77,15 @@ const NAV_ITEMS: NavItem[] = [
     description: 'Save proven outreach messages so your follow-up stays fast and consistent.',
     benefit: 'Templates shorten response time and help your team scale without rewriting from scratch.',
   },
+  {
+    href: '/dashboard/outreach',
+    label: 'Outreach Queue',
+    icon: Zap,
+    adminOnly: true,
+    description: 'Review and approve personalized drafts before they go out.',
+    benefit: 'The Outreach Queue keeps you in control of every message with one-click approve or reject.',
+    mobilePrimary: true,
+  },
   { href: '/dashboard/billing', label: 'Plan & Billing', icon: CreditCard },
   {
     href: '/dashboard/settings',
@@ -86,14 +96,14 @@ const NAV_ITEMS: NavItem[] = [
     benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
   },
   {
-    href: '/agent-mode',
-    label: 'Agent Mode',
+    href: '/agent',
+    label: 'Agent',
     icon: Sparkles,
     adminOnly: true,
     badge: 'Beta',
     accent: true,
-    description: 'Build, test, and deploy autonomous lead-engine workflows from one isolated workspace.',
-    benefit: 'Agent Mode gives admins a private lab to prototype automation without touching customer-facing flows.',
+    description: 'Autonomous lead engine that finds and prepares outreach on your behalf.',
+    benefit: 'Agent runs 24/7 to fill your pipeline without manual prospecting.',
   },
 ]
 
@@ -101,7 +111,10 @@ const HOME_BACK_ROUTES = new Set([
   '/dashboard/kanban',
   '/dashboard/leads',
   '/dashboard/library',
+  '/dashboard/outreach',
   '/dashboard/scraper',
+  '/agent/setup',
+  '/agent/dashboard',
 ])
 
 export default function DashboardShell({
@@ -187,7 +200,8 @@ export default function DashboardShell({
     )
   }, [pathname, viewerMode, visibleNavItems])
 
-  const showHomeBackButton = HOME_BACK_ROUTES.has(pathname)
+  const showHomeBackButton =
+    HOME_BACK_ROUTES.has(pathname) || pathname.startsWith('/agent/dashboard')
   const normalizedAdminEmail = String(adminEmail || '').trim().toLowerCase()
   const isAdminEmail = Boolean(
     profile?.email && normalizedAdminEmail && profile.email.toLowerCase() === normalizedAdminEmail

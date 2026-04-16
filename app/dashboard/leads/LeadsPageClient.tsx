@@ -96,6 +96,7 @@ export default function LeadsPageClient({
     PIPELINE_LOCK_CONTENT
   )
   const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
+  const [preparingOutreach, setPreparingOutreach] = useState(false)
 
   const [search, setSearch] = useState('')
   const [cityFilter, setCityFilter] = useState('all')
@@ -106,6 +107,7 @@ export default function LeadsPageClient({
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
   const emailLocked = isFree
   const limitedMode = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
+  const isAdminUser = !profileLoading && isAdmin(profile)
 
   useEffect(() => {
     if (missionScopedView) {
@@ -198,6 +200,30 @@ export default function LeadsPageClient({
     }
 
     setFiltered(result)
+  }
+
+  async function prepareOutreach(ids: string[]) {
+    if (ids.length === 0) return
+    if (limitedMode) {
+      openRestrictedAction()
+      return
+    }
+
+    setPreparingOutreach(true)
+    try {
+      const res = await fetch('/api/agent/prepare-outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: ids, source: 'manual' }),
+      })
+      if (res.ok) {
+        router.push('/dashboard/outreach')
+      }
+    } catch (err) {
+      console.error('Prepare outreach failed:', err)
+    } finally {
+      setPreparingOutreach(false)
+    }
   }
 
   async function moveToPipeline(ids: string[]) {
@@ -519,6 +545,22 @@ export default function LeadsPageClient({
                     Move to Pipeline
                   </button>
 
+                  {isAdminUser ? (
+                    <button
+                      onClick={() => void prepareOutreach(selected)}
+                      disabled={selected.length === 0 || preparingOutreach}
+                      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                        selected.length === 0
+                          ? 'cursor-not-allowed border-white/6 bg-white/[0.03] text-slate-600'
+                          : preparingOutreach
+                            ? 'border-violet-400/20 bg-violet-500/10 text-violet-300 opacity-70'
+                            : 'border-violet-400/25 bg-violet-500/10 text-violet-200 shadow-[0_0_18px_rgba(139,92,246,0.12)] hover:bg-violet-500/18 hover:text-white'
+                      }`}
+                    >
+                      {preparingOutreach ? 'Preparing...' : '⚡ Prepare Outreach'}
+                    </button>
+                  ) : null}
+
                   <button
                     onClick={() => void copySelectedLeads()}
                     disabled={selected.length === 0}
@@ -596,6 +638,7 @@ export default function LeadsPageClient({
                     onToggleSelect={!limitedMode && !missionScopedView ? () => toggleSelect(lead.id) : undefined}
                     onView={!missionScopedView ? () => router.push(`/dashboard/leads/${lead.id}`) : undefined}
                     onAddToPipeline={!missionScopedView ? () => void moveToPipeline([lead.id]) : undefined}
+                    onPrepareOutreach={!missionScopedView && isAdminUser ? () => void prepareOutreach([lead.id]) : undefined}
                     onContact={
                       !missionScopedView && lead.email
                         ? () => {
