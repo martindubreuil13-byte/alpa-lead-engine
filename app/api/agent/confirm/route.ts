@@ -20,6 +20,9 @@ const requestSchema = z.object({
   offer_context: offerContextSchema,
   icp_expanded: z.array(z.string()).min(1),
   search_patterns: z.array(z.string()).min(1),
+  daily_target: z.number().int().min(1).max(10000).default(10),
+  cta: z.string().trim().max(300).optional(),
+  send_window: z.string().optional().nullable(),
 })
 
 export async function POST(req: Request) {
@@ -29,9 +32,16 @@ export async function POST(req: Request) {
     if (adminError) return adminError
 
     const body = await req.json().catch(() => null)
-    const parsed = requestSchema.safeParse(body)
+    const normalized = {
+      ...body,
+      send_window: body?.send_window ?? null,
+      daily_target: body?.daily_target ?? 10,
+      cta: body?.cta ?? 'Reply to this message',
+    }
+    const parsed = requestSchema.safeParse(normalized)
 
     if (!parsed.success) {
+      console.error('[agent/confirm] validation error:', parsed.error.flatten())
       return NextResponse.json({ error: 'INVALID_INPUT', details: parsed.error.flatten() }, { status: 400 })
     }
 
@@ -42,9 +52,20 @@ export async function POST(req: Request) {
       offer_context,
       icp_expanded,
       search_patterns,
+      daily_target,
+      cta,
+      send_window,
     } = parsed.data
 
-    // Create ICP record from expanded data so existing mission runner stays compatible
+    if (!offer_input || !audience_input || !location_input) {
+      return NextResponse.json({ error: 'MISSING_REQUIRED_FIELDS' }, { status: 400 })
+    }
+
+    // Auto-generate mission name: first audience segment · location
+    const shortAudience = audience_input.split(',')[0]
+    const missionName = `${shortAudience.trim()} · ${location_input}`
+
+    // Create ICP record for backward compatibility with existing mission runner
     const icpStructuredOutput = {
       target_businesses: icp_expanded.slice(0, 5),
       locations: [location_input],
@@ -83,10 +104,10 @@ export async function POST(req: Request) {
       .insert({
         user_id: userId,
         icp_id: icp.id,
-        name: offer_context.what_you_do.slice(0, 120),
+        name: missionName,
         status: 'active',
-        leads_per_day: 10,
-        daily_target: 10,
+        leads_per_day: daily_target || 10,
+        daily_target: daily_target || 10,
         contact_mode: 'email',
         require_email: true,
         require_phone: false,
@@ -99,6 +120,8 @@ export async function POST(req: Request) {
         offer_context,
         icp_expanded,
         search_patterns,
+        cta: cta || null,
+        send_window: send_window || null,
       })
       .select('id')
       .single()
@@ -110,7 +133,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, missionId: mission.id })
   } catch (error) {
-    console.error('[agent/confirm] error:', error)
+    console.error('MISSION CREATE ERROR FULL:', error)
     return NextResponse.json({ error: 'SERVER_ERROR' }, { status: 500 })
   }
 }

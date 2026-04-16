@@ -24,12 +24,11 @@ type QueueItem = {
   context_description: string | null
   context_h1: string | null
   source: string
-  status: string
-  review_status: string
+  review_status: 'draft' | 'approved' | 'rejected'
   created_at: string
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: 'draft' | 'approved' | 'rejected') {
   if (status === 'approved') {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
@@ -143,12 +142,12 @@ export default function OutreachQueuePage() {
         if (item.id !== queueId) return item
         const now = new Date().toISOString()
         if (action === 'approve') {
-          return { ...item, status: 'approved', review_status: 'reviewed', ...(payload || {}) }
+          return { ...item, review_status: 'approved' as const, ...(payload || {}) }
         }
         if (action === 'reject') {
-          return { ...item, status: 'rejected' }
+          return { ...item, review_status: 'rejected' as const }
         }
-        return { ...item, review_status: 'edited', ...(payload || {}) }
+        return { ...item, ...(payload || {}) }
       })
     )
   }
@@ -156,7 +155,7 @@ export default function OutreachQueuePage() {
   const handleSave = useCallback(
     async (id: string, payload: { subject: string; full_email: string }) => {
       await callUpdate(id, 'save', payload)
-      setActiveItem((prev) => (prev?.id === id ? { ...prev, ...payload, review_status: 'edited' } : prev))
+      setActiveItem((prev) => (prev?.id === id ? { ...prev, ...payload } : prev))
     },
     []
   )
@@ -173,7 +172,7 @@ export default function OutreachQueuePage() {
     await callUpdate(id, 'reject')
   }, [])
 
-  const filtered = filter === 'all' ? items : items.filter((i) => i.status === filter)
+  const filtered = filter === 'all' ? items : items.filter((i) => i.review_status === filter)
 
   if (loading) {
     return (
@@ -198,9 +197,9 @@ export default function OutreachQueuePage() {
         <div className="flex flex-wrap gap-3">
           {[
             { label: 'Total', count: items.length },
-            { label: 'Drafts', count: items.filter((i) => i.status === 'draft').length },
-            { label: 'Approved', count: items.filter((i) => i.status === 'approved').length },
-            { label: 'Rejected', count: items.filter((i) => i.status === 'rejected').length },
+            { label: 'Drafts', count: items.filter((i) => i.review_status === 'draft').length },
+            { label: 'Approved', count: items.filter((i) => i.review_status === 'approved').length },
+            { label: 'Rejected', count: items.filter((i) => i.review_status === 'rejected').length },
           ].map(({ label, count }) => (
             <div
               key={label}
@@ -272,7 +271,7 @@ export default function OutreachQueuePage() {
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {statusBadge(item.status)}
+                  {statusBadge(item.review_status)}
                   {contextBadge(item.context_status)}
                   {sourceBadge(item.source)}
                 </div>
@@ -310,7 +309,7 @@ export default function OutreachQueuePage() {
                   Review
                 </button>
 
-                {item.status !== 'approved' ? (
+                {item.review_status !== 'approved' ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -325,7 +324,7 @@ export default function OutreachQueuePage() {
                   </button>
                 ) : null}
 
-                {item.status !== 'rejected' ? (
+                {item.review_status !== 'rejected' ? (
                   <button
                     type="button"
                     onClick={() => void callUpdate(item.id, 'reject')}

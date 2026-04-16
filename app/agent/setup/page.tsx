@@ -29,6 +29,8 @@ const THINKING_MESSAGES = [
   'Building your strategy...',
 ]
 
+const DAILY_TARGET_PRESETS = [10, 25, 50]
+
 export default function AgentSetupPage() {
   const router = useRouter()
 
@@ -36,10 +38,17 @@ export default function AgentSetupPage() {
   const [offer, setOffer] = useState('')
   const [audience, setAudience] = useState('')
   const [location, setLocation] = useState('')
+  const [dailyTarget, setDailyTarget] = useState(10)
+  const [customTarget, setCustomTarget] = useState('')
+  const [cta, setCta] = useState('')
+  const [sendWindow, setSendWindow] = useState('')
   const [thinkingIndex, setThinkingIndex] = useState(0)
   const [expanded, setExpanded] = useState<ExpandedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showAllIcp, setShowAllIcp] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const isCustomTarget = !DAILY_TARGET_PRESETS.includes(dailyTarget)
 
   useEffect(() => {
     if (step === 'thinking') {
@@ -57,9 +66,15 @@ export default function AgentSetupPage() {
     }
   }, [step])
 
+  function handleCustomTargetChange(val: string) {
+    setCustomTarget(val)
+    const n = parseInt(val, 10)
+    if (!isNaN(n) && n > 0) setDailyTarget(n)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!offer.trim() || !audience.trim() || !location.trim()) return
+    if (!offer.trim() || !audience.trim() || !location.trim() || !cta.trim()) return
 
     setError(null)
     setStep('thinking')
@@ -106,25 +121,29 @@ export default function AgentSetupPage() {
           offer_context: expanded.offer_context,
           icp_expanded: expanded.icp_expanded,
           search_patterns: expanded.search_patterns,
+          daily_target: dailyTarget,
+          cta: cta.trim(),
+          send_window: sendWindow.trim() || null,
         }),
       })
 
       const data = await res.json()
 
       if (!res.ok || !data.missionId) {
-        setError('Failed to create mission.')
+        setError("We couldn't create your mission. Please try again.")
         setStep('confirm')
         return
       }
 
-      // Brief "I'm on it." moment before redirect
       await new Promise((r) => setTimeout(r, 900))
       router.push(`/agent/dashboard/${data.missionId}`)
     } catch {
-      setError('Connection error.')
+      setError("We couldn't create your mission. Please try again.")
       setStep('confirm')
     }
   }
+
+  const canSubmit = offer.trim() && audience.trim() && location.trim() && cta.trim() && dailyTarget > 0
 
   return (
     <DashboardShell adminEmail={null}>
@@ -148,33 +167,36 @@ export default function AgentSetupPage() {
           {step === 'input' && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="glass rounded-2xl p-6 space-y-5">
+                {/* Offer */}
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                     What are you offering?
                   </div>
-                  <input
-                    type="text"
+                  <textarea
                     value={offer}
                     onChange={(e) => setOffer(e.target.value)}
-                    placeholder="I help agencies get leads instantly"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    placeholder="I help agencies get more clients through automated lead generation"
+                    rows={2}
+                    className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
                     autoFocus
                   />
                 </div>
 
+                {/* Audience */}
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                     Who is it for?
                   </div>
-                  <input
-                    type="text"
+                  <textarea
                     value={audience}
                     onChange={(e) => setAudience(e.target.value)}
-                    placeholder="marketing agencies, consultants"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    placeholder="Marketing agencies, digital consultants, growth studios"
+                    rows={2}
+                    className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
                   />
                 </div>
 
+                {/* Location */}
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                     Where are your clients?
@@ -184,6 +206,73 @@ export default function AgentSetupPage() {
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder="US, UK"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                  />
+                </div>
+
+                {/* Daily Target */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Daily lead target
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {DAILY_TARGET_PRESETS.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => { setDailyTarget(n); setCustomTarget('') }}
+                        className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                          dailyTarget === n && !isCustomTarget
+                            ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                            : 'border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:text-white'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      value={customTarget}
+                      onChange={(e) => handleCustomTargetChange(e.target.value)}
+                      placeholder="Custom"
+                      min={1}
+                      max={10000}
+                      className={`w-24 rounded-xl border px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none transition bg-white/[0.04] focus:ring-1 focus:ring-blue-400/20 ${
+                        isCustomTarget
+                          ? 'border-blue-400/40 bg-blue-500/15'
+                          : 'border-white/10 hover:border-white/20'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    What's your CTA?
+                  </div>
+                  <input
+                    type="text"
+                    value={cta}
+                    onChange={(e) => setCta(e.target.value)}
+                    placeholder="Book a 15-min strategy call"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                  />
+                </div>
+
+                {/* Send Window (optional) */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Send window
+                    </div>
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-slate-600">optional</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={sendWindow}
+                    onChange={(e) => setSendWindow(e.target.value)}
+                    placeholder="Mon–Fri, 9am–5pm EST"
                     className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
                   />
                 </div>
@@ -197,7 +286,7 @@ export default function AgentSetupPage() {
 
               <button
                 type="submit"
-                disabled={!offer.trim() || !audience.trim() || !location.trim()}
+                disabled={!canSubmit}
                 className="w-full rounded-xl border border-blue-400/25 bg-blue-500/12 px-5 py-3.5 text-sm font-semibold text-blue-100 shadow-[0_0_28px_rgba(59,130,246,0.18)] transition hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Build my lead engine
@@ -222,6 +311,7 @@ export default function AgentSetupPage() {
                 <div><span className="text-slate-600">Offer:</span> {offer}</div>
                 <div><span className="text-slate-600">For:</span> {audience}</div>
                 <div><span className="text-slate-600">Where:</span> {location}</div>
+                <div><span className="text-slate-600">Target:</span> {dailyTarget} leads/day</div>
               </div>
             </div>
           )}
@@ -243,6 +333,14 @@ export default function AgentSetupPage() {
                     <span className="text-slate-500">Target:</span>{' '}
                     <span className="text-white">{location}</span>
                   </div>
+                  <div>
+                    <span className="text-slate-500">Daily target:</span>{' '}
+                    <span className="text-white">{dailyTarget} leads/day</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">CTA:</span>{' '}
+                    <span className="text-white">{cta}</span>
+                  </div>
                 </div>
 
                 <div className="border-t border-white/8 pt-4 space-y-3">
@@ -250,7 +348,7 @@ export default function AgentSetupPage() {
                     I'll search for
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {expanded.icp_expanded.slice(0, 5).map((s) => (
+                    {(showAllIcp ? expanded.icp_expanded : expanded.icp_expanded.slice(0, 5)).map((s) => (
                       <span
                         key={s}
                         className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-sm text-slate-200"
@@ -259,9 +357,13 @@ export default function AgentSetupPage() {
                       </span>
                     ))}
                     {expanded.icp_expanded.length > 5 && (
-                      <span className="rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-1 text-sm text-slate-500">
-                        +{expanded.icp_expanded.length - 5} more
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowAllIcp(!showAllIcp)}
+                        className="rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-1 text-sm text-slate-500 transition hover:text-slate-300"
+                      >
+                        {showAllIcp ? 'Show less' : `+${expanded.icp_expanded.length - 5} more`}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -289,7 +391,7 @@ export default function AgentSetupPage() {
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-5 py-3.5 text-sm font-semibold text-emerald-200 shadow-[0_0_24px_rgba(16,185,129,0.14)] transition hover:bg-emerald-500/18 hover:text-white"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  Looks good
+                  Looks good — activate
                 </button>
                 <button
                   type="button"

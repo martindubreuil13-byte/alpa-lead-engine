@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     // Ensure the item belongs to this user
     const { data: existing, error: fetchError } = await supabase
       .from('outreach_queue')
-      .select('id, status')
+      .select('id, review_status')
       .eq('id', queueId)
       .eq('user_id', user.id)
       .maybeSingle()
@@ -62,8 +62,7 @@ export async function POST(req: Request) {
     if (action === 'approve') {
       update = {
         ...update,
-        status: 'approved',
-        review_status: 'reviewed',
+        review_status: 'approved',
         approved_at: now,
         ...(payload?.subject !== undefined && { subject: payload.subject }),
         ...(payload?.full_email !== undefined && { full_email: payload.full_email }),
@@ -74,14 +73,13 @@ export async function POST(req: Request) {
     } else if (action === 'reject') {
       update = {
         ...update,
-        status: 'rejected',
+        review_status: 'rejected',
         rejected_at: now,
       }
     } else {
-      // save
+      // save — preserve current review_status, only update content
       update = {
         ...update,
-        review_status: 'edited',
         ...(payload?.subject !== undefined && { subject: payload.subject }),
         ...(payload?.full_email !== undefined && { full_email: payload.full_email }),
         ...(payload?.hook !== undefined && { hook: payload.hook }),

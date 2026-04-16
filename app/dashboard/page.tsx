@@ -41,7 +41,7 @@ type UsageSummary = {
 }
 
 function getPlanLeadLimit(plan: string) {
-  if (plan === 'admin') return 1000
+  if (plan === 'admin') return 10000
   if (plan === 'starter') return 300
   return 25
 }

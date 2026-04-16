@@ -125,8 +125,7 @@ export async function POST(req: Request) {
           context_title: context.title || null,
           context_description: context.description || null,
           context_h1: context.h1 || null,
-          status: 'draft',
-          review_status: 'pending',
+          review_status: 'draft',
         })
         .select('id')
         .single()

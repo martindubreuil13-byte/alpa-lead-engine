@@ -14,28 +14,27 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'MISSING_MISSION_ID' }, { status: 400 })
     }
 
+    console.log('MISSION STATUS FETCH', { missionId })
+
     const supabase = await createServerClient()
     const { userId, error: adminError } = await requireAdmin(supabase)
     if (adminError) return adminError
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user || user.id !== userId) {
-      return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
-    }
+    console.log('AUTH USER:', userId)
+    console.log('MISSION QUERY:', { missionId, userId })
 
     const { data: mission, error: missionError } = await supabase
       .from('agent_missions')
-      .select(
-        'id, status, daily_target, offer_input, audience_input, location_input, location, name, created_at'
-      )
+      .select('*')
       .eq('id', missionId)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle()
 
+    console.log('MISSION RESULT:', mission)
+    console.log('MISSION ERROR:', missionError)
+
     if (missionError || !mission) {
+      console.error('[mission-status] not found:', { missionId, userId, missionError })
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
@@ -43,39 +42,68 @@ export async function GET(req: Request) {
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
 
-    const { count: leadsToday } = await supabase
-      .from('agent_lead_queue')
-      .select('id', { count: 'exact', head: true })
-      .eq('mission_id', missionId)
-      .gte('created_at', todayStart.toISOString())
+    const [
+      leadsTodayResult,
+      totalLeadsResult,
+      emailsReadyResult,
+      emailsApprovedResult,
+      emailsRejectedResult,
+      recentActivityResult,
+      recentOutreachResult,
+    ] = await Promise.all([
+      supabase
+        .from('agent_lead_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('mission_id', missionId)
+        .gte('created_at', todayStart.toISOString()),
 
-    // Count total leads for this mission
-    const { count: totalLeads } = await supabase
-      .from('agent_lead_queue')
-      .select('id', { count: 'exact', head: true })
-      .eq('mission_id', missionId)
+      supabase
+        .from('agent_lead_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('mission_id', missionId),
 
-    // Count emails ready (draft status in outreach queue)
-    const { count: emailsReady } = await supabase
-      .from('outreach_queue')
-      .select('id', { count: 'exact', head: true })
-      .eq('mission_id', missionId)
-      .eq('status', 'draft')
+      supabase
+        .from('outreach_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('mission_id', missionId)
+        .eq('review_status', 'draft'),
 
-    // Recent activity (last 20 leads)
-    const { data: recentActivity } = await supabase
-      .from('agent_lead_queue')
-      .select('id, business_name, website, email, location, created_at')
-      .eq('mission_id', missionId)
-      .order('created_at', { ascending: false })
-      .limit(20)
+      supabase
+        .from('outreach_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('mission_id', missionId)
+        .eq('review_status', 'approved'),
+
+      supabase
+        .from('outreach_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('mission_id', missionId)
+        .eq('review_status', 'rejected'),
+
+      supabase
+        .from('agent_lead_queue')
+        .select('id, business_name, website, email, location, created_at')
+        .eq('mission_id', missionId)
+        .order('created_at', { ascending: false })
+        .limit(20),
+
+      supabase
+        .from('outreach_queue')
+        .select('id, company_name, review_status, created_at')
+        .eq('mission_id', missionId)
+        .order('created_at', { ascending: false })
+        .limit(20),
+    ])
 
     return NextResponse.json({
       mission,
-      leadsToday: leadsToday ?? 0,
-      totalLeads: totalLeads ?? 0,
-      emailsReady: emailsReady ?? 0,
-      recentActivity: recentActivity ?? [],
+      leadsToday: leadsTodayResult.count ?? 0,
+      totalLeads: totalLeadsResult.count ?? 0,
+      emailsReady: emailsReadyResult.count ?? 0,
+      emailsApproved: emailsApprovedResult.count ?? 0,
+      emailsRejected: emailsRejectedResult.count ?? 0,
+      recentActivity: recentActivityResult.data ?? [],
+      recentOutreach: recentOutreachResult.data ?? [],
     })
   } catch (err) {
     console.error('[mission-status]', err)

@@ -207,6 +207,8 @@ export interface Database {
           icp_expanded: Json | null;
           search_patterns: Json | null;
           daily_target: number;
+          cta: string | null;
+          send_window: string | null;
           created_at: string;
         };
         Insert: {
@@ -229,6 +231,8 @@ export interface Database {
           icp_expanded?: Json | null;
           search_patterns?: Json | null;
           daily_target?: number;
+          cta?: string | null;
+          send_window?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_missions"]["Insert"]>;
@@ -366,7 +370,7 @@ export interface Database {
           context_description: string | null;
           context_h1: string | null;
           status: string;
-          review_status: string;
+          review_status: 'draft' | 'approved' | 'rejected';
           approved_at: string | null;
           rejected_at: string | null;
           created_at: string;
@@ -394,7 +398,7 @@ export interface Database {
           context_description?: string | null;
           context_h1?: string | null;
           status?: string;
-          review_status?: string;
+          review_status?: 'draft' | 'approved' | 'rejected';
           approved_at?: string | null;
           rejected_at?: string | null;
           created_at?: string;

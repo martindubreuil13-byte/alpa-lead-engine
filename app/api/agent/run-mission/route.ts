@@ -1,5 +1,7 @@
 import { NextResponse, after } from 'next/server'
 
+import { enrichLeadContext } from '@/lib/agent/enrich-context'
+import { generateOutreachDraft } from '@/lib/agent/generate-outreach-draft'
 import { runMission } from '@/lib/agent/run-mission'
 import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
 import { requireAdmin } from '@/lib/auth/require-admin'
@@ -8,21 +10,29 @@ import type { TrialLead } from '@/lib/trial'
 
 export const runtime = 'nodejs'
 
+type OfferContext = {
+  what_you_do: string
+  who_you_help: string
+  main_benefit: string
+  angle: string
+}
+
 function buildDedupKey(lead: { email?: string | null; website?: string | null }) {
   const email = String(lead.email || '').trim().toLowerCase()
   if (email) return email
   return String(lead.website || '').trim().toLowerCase()
 }
 
+/** Insert new leads into agent_lead_queue, deduping against existing rows. Returns only the newly inserted leads. */
 async function persistLeads(params: {
   supabase: Awaited<ReturnType<typeof createServerClient>>
   missionId: string
   icpId: string
   userId: string
   leads: TrialLead[]
-}) {
+}): Promise<TrialLead[]> {
   const { supabase, missionId, icpId, userId, leads } = params
-  if (!leads.length) return
+  if (!leads.length) return []
 
   try {
     const { data: existingRows } = await supabase
@@ -64,10 +74,257 @@ async function persistLeads(params: {
       }
     }
 
-    await syncAgentLeadsToMain({ supabase, userId, missionId })
+    return newLeads
   } catch (err) {
     console.error('[run-mission] persist error (ignored):', err)
+    return []
   }
+}
+
+/** Enrich + generate email drafts for new leads, inserting into outreach_queue. Sequential for visibility. */
+async function runEmailPipeline(params: {
+  supabase: Awaited<ReturnType<typeof createServerClient>>
+  userId: string
+  missionId: string
+  leads: TrialLead[]
+  offerContext: OfferContext | null
+  offerInput: string
+  icpAngles: string[]
+  missionCta: string
+}) {
+  const { supabase, userId, missionId, leads, offerContext, offerInput, icpAngles, missionCta } = params
+  if (!leads.length) return
+
+  // Dedup against existing outreach drafts for this mission
+  const { data: existingDrafts } = await supabase
+    .from('outreach_queue')
+    .select('contact_email, website')
+    .eq('mission_id', missionId)
+
+  const existingKeys = new Set<string>()
+  existingDrafts?.forEach((d) => {
+    if (d.contact_email) existingKeys.add(`e:${d.contact_email.toLowerCase()}`)
+    if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
+  })
+
+  const leadsToProcess = leads.filter((lead) => {
+    if (!lead.email && !lead.website) return false
+    if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
+    if (lead.website && existingKeys.has(`w:${lead.website.toLowerCase()}`)) return false
+    return true
+  })
+
+  if (!leadsToProcess.length) return
+
+  for (const lead of leadsToProcess) {
+    const name = lead.company_name || 'Unknown'
+    console.log('[run-mission] START GENERATION', { company_name: name, missionId })
+
+    try {
+      const context = await enrichLeadContext({
+        company_name: lead.company_name,
+        website: lead.website,
+      })
+
+      const draft = await generateOutreachDraft({
+        company_name: lead.company_name || context.company_name || 'your company',
+        location: lead.city ?? null,
+        offer: offerInput || 'our service',
+        angles: icpAngles,
+        context,
+        offer_context: offerContext,
+      })
+
+      if (!draft.subject || !draft.body) {
+        console.log('[run-mission] INVALID DRAFT STRUCTURE', { company_name: name, draft })
+        continue
+      }
+
+      console.log('[run-mission] DRAFT GENERATED', { company_name: name, subject: draft.subject })
+
+      const { error: insertError } = await supabase.from('outreach_queue').insert({
+        user_id: userId,
+        mission_id: missionId,
+        lead_id: null,
+        source: 'agent',
+        company_name: lead.company_name || null,
+        contact_email: lead.email || null,
+        location: lead.city || null,
+        website: lead.website || null,
+        subject: draft.subject,
+        hook: draft.hook,
+        body: draft.body,
+        cta: missionCta,
+        full_email: draft.full_email || draft.body,
+        personalization_score: draft.personalization_score,
+        quality_score: draft.quality_score,
+        context_status: context.enriched ? 'enriched' : 'basic',
+        context_title: context.title || null,
+        context_description: context.description || null,
+        context_h1: context.h1 || null,
+        review_status: 'draft',
+      })
+
+      if (insertError) {
+        console.log('[run-mission] INSERT FAILED', { company_name: name, error: insertError })
+      } else {
+        console.log('[run-mission] INSERT SUCCESS', { company_name: name })
+      }
+    } catch (err) {
+      console.log('[run-mission] GENERATION FAILED', { company_name: name, error: err })
+    }
+  }
+}
+
+/**
+ * Find all leads in the queue that don't have an outreach draft yet and generate them.
+ * Runs every cycle so no lead is permanently skipped. Sequential for full traceability.
+ * Capped at `cap` per call to avoid overloading a single after() run.
+ */
+async function generateMissingDrafts(params: {
+  supabase: Awaited<ReturnType<typeof createServerClient>>
+  userId: string
+  missionId: string
+  offerContext: OfferContext | null
+  offerInput: string
+  icpAngles: string[]
+  missionCta: string
+  cap?: number
+}) {
+  const { supabase, userId, missionId, offerContext, offerInput, icpAngles, missionCta, cap = 10 } = params
+
+  // All leads for this mission
+  const { data: allLeads } = await supabase
+    .from('agent_lead_queue')
+    .select('id, business_name, email, website, location')
+    .eq('mission_id', missionId)
+    .eq('user_id', userId)
+
+  if (!allLeads?.length) return
+
+  // All existing outreach for this mission (any review_status)
+  const { data: existingOutreach } = await supabase
+    .from('outreach_queue')
+    .select('contact_email, website')
+    .eq('mission_id', missionId)
+
+  const existingKeys = new Set<string>()
+  existingOutreach?.forEach((d) => {
+    if (d.contact_email) existingKeys.add(`e:${d.contact_email.toLowerCase()}`)
+    if (d.website) existingKeys.add(`w:${d.website.toLowerCase()}`)
+  })
+
+  const leadsNeedingDraft = allLeads
+    .filter((lead) => {
+      if (!lead.email && !lead.website) return false
+      if (lead.email && existingKeys.has(`e:${lead.email.toLowerCase()}`)) return false
+      if (lead.website && existingKeys.has(`w:${lead.website.toLowerCase()}`)) return false
+      return true
+    })
+    .slice(0, cap)
+
+  console.log('[run-mission] missing drafts', {
+    leadsCount: allLeads.length,
+    draftsCount: existingOutreach?.length ?? 0,
+    generating: leadsNeedingDraft.length,
+  })
+
+  if (!leadsNeedingDraft.length) return
+
+  for (const lead of leadsNeedingDraft) {
+    const name = lead.business_name || 'Unknown'
+    console.log('[run-mission] START GENERATION', { company_name: name, missionId })
+
+    try {
+      const context = await enrichLeadContext({
+        company_name: lead.business_name,
+        website: lead.website,
+      })
+
+      const draft = await generateOutreachDraft({
+        company_name: lead.business_name || context.company_name || 'your company',
+        location: lead.location ?? null,
+        offer: offerInput || 'our service',
+        angles: icpAngles,
+        context,
+        offer_context: offerContext,
+      })
+
+      if (!draft.subject || !draft.body) {
+        console.log('[run-mission] INVALID DRAFT STRUCTURE', { company_name: name, draft })
+        continue
+      }
+
+      console.log('[run-mission] DRAFT GENERATED', { company_name: name, subject: draft.subject })
+
+      const { error: insertError } = await supabase.from('outreach_queue').insert({
+        user_id: userId,
+        mission_id: missionId,
+        lead_id: lead.id,
+        source: 'agent',
+        company_name: lead.business_name || null,
+        contact_email: lead.email || null,
+        location: lead.location || null,
+        website: lead.website || null,
+        subject: draft.subject,
+        hook: draft.hook,
+        body: draft.body,
+        cta: missionCta,
+        full_email: draft.full_email || draft.body,
+        personalization_score: draft.personalization_score,
+        quality_score: draft.quality_score,
+        context_status: context.enriched ? 'enriched' : 'basic',
+        context_title: context.title || null,
+        context_description: context.description || null,
+        context_h1: context.h1 || null,
+        review_status: 'draft',
+      })
+
+      if (insertError) {
+        console.log('[run-mission] INSERT FAILED', { company_name: name, error: insertError })
+      } else {
+        console.log('[run-mission] INSERT SUCCESS', { company_name: name })
+      }
+    } catch (err) {
+      console.log('[run-mission] GENERATION FAILED', { company_name: name, error: err })
+    }
+  }
+}
+
+/** After target is reached, update mission status to 'needs_review' (emails ready) or 'completed'. */
+async function checkMissionCompletion(params: {
+  supabase: Awaited<ReturnType<typeof createServerClient>>
+  missionId: string
+  userId: string
+  dailyTarget: number
+}) {
+  const { supabase, missionId, userId, dailyTarget } = params
+
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const { count: leadsToday } = await supabase
+    .from('agent_lead_queue')
+    .select('id', { count: 'exact', head: true })
+    .eq('mission_id', missionId)
+    .gte('created_at', todayStart.toISOString())
+
+  if ((leadsToday ?? 0) < dailyTarget) return
+
+  const { count: emailsReady } = await supabase
+    .from('outreach_queue')
+    .select('id', { count: 'exact', head: true })
+    .eq('mission_id', missionId)
+    .eq('review_status', 'draft')
+
+  const newStatus = (emailsReady ?? 0) > 0 ? 'needs_review' : 'completed'
+
+  await supabase
+    .from('agent_missions')
+    .update({ status: newStatus })
+    .eq('id', missionId)
+    .eq('user_id', userId)
+    .eq('status', 'active') // only transition from active → next state
 }
 
 export async function POST(req: Request) {
@@ -108,7 +365,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    // ICP is optional — missions created via new setup flow may use search_patterns directly
+    // Only run if mission is active
+    if (mission.status !== 'active') {
+      return NextResponse.json({ error: 'MISSION_NOT_ACTIVE', status: mission.status }, { status: 200 })
+    }
+
+    // ICP is optional — missions created via new setup flow use search_patterns directly
     let icp = null
     if (mission.icp_id) {
       const { data: icpData, error: icpError } = await supabase
@@ -138,14 +400,63 @@ export async function POST(req: Request) {
       cookieHeader: req.headers.get('cookie'),
     })
 
+    // Collect context for background pipeline
+    const offerContext = (mission.offer_context ?? null) as OfferContext | null
+    const offerInput = mission.offer_input || ''
+    const icpAngles: string[] = []
+    if (offerContext?.angle) icpAngles.push(offerContext.angle)
+    const icpExpanded = mission.icp_expanded
+    if (Array.isArray(icpExpanded)) {
+      icpAngles.push(...(icpExpanded as string[]).slice(0, 2))
+    }
+
     after(async () => {
-      await persistLeads({
-        supabase,
-        missionId: mission.id,
-        icpId: icp?.id ?? mission.icp_id ?? '',
-        userId: user.id,
-        leads: result.leads,
-      })
+      try {
+        const newLeads = await persistLeads({
+          supabase,
+          missionId: mission.id,
+          icpId: icp?.id ?? mission.icp_id ?? '',
+          userId: user.id,
+          leads: result.leads,
+        })
+
+        await syncAgentLeadsToMain({ supabase, userId: user.id, missionId: mission.id })
+
+        const missionCta = mission.cta || 'Reply to this message'
+
+        // Generate drafts for newly found leads immediately
+        await runEmailPipeline({
+          supabase,
+          userId: user.id,
+          missionId: mission.id,
+          leads: newLeads,
+          offerContext,
+          offerInput,
+          icpAngles,
+          missionCta,
+        })
+
+        // Always backfill: generate drafts for any lead across all rounds that still lacks one
+        await generateMissingDrafts({
+          supabase,
+          userId: user.id,
+          missionId: mission.id,
+          offerContext,
+          offerInput,
+          icpAngles,
+          missionCta,
+          cap: 10,
+        })
+
+        await checkMissionCompletion({
+          supabase,
+          missionId: mission.id,
+          userId: user.id,
+          dailyTarget: mission.daily_target ?? 10,
+        })
+      } catch (err) {
+        console.error('[run-mission] after() pipeline error (ignored):', err)
+      }
     })
 
     console.log('[run-mission] complete', {

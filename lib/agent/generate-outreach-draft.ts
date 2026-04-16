@@ -102,7 +102,8 @@ function fallbackDraft(company_name: string): OutreachDraft {
 }
 
 export async function generateOutreachDraft(params: GenerateParams): Promise<OutreachDraft> {
-  const prompt = buildPrompt(params)
+  const companyName = params.company_name || 'your company'
+  const prompt = buildPrompt({ ...params, company_name: companyName })
 
   try {
     const completion = await openai.chat.completions.create({
@@ -119,17 +120,26 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     const text = completion.choices[0].message.content?.trim() || ''
     const parsed = JSON.parse(text) as Partial<OutreachDraft>
 
+    const subject = String(parsed.subject || '').trim().slice(0, 120)
+    const body = String(parsed.body || '').trim().slice(0, 600)
+
+    // If OpenAI returned empty subject or body, fall back rather than insert garbage
+    if (!subject || !body) {
+      console.log('[generate-outreach-draft] incomplete response, using fallback for', companyName, { subject, body })
+      return fallbackDraft(companyName)
+    }
+
     return {
-      subject: String(parsed.subject || `Quick question for ${params.company_name}`).slice(0, 120),
+      subject,
       hook: String(parsed.hook || '').slice(0, 400),
-      body: String(parsed.body || '').slice(0, 600),
+      body,
       cta: String(parsed.cta || '').slice(0, 200),
-      full_email: String(parsed.full_email || '').slice(0, 1200),
+      full_email: String(parsed.full_email || '').slice(0, 1200) || body,
       personalization_score: Number(parsed.personalization_score ?? 0),
       quality_score: Number(parsed.quality_score ?? 0),
     }
-  } catch {
-    console.log('[generate-outreach-draft] generation failed, using fallback for', params.company_name)
-    return fallbackDraft(params.company_name)
+  } catch (err) {
+    console.log('[generate-outreach-draft] generation threw, using fallback for', companyName, err)
+    return fallbackDraft(companyName)
   }
 }
