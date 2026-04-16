@@ -14,18 +14,12 @@ export async function POST(req: Request) {
     const supabase = await createServerClient()
     const { userId, error: adminError } = await requireAdmin(supabase)
     if (adminError) return adminError
-    void userId
-
-    const { data: user } = await supabase.auth.getUser()
-    if (!user?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
 
     const { error } = await supabase
       .from('agent_missions')
       .delete()
       .eq('id', id)
-      .eq('user_id', user.user.id)
+      .eq('user_id', userId)
 
     if (error) {
       console.error(error)

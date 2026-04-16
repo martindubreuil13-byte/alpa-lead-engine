@@ -42,6 +42,7 @@ export default function AgentSetupPage() {
   const [customTarget, setCustomTarget] = useState('')
   const [cta, setCta] = useState('')
   const [sendWindow, setSendWindow] = useState('')
+  const [senderSignature, setSenderSignature] = useState('')
   const [thinkingIndex, setThinkingIndex] = useState(0)
   const [expanded, setExpanded] = useState<ExpandedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -124,6 +125,7 @@ export default function AgentSetupPage() {
           daily_target: dailyTarget,
           cta: cta.trim(),
           send_window: sendWindow.trim() || null,
+          sender_signature: senderSignature.trim() || null,
         }),
       })
 
@@ -273,6 +275,23 @@ export default function AgentSetupPage() {
                     value={sendWindow}
                     onChange={(e) => setSendWindow(e.target.value)}
                     placeholder="Mon–Fri, 9am–5pm EST"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                  />
+                </div>
+
+                {/* Email Signature (optional) */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Email signature
+                    </div>
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-slate-600">optional</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={senderSignature}
+                    onChange={(e) => setSenderSignature(e.target.value)}
+                    placeholder="e.g. Martin — ALPA Team"
                     className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
                   />
                 </div>

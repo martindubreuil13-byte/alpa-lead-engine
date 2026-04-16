@@ -25,6 +25,7 @@ Task:
 1. Rewrite their offer into a clear, grounded business statement
 2. Expand their audience into 10–15 specific, searchable ICP segments (1–3 words each, like "marketing agency", "SaaS startup", "real estate broker")
 3. Generate 8–12 search query patterns combining ICP segments + location that work as Google/directory search strings
+4. Derive a strict allowed_categories list — ONLY terms that directly match or are very close synonyms of "${audience}"
 
 Return ONLY valid JSON in this exact shape:
 {
@@ -41,12 +42,17 @@ Return ONLY valid JSON in this exact shape:
   "search_patterns": [
     "marketing agency Toronto",
     "SaaS startup Vancouver"
+  ],
+  "allowed_categories": [
+    "direct term from audience",
+    "closest synonym only"
   ]
 }
 
 Rules:
 - icp_expanded: 10–15 items, 1–3 words each, standard searchable business types
 - search_patterns: 8–12 items, combine top ICP segments with location
+- allowed_categories: 3–6 items — ONLY direct matches or very close synonyms of "${audience}". Do NOT include broad expansions like "agency", "startup", "ecommerce" unless explicitly stated in the audience.
 - Be specific, decisive, and practical
 - No vague terms like "businesses that need help"
 - Return ONLY the JSON object

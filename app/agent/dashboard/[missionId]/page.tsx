@@ -21,7 +21,7 @@ type ActivityItem = {
 type OutreachItem = {
   id: string
   company_name: string | null
-  review_status: 'draft' | 'approved' | 'rejected'
+  review_status: 'draft' | 'approved' | 'sent' | 'rejected'
   created_at: string
 }
 
@@ -35,6 +35,8 @@ type MissionData = {
   location: string
   name: string | null
   cta: string | null
+  completed_at: string | null
+  next_run_at: string | null
   created_at: string
 }
 
@@ -98,6 +100,26 @@ function formatRelativeTime(dateString: string): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+function formatNextRun(isoDate: string): string {
+  const d = new Date(isoDate)
+  const now = new Date()
+  const diffMs = d.getTime() - now.getTime()
+  if (diffMs <= 0) return 'soon'
+
+  const diffH = diffMs / 3_600_000
+  if (diffH < 20) return `in ${Math.round(diffH)}h`
+
+  const timeStr = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(d)
+
+  const diffDays = Math.round(diffH / 24)
+  if (diffDays === 1) return `tomorrow at ${timeStr}`
+  return `in ${diffDays} days at ${timeStr}`
 }
 
 function getMissionTitle(mission: MissionData): string {
@@ -408,14 +430,19 @@ export default function MissionDashboardPage() {
     }
   }, [missionId, fetchStatus])
 
-  // ── Bootstrap: fetch status, start loop if active
+  // ── Bootstrap: fetch status, start loop if active (or scheduled run is due)
   useEffect(() => {
     void (async () => {
       const data = await fetchStatus()
-      if (
-        data?.mission.status === 'active' &&
-        data.leadsToday < data.mission.daily_target
-      ) {
+      if (!data) return
+
+      const isActive = data.mission.status === 'active'
+      const isScheduled =
+        data.mission.status === 'completed' &&
+        !!data.mission.next_run_at &&
+        new Date() >= new Date(data.mission.next_run_at)
+
+      if ((isActive && data.leadsToday < data.mission.daily_target) || isScheduled) {
         void triggerMission()
       }
     })()
@@ -653,6 +680,19 @@ export default function MissionDashboardPage() {
                 <span className="text-xs text-slate-400">Live Agent Running</span>
                 <span className="hidden text-[10px] text-slate-600 sm:inline">
                   · Scanning · Enriching · Writing
+                </span>
+              </div>
+            )}
+
+            {/* Scheduled / completed indicator */}
+            {isCompleted && mission.next_run_at && (
+              <div className="flex items-center gap-2 pt-0.5">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/70" />
+                <span className="text-xs text-slate-400">
+                  Next run:{' '}
+                  <span className="text-slate-300">
+                    {formatNextRun(mission.next_run_at)}
+                  </span>
                 </span>
               </div>
             )}
@@ -910,8 +950,8 @@ export default function MissionDashboardPage() {
           {/* Live feed lines (client-side events) */}
           {feed.length > 0 && (
             <div className="border-b border-white/[0.04] divide-y divide-white/[0.03]">
-              {feed.slice(0, 8).map((line) => (
-                <div key={line.id} className="flex items-center gap-2.5 px-5 py-2.5">
+              {feed.slice(0, 8).map((line, index) => (
+                <div key={`${line.id}-${index}`} className="flex items-center gap-2.5 px-5 py-2.5">
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                       line.kind === 'round'

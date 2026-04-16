@@ -183,12 +183,14 @@ export default function AgentEntryPage() {
     if (!window.confirm(`Delete "${getMissionTitle(mission)}"?`)) return
     setActioning(mission.id)
     try {
-      await fetch('/api/agent/missions/delete', {
+      const res = await fetch('/api/agent/missions/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: mission.id }),
       })
+      // Optimistic removal + refetch to sync any server state
       setSummaries((prev) => prev.filter((m) => m.id !== mission.id))
+      if (res.ok) void fetchMissions()
     } finally {
       setActioning(null)
     }

@@ -89,10 +89,13 @@ async function runEmailPipeline(params: {
   leads: TrialLead[]
   offerContext: OfferContext | null
   offerInput: string
+  audienceInput: string
+  locationInput: string
   icpAngles: string[]
-  missionCta: string
+  missionCta: string | null
+  senderSignature: string | null
 }) {
-  const { supabase, userId, missionId, leads, offerContext, offerInput, icpAngles, missionCta } = params
+  const { supabase, userId, missionId, leads, offerContext, offerInput, audienceInput, locationInput, icpAngles, missionCta, senderSignature } = params
   if (!leads.length) return
 
   // Dedup against existing outreach drafts for this mission
@@ -128,7 +131,10 @@ async function runEmailPipeline(params: {
 
       const draft = await generateOutreachDraft({
         company_name: lead.company_name || context.company_name || 'your company',
-        location: lead.city ?? null,
+        audience_input: audienceInput,
+        location_input: locationInput || null,
+        mission_cta: missionCta,
+        sender_signature: senderSignature,
         offer: offerInput || 'our service',
         angles: icpAngles,
         context,
@@ -187,11 +193,14 @@ async function generateMissingDrafts(params: {
   missionId: string
   offerContext: OfferContext | null
   offerInput: string
+  audienceInput: string
+  locationInput: string
   icpAngles: string[]
-  missionCta: string
+  missionCta: string | null
+  senderSignature: string | null
   cap?: number
 }) {
-  const { supabase, userId, missionId, offerContext, offerInput, icpAngles, missionCta, cap = 10 } = params
+  const { supabase, userId, missionId, offerContext, offerInput, audienceInput, locationInput, icpAngles, missionCta, senderSignature, cap = 10 } = params
 
   // All leads for this mission
   const { data: allLeads } = await supabase
@@ -243,7 +252,10 @@ async function generateMissingDrafts(params: {
 
       const draft = await generateOutreachDraft({
         company_name: lead.business_name || context.company_name || 'your company',
-        location: lead.location ?? null,
+        audience_input: audienceInput,
+        location_input: locationInput || null,
+        mission_cta: missionCta,
+        sender_signature: senderSignature,
         offer: offerInput || 'our service',
         angles: icpAngles,
         context,
@@ -291,7 +303,20 @@ async function generateMissingDrafts(params: {
   }
 }
 
-/** After target is reached, update mission status to 'needs_review' (emails ready) or 'completed'. */
+/** Compute next run timestamp: tomorrow at 09:00 UTC. */
+function computeNextRunAt(): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() + 1)
+  d.setUTCHours(9, 0, 0, 0)
+  return d.toISOString()
+}
+
+/**
+ * Transition mission to 'completed' once:
+ * - leads_today >= daily_target
+ * - AND all today's leads have outreach drafts
+ * Sets completed_at + next_run_at (tomorrow 09:00 UTC).
+ */
 async function checkMissionCompletion(params: {
   supabase: Awaited<ReturnType<typeof createServerClient>>
   missionId: string
@@ -311,20 +336,24 @@ async function checkMissionCompletion(params: {
 
   if ((leadsToday ?? 0) < dailyTarget) return
 
-  const { count: emailsReady } = await supabase
+  // Require all today's leads to have drafts before marking complete
+  const { count: draftsTotal } = await supabase
     .from('outreach_queue')
     .select('id', { count: 'exact', head: true })
     .eq('mission_id', missionId)
-    .eq('review_status', 'draft')
 
-  const newStatus = (emailsReady ?? 0) > 0 ? 'needs_review' : 'completed'
+  if ((draftsTotal ?? 0) < (leadsToday ?? 0)) return
 
   await supabase
     .from('agent_missions')
-    .update({ status: newStatus })
+    .update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      next_run_at: computeNextRunAt(),
+    })
     .eq('id', missionId)
     .eq('user_id', userId)
-    .eq('status', 'active') // only transition from active → next state
+    .in('status', ['active', 'needs_review'])
 }
 
 export async function POST(req: Request) {
@@ -365,9 +394,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    // Only run if mission is active
-    if (mission.status !== 'active') {
+    // Execution guard: run only if active, or if completed and next_run_at has passed (new day)
+    const now = new Date()
+    const isScheduledRun =
+      mission.status === 'completed' &&
+      !!mission.next_run_at &&
+      now >= new Date(mission.next_run_at)
+
+    if (mission.status !== 'active' && !isScheduledRun) {
       return NextResponse.json({ error: 'MISSION_NOT_ACTIVE', status: mission.status }, { status: 200 })
+    }
+
+    // Reset completed → active for this new cycle
+    if (isScheduledRun) {
+      await supabase
+        .from('agent_missions')
+        .update({ status: 'active', completed_at: null, next_run_at: null })
+        .eq('id', missionId)
+        .eq('user_id', user.id)
     }
 
     // ICP is optional — missions created via new setup flow use search_patterns directly
@@ -403,6 +447,9 @@ export async function POST(req: Request) {
     // Collect context for background pipeline
     const offerContext = (mission.offer_context ?? null) as OfferContext | null
     const offerInput = mission.offer_input || ''
+    const audienceInput = mission.audience_input || ''
+    const locationInput = mission.location_input || mission.location || ''
+    const senderSignature = mission.sender_signature || null
     const icpAngles: string[] = []
     if (offerContext?.angle) icpAngles.push(offerContext.angle)
     const icpExpanded = mission.icp_expanded
@@ -422,7 +469,8 @@ export async function POST(req: Request) {
 
         await syncAgentLeadsToMain({ supabase, userId: user.id, missionId: mission.id })
 
-        const missionCta = mission.cta || 'Reply to this message'
+        // Use exact mission CTA; null means no CTA line in email
+        const missionCta = mission.cta || null
 
         // Generate drafts for newly found leads immediately
         await runEmailPipeline({
@@ -432,8 +480,11 @@ export async function POST(req: Request) {
           leads: newLeads,
           offerContext,
           offerInput,
+          audienceInput,
+          locationInput,
           icpAngles,
           missionCta,
+          senderSignature,
         })
 
         // Always backfill: generate drafts for any lead across all rounds that still lacks one
@@ -443,8 +494,11 @@ export async function POST(req: Request) {
           missionId: mission.id,
           offerContext,
           offerInput,
+          audienceInput,
+          locationInput,
           icpAngles,
           missionCta,
+          senderSignature,
           cap: 10,
         })
 

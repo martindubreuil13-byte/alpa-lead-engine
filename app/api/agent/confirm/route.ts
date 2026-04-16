@@ -23,6 +23,7 @@ const requestSchema = z.object({
   daily_target: z.number().int().min(1).max(10000).default(10),
   cta: z.string().trim().max(300).optional(),
   send_window: z.string().optional().nullable(),
+  sender_signature: z.string().trim().max(200).optional().nullable(),
 })
 
 export async function POST(req: Request) {
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
       send_window: body?.send_window ?? null,
       daily_target: body?.daily_target ?? 10,
       cta: body?.cta ?? 'Reply to this message',
+      sender_signature: body?.sender_signature ?? null,
     }
     const parsed = requestSchema.safeParse(normalized)
 
@@ -55,6 +57,7 @@ export async function POST(req: Request) {
       daily_target,
       cta,
       send_window,
+      sender_signature,
     } = parsed.data
 
     if (!offer_input || !audience_input || !location_input) {
@@ -122,6 +125,7 @@ export async function POST(req: Request) {
         search_patterns,
         cta: cta || null,
         send_window: send_window || null,
+        sender_signature: sender_signature || null,
       })
       .select('id')
       .single()

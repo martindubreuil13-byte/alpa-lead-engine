@@ -209,6 +209,9 @@ export interface Database {
           daily_target: number;
           cta: string | null;
           send_window: string | null;
+          sender_signature: string | null;
+          completed_at: string | null;
+          next_run_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -233,6 +236,9 @@ export interface Database {
           daily_target?: number;
           cta?: string | null;
           send_window?: string | null;
+          sender_signature?: string | null;
+          completed_at?: string | null;
+          next_run_at?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_missions"]["Insert"]>;
@@ -370,7 +376,7 @@ export interface Database {
           context_description: string | null;
           context_h1: string | null;
           status: string;
-          review_status: 'draft' | 'approved' | 'rejected';
+          review_status: 'draft' | 'approved' | 'sent' | 'rejected';
           approved_at: string | null;
           rejected_at: string | null;
           created_at: string;

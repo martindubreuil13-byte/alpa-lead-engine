@@ -1,6 +1,7 @@
 import type { TrialLead } from '@/lib/trial'
 import { createServerClient } from '@/lib/supabase/server'
 import type { Database, Json } from '@/lib/supabase/types'
+import { deriveAllowedCategories, scoreLeadRelevance } from '@/lib/agent/score-lead-relevance'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createServerClient>>
 type MissionRow = Database['public']['Tables']['agent_missions']['Row']
@@ -153,7 +154,7 @@ export async function runMission(params: {
 
   // Basic dedup by email or website
   const seen = new Set<string>()
-  const leads = rawLeads.filter((lead) => {
+  const deduped = rawLeads.filter((lead) => {
     if (!lead.email && !lead.website) return false
     const key = buildDedupKey(lead)
     if (key && seen.has(key)) return false
@@ -161,9 +162,31 @@ export async function runMission(params: {
     return true
   })
 
+  // Relevance filter: skip leads that don't match the intended audience
+  const allowedCategories = deriveAllowedCategories(mission.audience_input)
+  const leads: TrialLead[] = []
+  for (const lead of deduped) {
+    if (allowedCategories.length > 0) {
+      const { score } = scoreLeadRelevance(lead, allowedCategories)
+      if (score < 0.6) {
+        console.log(`[runMission] FILTERED OUT (LOW RELEVANCE): ${lead.company_name}`, {
+          score: score.toFixed(2),
+          industry: lead.industry,
+          categories: allowedCategories,
+        })
+        continue
+      }
+    }
+    leads.push(lead)
+  }
+
   const withEmail = leads.filter((l) => Boolean(String(l.email || '').trim())).length
 
-  console.log('[runMission] done', { found: leads.length, withEmail })
+  console.log('[runMission] done', {
+    found: leads.length,
+    withEmail,
+    filtered: deduped.length - leads.length,
+  })
 
   return {
     leads,

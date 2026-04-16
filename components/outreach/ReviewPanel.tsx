@@ -18,7 +18,7 @@ type QueueItem = {
   context_description: string | null
   context_h1: string | null
   context_status: string
-  review_status: 'draft' | 'approved' | 'rejected'
+  review_status: 'draft' | 'approved' | 'sent' | 'rejected'
 }
 
 type ReviewPanelProps = {

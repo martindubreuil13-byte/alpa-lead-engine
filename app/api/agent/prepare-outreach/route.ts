@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     // Load active mission for offer_context (new setup flow) + ICP for angles (legacy)
     const { data: activeMission } = await supabase
       .from('agent_missions')
-      .select('offer_context, offer_input')
+      .select('offer_context, offer_input, audience_input, location_input, cta, sender_signature')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .order('created_at', { ascending: false })
@@ -96,7 +96,10 @@ export async function POST(req: Request) {
 
       const draft = await generateOutreachDraft({
         company_name: lead.company_name,
-        location: lead.city,
+        audience_input: activeMission?.audience_input || '',
+        location_input: activeMission?.location_input || lead.city || null,
+        mission_cta: activeMission?.cta || null,
+        sender_signature: activeMission?.sender_signature || null,
         offer,
         angles,
         offer_context: offerContext,
