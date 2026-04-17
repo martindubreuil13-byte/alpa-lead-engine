@@ -1,16 +1,18 @@
 /**
- * Agent mission runner — scraper-first, minimal control layer.
+ * Agent mission runner — memory-aware, adaptive, cost-efficient.
  *
  * Execution contract:
- *   - MAX 3 rounds, each with a UNIQUE query
- *   - Each round calls the scraper exactly ONCE
- *   - Stops immediately on: target reached | no new email leads | no queries left
- *   - Dedup is domain-first; DB is the hard source of truth (upsert + unique index)
- *   - Low-yield queries are automatically refined before the next round
- *   - Expected: 2–3 total scraper calls per mission run
+ *   - MissionMemory tracks all seen domains, used queries, and query performance
+ *   - Domain-first dedup prevents reprocessing the same company across rounds
+ *   - Low-yield queries (<3 email leads) are retired and replaced with refined variants
+ *   - Hard stop when 2 consecutive rounds yield 0 accepted leads → status: exhausted
+ *   - 5-minute cooldown guard prevents double-execution from fast frontend retries
+ *   - Email yield improvement: tries /contact + /about for leads missing an email
+ *   - All enrichment is domain-cached; never fetches the same site twice per run
  */
 
 import { buildLeadKey } from '@/lib/agent/lead-key'
+import { findEmailOnWebsite } from '@/lib/agent/enrich-context'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import type { DiscoveryLead } from '@/lib/scraper/run-scraper-shared'
 import type { TrialLead } from '@/lib/trial'
@@ -21,11 +23,20 @@ import type { Database } from '@/lib/supabase/types'
 type SupabaseServerClient = Awaited<ReturnType<typeof createServerClient>>
 type MissionRow = Database['public']['Tables']['agent_missions']['Row']
 
-const MAX_ROUNDS = 3
-const BATCH_SIZE = 20
-const LOW_YIELD_THRESHOLD = 5 // leads below this trigger query refinement
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-// Basic email validation — rejects missing, malformed, or obviously junk addresses
+const MAX_ROUNDS = 3
+const MAX_QUEUE_SIZE = MAX_ROUNDS + 2        // base queries + up to 2 injected refinements
+const BATCH_SIZE = 20
+const LOW_YIELD_THRESHOLD = 3                // emailLeads < 3 → retire query
+const EMAIL_RECOVERY_CAP = 5                 // max no-email leads to attempt recovery per round
+const COOLDOWN_MS = 5 * 60 * 1000           // 5 minutes between runs on the same mission
+
+// ─── Module-level cooldown (process-scoped, best-effort in serverless) ────────
+const runCooldowns = new Map<string, number>()
+
+// ─── Email validation ─────────────────────────────────────────────────────────
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const JUNK_EMAIL_RE = /^(noreply|no-reply|do-not-reply|donotreply|mailer-daemon|postmaster)@/i
 
@@ -35,12 +46,65 @@ function isValidEmail(email: string | null | undefined): boolean {
   return e.length < 255 && EMAIL_RE.test(e) && !JUNK_EMAIL_RE.test(e)
 }
 
+// ─── Domain normalization ─────────────────────────────────────────────────────
+
+function normalizeDomain(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const normalized = url.startsWith('http') ? url : `https://${url}`
+    const u = new URL(normalized)
+    return u.hostname.replace(/^www\./, '').toLowerCase().trim() || null
+  } catch {
+    // Fallback: strip protocol + www manually
+    const d = url
+      .replace(/^https?:\/\/(www\.)?/, '')
+      .replace(/[/?#].*$/, '')
+      .toLowerCase()
+      .trim()
+    return d || null
+  }
+}
+
+// ─── Mission memory ───────────────────────────────────────────────────────────
+
+type QueryStats = {
+  leadsFound: number
+  emailLeads: number
+  acceptedLeads: number
+}
+
+type MissionMemory = {
+  /** All domains seen (website) — prevents reprocessing same company */
+  seenDomains: Set<string>
+  /** Domains actively rejected (e.g. junk leads) */
+  rejectedDomains: Set<string>
+  /** Normalised queries sent to the scraper this run */
+  usedQueries: Set<string>
+  /** Queries with emailLeads < LOW_YIELD_THRESHOLD — never reuse */
+  lowYieldQueries: Set<string>
+  /** Per-query stats for refinement decisions */
+  queryStats: Map<string, QueryStats>
+}
+
+function createMemory(): MissionMemory {
+  return {
+    seenDomains: new Set(),
+    rejectedDomains: new Set(),
+    usedQueries: new Set(),
+    lowYieldQueries: new Set(),
+    queryStats: new Map(),
+  }
+}
+
+// ─── Output type ──────────────────────────────────────────────────────────────
+
 export type MissionRunOutput = {
   collected: number
   rounds: number
   newLeads: TrialLead[]
   query: string
   location: string
+  stopReason: string
 }
 
 // ─── Location ─────────────────────────────────────────────────────────────────
@@ -48,19 +112,14 @@ export type MissionRunOutput = {
 function parseMissionLocation(label: string) {
   const parts = label.split(',').map((p) => p.trim()).filter(Boolean)
   if (parts.length === 0) return { city: 'Global', region: '', country: 'Global' }
-  if (parts.length === 1) return { city: parts[0], region: '', country: parts[0] }
-  if (parts.length === 2) return { city: parts[0], region: parts[1], country: parts[1] }
-  return { city: parts[0], region: parts[1], country: parts.slice(2).join(', ') }
+  if (parts.length === 1) return { city: parts[0]!, region: '', country: parts[0]! }
+  if (parts.length === 2) return { city: parts[0]!, region: parts[1]!, country: parts[1]! }
+  return { city: parts[0]!, region: parts[1]!, country: parts.slice(2).join(', ') }
 }
 
 // ─── Query variants ───────────────────────────────────────────────────────────
 
-/**
- * Return up to MAX_ROUNDS unique, normalised queries.
- * Pre-built search_patterns take priority; otherwise derive 3 variations
- * from audience + location to maximise result diversity.
- */
-function buildQueryVariants(mission: MissionRow): string[] {
+function buildBaseQueries(mission: MissionRow): string[] {
   if (
     Array.isArray(mission.search_patterns) &&
     (mission.search_patterns as unknown[]).length > 0
@@ -75,54 +134,71 @@ function buildQueryVariants(mission: MissionRow): string[] {
   const audience = String(mission.audience_input || '').trim()
   const location = String(mission.location_input || mission.location || '').trim()
 
-  if (!audience) {
-    throw new Error('Mission has no audience_input or search_patterns')
-  }
+  if (!audience) throw new Error('Mission has no audience_input or search_patterns')
 
   const candidates = location
-    ? [
-        `${audience} ${location}`,
-        `${audience} near ${location}`,
-        `${location} ${audience}`,
-      ]
-    : [
-        audience,
-        `${audience} services`,
-        `${audience} companies`,
-      ]
+    ? [`${audience} ${location}`, `${audience} near ${location}`, `${location} ${audience}`]
+    : [audience, `${audience} services`, `${audience} companies`]
 
   return [...new Set(candidates)].slice(0, MAX_ROUNDS)
 }
 
-// ─── Query refinement ─────────────────────────────────────────────────────────
+// ─── Intelligent query refinement ─────────────────────────────────────────────
 
 /**
- * When a query returns low results, generate a refined variant.
- * This avoids wasting a round on a broad query that already exhausted its pool.
+ * Generate up to `limit` refined query variants for a low-yield base query.
+ *
+ * Uses three strategies:
+ *   1. Intent-based: append "email", "contact", "company", "firm"
+ *   2. Structure-based: prepend/append location
+ *   3. Niche-based: prepend "independent", "small", "local"
+ *
+ * Skips variants already in usedQueries or lowYieldQueries.
  */
-function refineQuery(query: string): string | null {
+function generateRefinedQueries(
+  query: string,
+  locationLabel: string,
+  memory: MissionMemory,
+  limit = 2
+): string[] {
   const lower = query.toLowerCase()
+  const candidates: string[] = []
 
-  // Already refined — don't refine again
-  if (lower.includes('small ') || lower.includes('local ') || lower.includes('independent ')) {
-    return null
+  // 1. Intent-based — different search intent signals
+  for (const suffix of ['email', 'contact', 'company', 'firm']) {
+    if (!lower.endsWith(` ${suffix}`) && !lower.includes(` ${suffix} `)) {
+      candidates.push(`${query} ${suffix}`)
+    }
   }
 
-  // Pattern: "X Y" → try "small X Y" or "independent X Y"
-  const parts = query.trim().split(/\s+/)
-  if (parts.length >= 2) {
-    const prefixes = ['small', 'local', 'independent']
-    // Pick a prefix not already in the query
-    const prefix = prefixes.find((p) => !lower.includes(p))
-    if (prefix) return `${prefix} ${query}`
+  // 2. Structure-based — reorder with location for different index coverage
+  const city = locationLabel.split(',')[0]?.trim() ?? ''
+  if (city && !lower.includes(city.toLowerCase())) {
+    candidates.push(`${city} ${query}`)
+    candidates.push(`${query} near ${city}`)
   }
 
-  // Single-word query → add "services"
-  if (parts.length === 1) {
-    return `${query} services`
+  // 3. Niche-based — narrower scope often surfaces different results
+  for (const prefix of ['independent', 'small', 'local']) {
+    if (!lower.startsWith(`${prefix} `)) {
+      candidates.push(`${prefix} ${query}`)
+    }
   }
 
-  return null
+  // Filter already used, low-yield, or duplicate candidates
+  const result: string[] = []
+  for (const c of candidates) {
+    const norm = c.trim().toLowerCase()
+    if (
+      memory.usedQueries.has(norm) ||
+      memory.lowYieldQueries.has(norm) ||
+      result.some((r) => r.toLowerCase() === norm)
+    ) continue
+    result.push(c)
+    if (result.length >= limit) break
+  }
+
+  return result
 }
 
 // ─── Dedup key ────────────────────────────────────────────────────────────────
@@ -134,6 +210,16 @@ function getKey(lead: DiscoveryLead): string {
     name: lead.company_name,
     location: lead.city,
   })
+}
+
+// ─── Lead sanitisation ────────────────────────────────────────────────────────
+
+function sanitiseLead(lead: DiscoveryLead): DiscoveryLead {
+  return {
+    ...lead,
+    email: cleanEmail(lead.email) ?? null,
+    phone: cleanPhone(lead.phone) ?? null,
+  }
 }
 
 // ─── Lead conversion ──────────────────────────────────────────────────────────
@@ -199,20 +285,45 @@ async function persistLeads(params: {
   return data?.length ?? leads.length
 }
 
-// ─── Sanitise lead ────────────────────────────────────────────────────────────
+// ─── Email recovery for no-email leads ───────────────────────────────────────
 
 /**
- * Run contact fields through the cleaner before any validation.
- * This handles fused phone+email strings from the scraper.
+ * For leads the scraper returned without an email, attempt to find one by
+ * crawling homepage → /contact → /about.
+ * Capped at EMAIL_RECOVERY_CAP leads per round to keep the run fast.
+ * Skips domains already in seenDomains.
  */
-function sanitiseLead(lead: DiscoveryLead): DiscoveryLead {
-  const cleanedEmail = cleanEmail(lead.email)
-  const cleanedPhone = cleanPhone(lead.phone)
-  return {
-    ...lead,
-    email: cleanedEmail ?? null,
-    phone: cleanedPhone ?? null,
+async function recoverEmails(
+  leads: DiscoveryLead[],
+  memory: MissionMemory
+): Promise<DiscoveryLead[]> {
+  const recovered: DiscoveryLead[] = []
+  let attempts = 0
+
+  for (const lead of leads) {
+    if (attempts >= EMAIL_RECOVERY_CAP) break
+
+    const domain = normalizeDomain(lead.website)
+    if (!domain || memory.seenDomains.has(domain)) continue
+
+    attempts++
+    const found = await findEmailOnWebsite(lead.website)
+    if (!found || !isValidEmail(found.email)) continue
+
+    recovered.push({
+      ...lead,
+      email: found.email,
+      email_source: found.source,
+      email_confidence: 'medium',
+      is_generic_email: false,
+    })
   }
+
+  if (recovered.length > 0) {
+    console.log(`[EMAIL_RECOVERY] found ${recovered.length} emails from ${attempts} attempts`)
+  }
+
+  return recovered
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -224,88 +335,108 @@ export async function runMission(params: {
 }): Promise<MissionRunOutput> {
   const { supabase, mission, target } = params
 
-  // Hard guard: abort if mission was deleted after this job was queued
+  // ── Cooldown guard ────────────────────────────────────────────────────────
+  const lastRun = runCooldowns.get(mission.id) ?? 0
+  if (Date.now() - lastRun < COOLDOWN_MS) {
+    console.log('[STOP] cooldown active — skipping run', { missionId: mission.id })
+    return { collected: 0, rounds: 0, newLeads: [], query: '', location: '', stopReason: 'cooldown' }
+  }
+
+  // ── Liveness check — abort if mission deleted/exhausted after job was queued
   const { data: liveCheck } = await supabase
     .from('agent_missions')
     .select('id, status')
     .eq('id', mission.id)
     .maybeSingle()
 
-  if (!liveCheck || liveCheck.status === 'deleted') {
-    console.log('[STOP] mission deleted')
-    return { collected: 0, rounds: 0, newLeads: [], query: '', location: '' }
+  if (!liveCheck || liveCheck.status === 'deleted' || liveCheck.status === 'exhausted') {
+    console.log(`[STOP] mission ${liveCheck?.status ?? 'not found'}`)
+    return { collected: 0, rounds: 0, newLeads: [], query: '', location: '', stopReason: liveCheck?.status ?? 'not_found' }
   }
 
   const userId = mission.user_id
   const icpId = mission.icp_id ?? ''
   const locationLabel = String(mission.location_input || mission.location || '').trim()
   const location = parseMissionLocation(locationLabel)
-  const queries = buildQueryVariants(mission)
+  const baseQueries = buildBaseQueries(mission)
 
-  console.log('[runMission] start', { missionId: mission.id, queries, target })
+  console.log('[runMission] start', { missionId: mission.id, queries: baseQueries, target })
 
-  // Seed seen-Set from DB dedup_key column (source of truth)
-  const seen = new Set<string>()
+  // ── Initialise memory ─────────────────────────────────────────────────────
+  const memory = createMemory()
 
+  // Seed seenDomains and seen keys from DB (hard source of truth)
   const { data: existing } = await supabase
     .from('agent_lead_queue')
     .select('dedup_key, website, email')
     .eq('mission_id', mission.id)
     .eq('user_id', userId)
 
+  const seen = new Set<string>()   // dedup keys for DB upsert
   for (const row of existing ?? []) {
+    // Key-level dedup
     if (row.dedup_key) {
       seen.add(row.dedup_key)
     } else {
       const k = buildLeadKey({ website: row.website, email: row.email })
       if (k) seen.add(k)
     }
+    // Domain-level dedup
+    const domain = normalizeDomain(row.website)
+    if (domain) memory.seenDomains.add(domain)
   }
 
-  // Track which queries have been sent to the scraper this run (normalised)
-  const executedQueries = new Set<string>()
-
-  // Performance tracking — used to decide if query refinement is worthwhile
-  const queryPerformanceMap = new Map<string, number>() // query → emailLeads count
+  // ── Run loop ──────────────────────────────────────────────────────────────
+  const queryQueue = [...baseQueries]
+  let queueIndex = 0
 
   const collected: TrialLead[] = []
   let roundsRun = 0
   let stopReason = 'no queries left'
   let consecutiveEmptyRounds = 0
+  let totalAcceptedAllRounds = 0
 
-  // Build a mutable queue starting from the base variants
-  const queryQueue = [...queries]
+  while (queueIndex < queryQueue.length && queryQueue.length <= MAX_QUEUE_SIZE) {
 
-  let queueIndex = 0
-
-  while (queueIndex < queryQueue.length && queryQueue.length <= MAX_ROUNDS + 2) {
-    // Safety cap: never execute more than MAX_ROUNDS total scraper calls
+    // Hard cap: never exceed MAX_ROUNDS scraper calls
     if (roundsRun >= MAX_ROUNDS) {
       stopReason = 'max rounds reached'
       break
     }
 
-    // Stop: target reached
+    // Target reached
     if (collected.length >= target) {
       stopReason = 'target reached'
       break
     }
 
+    // All remaining queries are low-yield → stop
+    const remaining = queryQueue.slice(queueIndex)
+    if (remaining.length > 0 && remaining.every((q) => memory.lowYieldQueries.has(q.trim().toLowerCase()))) {
+      stopReason = 'all queries exhausted (low yield)'
+      break
+    }
+
     const rawQuery = queryQueue[queueIndex]!
     queueIndex++
+    const normQuery = rawQuery.trim().toLowerCase()
 
-    const normalisedQuery = rawQuery.trim().toLowerCase()
-
-    if (executedQueries.has(normalisedQuery)) {
+    // Skip queries already executed or known low-yield
+    if (memory.usedQueries.has(normQuery)) {
       console.log(`[QUERY] skipped (duplicate): "${rawQuery}"`)
+      continue
+    }
+    if (memory.lowYieldQueries.has(normQuery)) {
+      console.log(`[QUERY] skipped (low yield): "${rawQuery}"`)
       continue
     }
 
     console.log(`[QUERY] executing: "${rawQuery}"`)
-    executedQueries.add(normalisedQuery)
+    memory.usedQueries.add(normQuery)
 
+    // ── Scraper call ─────────────────────────────────────────────────────
     let totalFound = 0
-    let emailLeads: DiscoveryLead[] = []
+    let rawLeads: DiscoveryLead[] = []
 
     try {
       const result = await runSharedProspectorDiscovery(
@@ -325,10 +456,7 @@ export async function runMission(params: {
       )
 
       totalFound = result.discoveredCount
-      // Sanitise and keep only valid-email leads
-      emailLeads = result.finalEnrichedLeads
-        .map(sanitiseLead)
-        .filter((l) => isValidEmail(l.email))
+      rawLeads = result.finalEnrichedLeads.map(sanitiseLead)
     } catch (err) {
       console.error(`[ROUND ${roundsRun + 1}] scraper error:`, err)
       stopReason = 'scraper error'
@@ -336,9 +464,53 @@ export async function runMission(params: {
     }
 
     roundsRun++
-    queryPerformanceMap.set(rawQuery, emailLeads.length)
 
-    // Dedup against seen Set
+    // ── Domain dedup (before any email check) ─────────────────────────────
+    const domainDedupedLeads = rawLeads.filter((lead) => {
+      const domain = normalizeDomain(lead.website)
+      if (!domain) return true   // no website — keep, fall back to key-based dedup
+      if (memory.seenDomains.has(domain)) return false
+      memory.seenDomains.add(domain)
+      return true
+    })
+
+    // ── Email yield improvement ───────────────────────────────────────────
+    // Separate leads that already have a valid email from those that don't
+    const hasEmail = domainDedupedLeads.filter((l) => isValidEmail(l.email))
+    const noEmail = domainDedupedLeads.filter((l) => !isValidEmail(l.email) && l.website)
+
+    // Try to recover emails for no-email leads (capped, non-blocking)
+    const recovered = await recoverEmails(noEmail, memory)
+    // Add recovered domains to seenDomains
+    for (const r of recovered) {
+      const domain = normalizeDomain(r.website)
+      if (domain) memory.seenDomains.add(domain)
+    }
+
+    const emailLeads = [...hasEmail, ...recovered]
+
+    // ── Query performance tracking ─────────────────────────────────────────
+    const stats: QueryStats = {
+      leadsFound: totalFound,
+      emailLeads: emailLeads.length,
+      acceptedLeads: 0,   // filled below
+    }
+
+    if (emailLeads.length < LOW_YIELD_THRESHOLD) {
+      memory.lowYieldQueries.add(normQuery)
+      console.log(`[QUERY] low yield (${emailLeads.length} email leads) → retiring "${rawQuery}"`)
+
+      // Inject refined variants (max 2) into the queue
+      if (roundsRun < MAX_ROUNDS && queryQueue.length < MAX_QUEUE_SIZE) {
+        const refined = generateRefinedQueries(rawQuery, locationLabel, memory, 2)
+        if (refined.length > 0) {
+          console.log(`[QUERY] injecting ${refined.length} refined variant(s):`, refined)
+          queryQueue.splice(queueIndex, 0, ...refined)
+        }
+      }
+    }
+
+    // ── Key-based dedup against DB seen set ───────────────────────────────
     const accepted: DiscoveryLead[] = []
     for (const lead of emailLeads) {
       const key = getKey(lead)
@@ -347,29 +519,23 @@ export async function runMission(params: {
       accepted.push(lead)
     }
 
+    stats.acceptedLeads = accepted.length
+    memory.queryStats.set(rawQuery, stats)
+
     console.log(
       `[ROUND ${roundsRun}]\n` +
       `  leads found:  ${totalFound}\n` +
-      `  email leads:  ${emailLeads.length}\n` +
+      `  email leads:  ${emailLeads.length} (${recovered.length} recovered)\n` +
       `  accepted:     ${accepted.length} / ${target}`
     )
 
-    // Stop: no email leads from scraper
+    // ── Stop: no email leads at all from scraper ──────────────────────────
     if (emailLeads.length === 0) {
       stopReason = 'no email leads'
       break
     }
 
-    // Low yield — inject a refined query before the next round
-    if (emailLeads.length < LOW_YIELD_THRESHOLD && roundsRun < MAX_ROUNDS) {
-      const refined = refineQuery(rawQuery)
-      if (refined && !executedQueries.has(refined.toLowerCase())) {
-        console.log(`[QUERY] low yield (${emailLeads.length}) — injecting refined: "${refined}"`)
-        queryQueue.splice(queueIndex, 0, refined)
-      }
-    }
-
-    // Stop: all email leads were already seen (pool exhausted for this query)
+    // ── Stop: consecutive empty rounds ────────────────────────────────────
     if (accepted.length === 0) {
       consecutiveEmptyRounds++
       if (consecutiveEmptyRounds >= 2) {
@@ -381,7 +547,9 @@ export async function runMission(params: {
     }
 
     consecutiveEmptyRounds = 0
+    totalAcceptedAllRounds += accepted.length
 
+    // ── Persist accepted leads ────────────────────────────────────────────
     const budget = target + 2 - collected.length
     const toInsert = accepted.slice(0, Math.max(0, budget))
 
@@ -401,14 +569,29 @@ export async function runMission(params: {
     }
   }
 
+  // ── Hard stop: exhausted pool (never found any leads in this run) ─────────
+  if (totalAcceptedAllRounds === 0 && roundsRun >= 2) {
+    stopReason = 'exhausted'
+    console.log('[STOP] pool exhausted — marking mission as exhausted')
+    await supabase
+      .from('agent_missions')
+      .update({ status: 'exhausted' })
+      .eq('id', mission.id)
+      .eq('user_id', userId)
+  }
+
   console.log(`[STOP] reason: ${stopReason}`)
   console.log('[runMission] done', { collected: collected.length, rounds: roundsRun, target })
+
+  // Record cooldown timestamp
+  runCooldowns.set(mission.id, Date.now())
 
   return {
     collected: collected.length,
     rounds: roundsRun,
     newLeads: collected,
-    query: queries[0] ?? '',
+    query: baseQueries[0] ?? '',
     location: locationLabel,
+    stopReason,
   }
 }

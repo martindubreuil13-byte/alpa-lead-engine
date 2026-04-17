@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Plus, X } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Loader2, Plus, Target, X, Zap } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
 
@@ -19,17 +19,17 @@ type ExpandedResult = {
   search_patterns: string[]
 }
 
-type Step = 'input' | 'thinking' | 'confirm' | 'activating'
+type Step = 'input' | 'thinking' | 'icp' | 'activating'
 
-const THINKING_MESSAGES = [
+const THINKING_LINES = [
   'Understanding your offer...',
   'Expanding your audience...',
-  'Mapping search patterns...',
-  'Identifying target segments...',
+  'Mapping search signals...',
+  'Identifying best-fit segments...',
   'Building your strategy...',
 ]
 
-const DAILY_TARGET_PRESETS = [10, 25, 50]
+const TARGET_OPTIONS = [10, 25, 50]
 
 export default function AgentSetupPage() {
   const router = useRouter()
@@ -38,46 +38,45 @@ export default function AgentSetupPage() {
   const [offer, setOffer] = useState('')
   const [audience, setAudience] = useState('')
   const [location, setLocation] = useState('')
-  const [dailyTarget, setDailyTarget] = useState(10)
+  const [dailyTarget, setDailyTarget] = useState(25)
   const [customTarget, setCustomTarget] = useState('')
   const [cta, setCta] = useState('')
-  const [sendWindow, setSendWindow] = useState('')
   const [senderSignature, setSenderSignature] = useState('')
   const [thinkingIndex, setThinkingIndex] = useState(0)
   const [expanded, setExpanded] = useState<ExpandedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showAllIcp, setShowAllIcp] = useState(false)
-  // ICP editable state
+
+  // ICP editing
   const [allSegments, setAllSegments] = useState<string[]>([])
   const [selectedSegments, setSelectedSegments] = useState<string[]>([])
   const [customTagInput, setCustomTagInput] = useState('')
+  const [showAllSegments, setShowAllSegments] = useState(false)
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isCustomTarget = !TARGET_OPTIONS.includes(dailyTarget)
 
-  const isCustomTarget = !DAILY_TARGET_PRESETS.includes(dailyTarget)
-
+  // Thinking ticker
   useEffect(() => {
     if (step === 'thinking') {
+      setThinkingIndex(0)
       intervalRef.current = setInterval(() => {
-        setThinkingIndex((i) => (i + 1) % THINKING_MESSAGES.length)
-      }, 2100)
+        setThinkingIndex((i) => (i + 1) % THINKING_LINES.length)
+      }, 1800)
     } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
+      if (intervalRef.current) clearInterval(intervalRef.current)
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [step])
 
-  // Initialise editable ICP segments when AI result arrives
+  // Seed ICP segments when result arrives
   useEffect(() => {
     if (expanded) {
       setAllSegments(expanded.icp_expanded)
-      setSelectedSegments(expanded.icp_expanded) // all selected by default
-      setShowAllIcp(false)
+      setSelectedSegments(expanded.icp_expanded)
       setCustomTagInput('')
+      setShowAllSegments(false)
     }
   }, [expanded])
 
@@ -100,7 +99,7 @@ export default function AgentSetupPage() {
     setCustomTagInput('')
   }
 
-  function handleCustomTargetChange(val: string) {
+  function handleCustomTarget(val: string) {
     setCustomTarget(val)
     const n = parseInt(val, 10)
     if (!isNaN(n) && n > 0) setDailyTarget(n)
@@ -125,7 +124,6 @@ export default function AgentSetupPage() {
       })
 
       const data = await res.json()
-
       if (!res.ok || !data.result) {
         setError('Something went wrong. Please try again.')
         setStep('input')
@@ -133,15 +131,15 @@ export default function AgentSetupPage() {
       }
 
       setExpanded(data.result as ExpandedResult)
-      setStep('confirm')
+      setStep('icp')
     } catch {
       setError('Connection error. Please try again.')
       setStep('input')
     }
   }
 
-  async function handleConfirm() {
-    if (!expanded) return
+  async function handleActivate() {
+    if (!expanded || selectedSegments.length === 0) return
     setStep('activating')
 
     try {
@@ -153,105 +151,122 @@ export default function AgentSetupPage() {
           audience_input: audience,
           location_input: location,
           offer_context: expanded.offer_context,
-          icp_expanded: selectedSegments,  // only user-selected segments
+          icp_expanded: selectedSegments,
           search_patterns: expanded.search_patterns,
           daily_target: dailyTarget,
           cta: cta.trim(),
-          send_window: sendWindow.trim() || null,
           sender_signature: senderSignature.trim() || null,
         }),
       })
 
       const data = await res.json()
-
       if (!res.ok || !data.missionId) {
-        setError("We couldn't create your mission. Please try again.")
-        setStep('confirm')
+        setError("Couldn't create your mission. Please try again.")
+        setStep('icp')
         return
       }
 
-      await new Promise((r) => setTimeout(r, 900))
+      await new Promise((r) => setTimeout(r, 800))
       router.push(`/agent/dashboard/${data.missionId}`)
     } catch {
-      setError("We couldn't create your mission. Please try again.")
-      setStep('confirm')
+      setError("Couldn't create your mission. Please try again.")
+      setStep('icp')
     }
   }
 
   const canSubmit = offer.trim() && audience.trim() && location.trim() && cta.trim() && dailyTarget > 0
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <DashboardShell adminEmail={null}>
-      <div className="flex min-h-[76vh] flex-col items-center justify-center px-4 py-12">
-        <div className="w-full max-w-xl">
-          {/* Step heading */}
-          <div className="mb-10 text-center">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-              {step === 'activating' ? 'Activating' : 'Agent Setup'}
+      <div className="relative flex min-h-[84vh] flex-col items-center justify-center px-4 py-10">
+
+        {/* Ambient glow */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute left-1/2 top-0 h-[500px] w-[700px] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse,rgba(59,130,246,0.09),transparent_65%)] blur-[100px]" />
+        </div>
+
+        <div className="relative w-full max-w-lg">
+
+          {/* ── Step label ── */}
+          <div className="mb-8 text-center">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-400/20 bg-blue-500/[0.07] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-blue-300">
+              <span className={`h-1.5 w-1.5 rounded-full ${step === 'activating' ? 'animate-ping bg-emerald-400' : 'animate-pulse bg-blue-400'}`} />
+              {step === 'input' && 'Mission Setup'}
+              {step === 'thinking' && 'Building Strategy'}
+              {step === 'icp' && 'Define Targets'}
+              {step === 'activating' && 'Activating'}
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-white">
-              {step === 'input' && "Let's build your lead engine."}
-              {step === 'thinking' && 'Thinking...'}
-              {step === 'confirm' && 'Does this look right?'}
+              {step === 'input' && 'Define your mission.'}
+              {step === 'thinking' && 'One moment...'}
+              {step === 'icp' && 'Who should I target?'}
               {step === 'activating' && "I'm on it."}
             </h1>
+            {step === 'input' && (
+              <p className="mt-2 text-sm text-slate-500">
+                Tell me what you sell and who needs it. I'll handle the strategy.
+              </p>
+            )}
           </div>
 
-          {/* ── Step 1: Input ── */}
+          {/* ── STEP 1: Input form ── */}
           {step === 'input' && (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="glass rounded-2xl p-6 space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="glass overflow-hidden rounded-2xl">
                 {/* Offer */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    What are you offering?
-                  </div>
+                <div className="border-b border-white/[0.06] p-5">
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    What do you sell?
+                  </label>
                   <textarea
                     value={offer}
                     onChange={(e) => setOffer(e.target.value)}
-                    placeholder="I help agencies get more clients through automated lead generation"
+                    placeholder="e.g. Automated lead generation for marketing agencies"
                     rows={2}
-                    className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    className="w-full resize-none bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
                     autoFocus
                   />
                 </div>
 
                 {/* Audience */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Who is it for?
-                  </div>
+                <div className="border-b border-white/[0.06] p-5">
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Who buys it?
+                  </label>
                   <textarea
                     value={audience}
                     onChange={(e) => setAudience(e.target.value)}
-                    placeholder="Marketing agencies, digital consultants, growth studios"
+                    placeholder="e.g. Marketing agencies, SEO consultants, growth studios"
                     rows={2}
-                    className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    className="w-full resize-none bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
                   />
                 </div>
 
                 {/* Location */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Where are your clients?
-                  </div>
+                <div className="p-5">
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Where are they?
+                  </label>
                   <input
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="US, UK"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    placeholder="e.g. United States, Toronto, UK"
+                    className="w-full bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
                   />
                 </div>
+              </div>
 
-                {/* Daily Target */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Daily lead target
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {DAILY_TARGET_PRESETS.map((n) => (
+              <div className="glass overflow-hidden rounded-2xl">
+                {/* Daily target */}
+                <div className="border-b border-white/[0.06] p-5">
+                  <label className="mb-3 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Leads per day
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {TARGET_OPTIONS.map((n) => (
                       <button
                         key={n}
                         type="button"
@@ -259,7 +274,7 @@ export default function AgentSetupPage() {
                         className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
                           dailyTarget === n && !isCustomTarget
                             ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
-                            : 'border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:text-white'
+                            : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:border-white/20 hover:text-slate-200'
                         }`}
                       >
                         {n}
@@ -268,70 +283,53 @@ export default function AgentSetupPage() {
                     <input
                       type="number"
                       value={customTarget}
-                      onChange={(e) => handleCustomTargetChange(e.target.value)}
+                      onChange={(e) => handleCustomTarget(e.target.value)}
                       placeholder="Custom"
                       min={1}
                       max={10000}
-                      className={`w-24 rounded-xl border px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none transition bg-white/[0.04] focus:ring-1 focus:ring-blue-400/20 ${
+                      className={`w-24 rounded-xl border bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none transition ${
                         isCustomTarget
-                          ? 'border-blue-400/40 bg-blue-500/15'
-                          : 'border-white/10 hover:border-white/20'
+                          ? 'border-blue-400/40 bg-blue-500/10'
+                          : 'border-white/[0.08] hover:border-white/20'
                       }`}
                     />
                   </div>
                 </div>
 
                 {/* CTA */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    What's your CTA?
-                  </div>
+                <div className="border-b border-white/[0.06] p-5">
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Call to action
+                  </label>
                   <input
                     type="text"
                     value={cta}
                     onChange={(e) => setCta(e.target.value)}
-                    placeholder="Book a 15-min strategy call"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    placeholder="e.g. Book a 15-min call — calendly.com/yourlink"
+                    className="w-full bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
                   />
                 </div>
 
-                {/* Send Window (optional) */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Send window
-                    </div>
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-slate-600">optional</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={sendWindow}
-                    onChange={(e) => setSendWindow(e.target.value)}
-                    placeholder="Mon–Fri, 9am–5pm EST"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
-                  />
-                </div>
-
-                {/* Email Signature (optional) */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                {/* Signature (optional) */}
+                <div className="p-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <label className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
                       Email signature
-                    </div>
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-slate-600">optional</span>
+                    </label>
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-slate-700">optional</span>
                   </div>
                   <input
                     type="text"
                     value={senderSignature}
                     onChange={(e) => setSenderSignature(e.target.value)}
-                    placeholder="e.g. Martin — ALPA Team"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 focus:ring-1 focus:ring-blue-400/20 transition"
+                    placeholder="e.g. Martin — ALPA"
+                    className="w-full bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
                   />
                 </div>
               </div>
 
               {error && (
-                <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                <div className="rounded-xl border border-red-400/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
@@ -339,115 +337,164 @@ export default function AgentSetupPage() {
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="w-full rounded-xl border border-blue-400/25 bg-blue-500/12 px-5 py-3.5 text-sm font-semibold text-blue-100 shadow-[0_0_28px_rgba(59,130,246,0.18)] transition hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex w-full items-center justify-center gap-3 rounded-2xl border border-blue-400/25 bg-blue-500/10 px-6 py-4 text-[15px] font-semibold text-blue-100 shadow-[0_0_40px_rgba(59,130,246,0.15)] transition hover:bg-blue-500/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Build my lead engine
+                Build my strategy
+                <ChevronRight className="h-4 w-4" />
               </button>
             </form>
           )}
 
-          {/* ── Step 2: Thinking ── */}
+          {/* ── STEP 2: Thinking ── */}
           {step === 'thinking' && (
-            <div className="glass rounded-2xl p-8 space-y-8">
-              <div className="flex items-center gap-3">
-                <span className="flex h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.9)]" />
-                <span
-                  key={thinkingIndex}
-                  className="text-base text-slate-300 transition-opacity duration-300"
-                >
-                  {THINKING_MESSAGES[thinkingIndex]}
-                </span>
+            <div className="space-y-4">
+              <div className="glass overflow-hidden rounded-2xl p-8">
+                {/* Animated orb */}
+                <div className="mb-8 flex justify-center">
+                  <div className="relative flex h-16 w-16 items-center justify-center">
+                    <div className="absolute inset-0 animate-ping rounded-full bg-blue-500/20" />
+                    <div className="absolute inset-2 animate-pulse rounded-full bg-blue-500/30" />
+                    <Zap className="relative h-6 w-6 text-blue-300" strokeWidth={1.5} />
+                  </div>
+                </div>
+
+                {/* Current task */}
+                <div className="text-center">
+                  <p
+                    key={thinkingIndex}
+                    className="text-base font-medium text-slate-300 transition-opacity duration-500"
+                  >
+                    {THINKING_LINES[thinkingIndex]}
+                  </p>
+                </div>
+
+                {/* Dots */}
+                <div className="mt-6 flex justify-center gap-1.5">
+                  {THINKING_LINES.map((_, i) => (
+                    <span
+                      key={i}
+                      className={`h-1.5 w-1.5 rounded-full transition-colors duration-500 ${
+                        i === thinkingIndex ? 'bg-blue-400' : 'bg-white/[0.08]'
+                      }`}
+                    />
+                  ))}
+                </div>
               </div>
 
-              <div className="border-t border-white/8 pt-5 space-y-2 text-sm text-slate-500">
-                <div><span className="text-slate-600">Offer:</span> {offer}</div>
-                <div><span className="text-slate-600">For:</span> {audience}</div>
-                <div><span className="text-slate-600">Where:</span> {location}</div>
-                <div><span className="text-slate-600">Target:</span> {dailyTarget} leads/day</div>
+              {/* Summary recap */}
+              <div className="glass rounded-2xl px-5 py-4 space-y-2.5">
+                {[
+                  { label: 'Offer', value: offer },
+                  { label: 'For', value: audience },
+                  { label: 'Where', value: location },
+                  { label: 'Target', value: `${dailyTarget} leads/day` },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-start gap-3 text-sm">
+                    <span className="w-12 shrink-0 text-slate-600">{label}</span>
+                    <span className="text-slate-400">{value}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* ── Step 3: Confirm ── */}
-          {step === 'confirm' && expanded && (
-            <div className="space-y-4">
-              <div className="glass rounded-2xl p-6 space-y-5">
-                <div className="space-y-3 text-sm leading-relaxed">
-                  <div>
-                    <span className="text-slate-500">You help:</span>{' '}
-                    <span className="text-white">{expanded.offer_context.who_you_help}</span>
+          {/* ── STEP 3: ICP Review ── */}
+          {step === 'icp' && expanded && (
+            <div className="space-y-3">
+              {/* Strategy summary card */}
+              <div className="glass overflow-hidden rounded-2xl">
+                <div className="border-b border-white/[0.06] px-5 py-4">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Strategy
+                  </p>
+                </div>
+                <div className="space-y-3 p-5">
+                  <div className="flex gap-3 text-sm">
+                    <span className="w-24 shrink-0 text-slate-600">Your offer</span>
+                    <span className="text-slate-300">{expanded.offer_context.what_you_do}</span>
                   </div>
-                  <div>
-                    <span className="text-slate-500">Offer:</span>{' '}
-                    <span className="text-white">{expanded.offer_context.what_you_do}</span>
+                  <div className="flex gap-3 text-sm">
+                    <span className="w-24 shrink-0 text-slate-600">Outcome</span>
+                    <span className="text-slate-300">{expanded.offer_context.main_benefit}</span>
                   </div>
-                  <div>
-                    <span className="text-slate-500">Target:</span>{' '}
-                    <span className="text-white">{location}</span>
+                  <div className="flex gap-3 text-sm">
+                    <span className="w-24 shrink-0 text-slate-600">Target</span>
+                    <span className="text-slate-300">{location} · {dailyTarget} leads/day</span>
                   </div>
-                  <div>
-                    <span className="text-slate-500">Daily target:</span>{' '}
-                    <span className="text-white">{dailyTarget} leads/day</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">CTA:</span>{' '}
-                    <span className="text-white">{cta}</span>
+                </div>
+                {/* Angle highlight */}
+                <div className="border-t border-blue-400/[0.12] bg-blue-500/[0.05] px-5 py-4">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-blue-500/60">
+                    Positioning Angle
+                  </p>
+                  <p className="mt-1.5 text-sm italic text-blue-200/80">
+                    "{expanded.offer_context.angle}"
+                  </p>
+                </div>
+              </div>
+
+              {/* Segments */}
+              <div className="glass overflow-hidden rounded-2xl">
+                <div className="border-b border-white/[0.06] px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                        Target Segments
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        Toggle, remove, or add your own
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-slate-600">
+                      {selectedSegments.length} active
+                    </span>
                   </div>
                 </div>
 
-                <div className="border-t border-white/8 pt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      Targeting segments
-                    </div>
-                    <div className="text-[10px] text-slate-600">
-                      {selectedSegments.length} of {allSegments.length} active
-                    </div>
-                  </div>
-
-                  {/* Editable tags */}
+                <div className="p-5 space-y-4">
+                  {/* Tag cloud */}
                   <div className="flex flex-wrap gap-2">
-                    {(showAllIcp ? allSegments : allSegments.slice(0, 6)).map((s) => {
-                      const active = selectedSegments.includes(s)
+                    {(showAllSegments ? allSegments : allSegments.slice(0, 8)).map((seg) => {
+                      const active = selectedSegments.includes(seg)
                       return (
                         <div
-                          key={s}
-                          className={`inline-flex items-center gap-1 rounded-lg border text-sm transition ${
+                          key={seg}
+                          className={`inline-flex items-center gap-0.5 overflow-hidden rounded-xl border text-sm transition-all ${
                             active
-                              ? 'border-blue-400/30 bg-blue-500/12 text-blue-200'
-                              : 'border-white/8 bg-white/[0.02] text-slate-500'
+                              ? 'border-blue-400/30 bg-blue-500/10 text-blue-200'
+                              : 'border-white/[0.08] bg-white/[0.02] text-slate-500'
                           }`}
                         >
                           <button
                             type="button"
-                            onClick={() => toggleSegment(s)}
-                            className="px-2.5 py-1 text-left leading-none"
+                            onClick={() => toggleSegment(seg)}
+                            className="px-3 py-1.5 text-left leading-none"
                           >
-                            {s}
+                            {seg}
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeSegment(s)}
-                            className="pr-1.5 opacity-30 hover:opacity-80 transition"
-                            aria-label={`Remove ${s}`}
+                            onClick={() => removeSegment(seg)}
+                            className="px-2 py-1.5 opacity-30 hover:opacity-70 transition"
+                            aria-label={`Remove ${seg}`}
                           >
                             <X className="h-3 w-3" />
                           </button>
                         </div>
                       )
                     })}
-                    {allSegments.length > 6 && (
+                    {allSegments.length > 8 && (
                       <button
                         type="button"
-                        onClick={() => setShowAllIcp(!showAllIcp)}
-                        className="rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-1 text-sm text-slate-500 transition hover:text-slate-300"
+                        onClick={() => setShowAllSegments(!showAllSegments)}
+                        className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-sm text-slate-600 transition hover:text-slate-400"
                       >
-                        {showAllIcp ? 'Show less' : `+${allSegments.length - 6} more`}
+                        {showAllSegments ? 'Less' : `+${allSegments.length - 8} more`}
                       </button>
                     )}
                   </div>
 
-                  {/* Add custom segment */}
+                  {/* Add custom */}
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -457,49 +504,50 @@ export default function AgentSetupPage() {
                         if (e.key === 'Enter') { e.preventDefault(); addCustomSegment() }
                       }}
                       placeholder="Add a segment..."
-                      className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 transition"
+                      className="flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-slate-700 outline-none focus:border-blue-400/30 transition"
                     />
                     <button
                       type="button"
                       onClick={addCustomSegment}
                       disabled={!customTagInput.trim()}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-300 transition hover:border-blue-400/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                      className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-slate-400 transition hover:border-blue-400/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add
                     </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="border-t border-white/8 pt-4 space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Angle
-                  </div>
-                  <div className="rounded-xl border border-blue-400/15 bg-blue-500/[0.07] px-4 py-3 text-sm italic text-blue-200">
-                    "{expanded.offer_context.angle}"
-                  </div>
-                </div>
+              {/* Mission config reminder */}
+              <div className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                <Target className="h-4 w-4 shrink-0 text-slate-600" />
+                <p className="text-xs text-slate-500">
+                  {dailyTarget} leads/day · CTA: {cta.length > 40 ? cta.slice(0, 40) + '...' : cta}
+                </p>
               </div>
 
               {error && (
-                <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                <div className="rounded-xl border border-red-400/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
 
+              {/* Actions */}
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={handleConfirm}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-5 py-3.5 text-sm font-semibold text-emerald-200 shadow-[0_0_24px_rgba(16,185,129,0.14)] transition hover:bg-emerald-500/18 hover:text-white"
+                  onClick={() => void handleActivate()}
+                  disabled={selectedSegments.length === 0}
+                  className="flex flex-1 items-center justify-center gap-2.5 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-6 py-4 text-[15px] font-semibold text-emerald-200 shadow-[0_0_40px_rgba(16,185,129,0.12)] transition hover:bg-emerald-500/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  Looks good — activate
+                  Activate Mission
                 </button>
                 <button
                   type="button"
                   onClick={() => { setStep('input'); setExpanded(null) }}
-                  className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3.5 text-sm font-medium text-slate-300 transition hover:bg-white/8 hover:text-white"
+                  className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-[15px] font-medium text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
                 >
                   Edit
                 </button>
@@ -507,15 +555,21 @@ export default function AgentSetupPage() {
             </div>
           )}
 
-          {/* ── Step 4: Activating ── */}
+          {/* ── STEP 4: Activating ── */}
           {step === 'activating' && (
-            <div className="glass rounded-2xl p-10 text-center space-y-4">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/10">
-                <span className="h-3 w-3 animate-ping rounded-full bg-emerald-400" />
+            <div className="glass rounded-2xl p-12 text-center">
+              <div className="mb-6 flex justify-center">
+                <div className="relative flex h-16 w-16 items-center justify-center">
+                  <div className="absolute inset-0 animate-ping rounded-full bg-emerald-500/20" />
+                  <div className="absolute inset-2 rounded-full bg-emerald-500/20" />
+                  <Loader2 className="relative h-6 w-6 animate-spin text-emerald-300" />
+                </div>
               </div>
-              <p className="text-slate-400 text-sm">Activating your mission...</p>
+              <p className="text-base font-medium text-slate-300">Activating your mission...</p>
+              <p className="mt-1.5 text-sm text-slate-600">Agent will start searching in moments.</p>
             </div>
           )}
+
         </div>
       </div>
     </DashboardShell>

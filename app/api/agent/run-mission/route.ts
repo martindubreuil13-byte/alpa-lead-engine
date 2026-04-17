@@ -17,7 +17,7 @@
 
 import { NextResponse, after } from 'next/server'
 
-import { enrichLeadContext } from '@/lib/agent/enrich-context'
+import { enrichLeadContext, type LeadContext } from '@/lib/agent/enrich-context'
 import { generateOutreachDraft } from '@/lib/agent/generate-outreach-draft'
 import { buildLeadKey } from '@/lib/agent/lead-key'
 import { runMission } from '@/lib/agent/run-mission'
@@ -27,6 +27,13 @@ import { createServerClient } from '@/lib/supabase/server'
 import type { TrialLead } from '@/lib/trial'
 
 export const runtime = 'nodejs'
+
+// ─── Route-level run lock ─────────────────────────────────────────────────────
+// Prevents duplicate concurrent pipeline starts for the same mission.
+// Process-scoped (works within a single Node.js instance / warm serverless pod).
+// The 5-minute cooldown inside runMission() is a second independent layer.
+const runLocks = new Map<string, number>()
+const RUN_LOCK_MS = 60_000 // 60 seconds
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,11 +75,12 @@ async function runEmailPipeline(params: {
   senderSignature: string | null
   painSolved: string | null
   valueOutcome: string | null
+  enrichmentCache: Map<string, LeadContext>
 }) {
   const {
     supabase, userId, missionId, leads, offerContext, offerInput,
     audienceInput, locationInput, icpAngles, missionCta, senderSignature,
-    painSolved, valueOutcome,
+    painSolved, valueOutcome, enrichmentCache,
   } = params
 
   if (!leads.length) return
@@ -115,10 +123,12 @@ async function runEmailPipeline(params: {
     existingKeys.add(dedupKey)
 
     try {
-      const context = await enrichLeadContext({
-        company_name: lead.company_name,
-        website: lead.website,
-      })
+      const cacheKey = (lead.website || lead.company_name || '').toLowerCase()
+      let context = cacheKey ? enrichmentCache.get(cacheKey) : undefined
+      if (!context) {
+        context = await enrichLeadContext({ company_name: lead.company_name, website: lead.website })
+        if (cacheKey) enrichmentCache.set(cacheKey, context)
+      }
 
       const draft = await generateOutreachDraft({
         company_name: lead.company_name || context.company_name || 'your company',
@@ -194,10 +204,12 @@ async function generateMissingDrafts(params: {
   painSolved: string | null
   valueOutcome: string | null
   cap?: number
+  enrichmentCache: Map<string, LeadContext>
 }) {
   const {
     supabase, userId, missionId, offerContext, offerInput, audienceInput,
     locationInput, icpAngles, missionCta, senderSignature, painSolved, valueOutcome, cap = 10,
+    enrichmentCache,
   } = params
 
   const { data: allLeads } = await supabase
@@ -243,10 +255,12 @@ async function generateMissingDrafts(params: {
     existingKeys.add(dedupKey)
 
     try {
-      const context = await enrichLeadContext({
-        company_name: lead.business_name,
-        website: lead.website,
-      })
+      const cacheKey = (lead.website || lead.business_name || '').toLowerCase()
+      let context = cacheKey ? enrichmentCache.get(cacheKey) : undefined
+      if (!context) {
+        context = await enrichLeadContext({ company_name: lead.business_name, website: lead.website })
+        if (cacheKey) enrichmentCache.set(cacheKey, context)
+      }
 
       const draft = await generateOutreachDraft({
         company_name: lead.business_name || context.company_name || 'your company',
@@ -446,6 +460,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_HAS_NO_SEARCH_CONFIG' }, { status: 400 })
     }
 
+    // ── Route-level lock: reject if a run for this mission started within 60s ──
+    const now60 = Date.now()
+    const lastLock = runLocks.get(missionId)
+    if (lastLock && now60 - lastLock < RUN_LOCK_MS) {
+      console.log('[run-mission] duplicate request blocked by run lock', { missionId, age: now60 - lastLock })
+      return NextResponse.json({ success: true, status: 'already_running' })
+    }
+    runLocks.set(missionId, now60)
+
     // ── Return immediately — all scraping + generation runs in after() ──
     after(async () => {
       try {
@@ -470,6 +493,9 @@ export async function POST(req: Request) {
         const painSolved = offerContext?.angle ?? null
         const valueOutcome = offerContext?.main_benefit ?? null
 
+        // Shared enrichment cache for this entire pipeline run — domain → context
+        const enrichmentCache = new Map<string, LeadContext>()
+
         // ── 1. Run scraper rounds + persistence ──
         const result = await runMission({
           supabase,
@@ -482,6 +508,7 @@ export async function POST(req: Request) {
           rounds: result.rounds,
           query: result.query,
           location: result.location,
+          stopReason: result.stopReason,
           elapsed: Date.now() - startTime,
         })
 
@@ -507,6 +534,7 @@ export async function POST(req: Request) {
           senderSignature,
           painSolved,
           valueOutcome,
+          enrichmentCache,
         })
 
         // ── 4. Backfill: generate drafts for any leads still missing one ──
@@ -524,16 +552,19 @@ export async function POST(req: Request) {
           painSolved,
           valueOutcome,
           cap: 10,
+          enrichmentCache,
         })
 
-        // ── 5. Check completion and schedule next run if done ──
-        await checkMissionCompletion({
-          supabase,
-          missionId: mission.id,
-          userId: user.id,
-          dailyTarget,
-          newLeadsThisRun: result.collected,
-        })
+        // ── 5. Check completion — skip if mission exhausted its search pool ──
+        if (result.stopReason !== 'exhausted') {
+          await checkMissionCompletion({
+            supabase,
+            missionId: mission.id,
+            userId: user.id,
+            dailyTarget,
+            newLeadsThisRun: result.collected,
+          })
+        }
 
         console.log('[run-mission] after() pipeline complete', {
           missionId: mission.id,
@@ -541,6 +572,9 @@ export async function POST(req: Request) {
         })
       } catch (err) {
         console.error('[run-mission] after() pipeline error (non-fatal):', err)
+      } finally {
+        // Release the run lock so a subsequent manual trigger can proceed
+        runLocks.delete(missionId)
       }
     })
 
