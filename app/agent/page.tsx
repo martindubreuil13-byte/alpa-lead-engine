@@ -99,11 +99,12 @@ export default function AgentEntryPage() {
       .from('agent_missions')
       .select('id, name, status, daily_target, audience_input, location_input, location, created_at')
       .eq('user_id', userId)
+      .not('status', 'in', '("draft","deleted")')
       .order('created_at', { ascending: false })
 
-    // Filter out drafts and invalid entries
+    // Filter out drafts and deleted entries (belt-and-suspenders)
     const valid = (rawMissions ?? []).filter(
-      (m) => m.id && m.status && m.status !== 'draft'
+      (m) => m.id && m.status && m.status !== 'draft' && m.status !== 'deleted'
     )
 
     if (valid.length === 0) {
@@ -188,9 +189,9 @@ export default function AgentEntryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: mission.id }),
       })
-      // Optimistic removal + refetch to sync any server state
+      // Optimistic removal — do not refetch immediately, delete is mark-then-hard-delete
+      // and a race-condition refetch can bring the 'deleted' record back transiently
       setSummaries((prev) => prev.filter((m) => m.id !== mission.id))
-      if (res.ok) void fetchMissions()
     } finally {
       setActioning(null)
     }

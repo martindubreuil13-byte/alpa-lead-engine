@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Plus, X } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
 
@@ -47,6 +47,10 @@ export default function AgentSetupPage() {
   const [expanded, setExpanded] = useState<ExpandedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAllIcp, setShowAllIcp] = useState(false)
+  // ICP editable state
+  const [allSegments, setAllSegments] = useState<string[]>([])
+  const [selectedSegments, setSelectedSegments] = useState<string[]>([])
+  const [customTagInput, setCustomTagInput] = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const isCustomTarget = !DAILY_TARGET_PRESETS.includes(dailyTarget)
@@ -66,6 +70,35 @@ export default function AgentSetupPage() {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [step])
+
+  // Initialise editable ICP segments when AI result arrives
+  useEffect(() => {
+    if (expanded) {
+      setAllSegments(expanded.icp_expanded)
+      setSelectedSegments(expanded.icp_expanded) // all selected by default
+      setShowAllIcp(false)
+      setCustomTagInput('')
+    }
+  }, [expanded])
+
+  function toggleSegment(seg: string) {
+    setSelectedSegments((prev) =>
+      prev.includes(seg) ? prev.filter((s) => s !== seg) : [...prev, seg]
+    )
+  }
+
+  function removeSegment(seg: string) {
+    setAllSegments((prev) => prev.filter((s) => s !== seg))
+    setSelectedSegments((prev) => prev.filter((s) => s !== seg))
+  }
+
+  function addCustomSegment() {
+    const tag = customTagInput.trim()
+    if (!tag || allSegments.includes(tag)) return
+    setAllSegments((prev) => [...prev, tag])
+    setSelectedSegments((prev) => [...prev, tag])
+    setCustomTagInput('')
+  }
 
   function handleCustomTargetChange(val: string) {
     setCustomTarget(val)
@@ -120,7 +153,7 @@ export default function AgentSetupPage() {
           audience_input: audience,
           location_input: location,
           offer_context: expanded.offer_context,
-          icp_expanded: expanded.icp_expanded,
+          icp_expanded: selectedSegments,  // only user-selected segments
           search_patterns: expanded.search_patterns,
           daily_target: dailyTarget,
           cta: cta.trim(),
@@ -363,27 +396,78 @@ export default function AgentSetupPage() {
                 </div>
 
                 <div className="border-t border-white/8 pt-4 space-y-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    I'll search for
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Targeting segments
+                    </div>
+                    <div className="text-[10px] text-slate-600">
+                      {selectedSegments.length} of {allSegments.length} active
+                    </div>
                   </div>
+
+                  {/* Editable tags */}
                   <div className="flex flex-wrap gap-2">
-                    {(showAllIcp ? expanded.icp_expanded : expanded.icp_expanded.slice(0, 5)).map((s) => (
-                      <span
-                        key={s}
-                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-sm text-slate-200"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                    {expanded.icp_expanded.length > 5 && (
+                    {(showAllIcp ? allSegments : allSegments.slice(0, 6)).map((s) => {
+                      const active = selectedSegments.includes(s)
+                      return (
+                        <div
+                          key={s}
+                          className={`inline-flex items-center gap-1 rounded-lg border text-sm transition ${
+                            active
+                              ? 'border-blue-400/30 bg-blue-500/12 text-blue-200'
+                              : 'border-white/8 bg-white/[0.02] text-slate-500'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleSegment(s)}
+                            className="px-2.5 py-1 text-left leading-none"
+                          >
+                            {s}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSegment(s)}
+                            className="pr-1.5 opacity-30 hover:opacity-80 transition"
+                            aria-label={`Remove ${s}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                    {allSegments.length > 6 && (
                       <button
                         type="button"
                         onClick={() => setShowAllIcp(!showAllIcp)}
                         className="rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-1 text-sm text-slate-500 transition hover:text-slate-300"
                       >
-                        {showAllIcp ? 'Show less' : `+${expanded.icp_expanded.length - 5} more`}
+                        {showAllIcp ? 'Show less' : `+${allSegments.length - 6} more`}
                       </button>
                     )}
+                  </div>
+
+                  {/* Add custom segment */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={customTagInput}
+                      onChange={(e) => setCustomTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addCustomSegment() }
+                      }}
+                      placeholder="Add a segment..."
+                      className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-400/40 transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomSegment}
+                      disabled={!customTagInput.trim()}
+                      className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-300 transition hover:border-blue-400/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                    </button>
                   </div>
                 </div>
 

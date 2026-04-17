@@ -132,6 +132,8 @@ async function runEmailPipeline(params: {
         offer_context: offerContext,
         pain_solved: painSolved,
         value_outcome: valueOutcome,
+        // Rotate variation seed per lead so consecutive emails feel distinct
+        variation_seed: toProcess.indexOf(lead) % 3,
       })
 
       if (!draft.subject || !draft.body) {
@@ -258,6 +260,7 @@ async function generateMissingDrafts(params: {
         offer_context: offerContext,
         pain_solved: painSolved,
         value_outcome: valueOutcome,
+        variation_seed: needingDraft.indexOf(lead) % 3,
       })
 
       if (!draft.subject || !draft.body) continue
