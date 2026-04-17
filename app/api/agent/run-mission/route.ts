@@ -66,10 +66,13 @@ async function runEmailPipeline(params: {
   icpAngles: string[]
   missionCta: string | null
   senderSignature: string | null
+  painSolved: string | null
+  valueOutcome: string | null
 }) {
   const {
     supabase, userId, missionId, leads, offerContext, offerInput,
     audienceInput, locationInput, icpAngles, missionCta, senderSignature,
+    painSolved, valueOutcome,
   } = params
 
   if (!leads.length) return
@@ -127,6 +130,8 @@ async function runEmailPipeline(params: {
         angles: icpAngles,
         context,
         offer_context: offerContext,
+        pain_solved: painSolved,
+        value_outcome: valueOutcome,
       })
 
       if (!draft.subject || !draft.body) {
@@ -184,11 +189,13 @@ async function generateMissingDrafts(params: {
   icpAngles: string[]
   missionCta: string | null
   senderSignature: string | null
+  painSolved: string | null
+  valueOutcome: string | null
   cap?: number
 }) {
   const {
     supabase, userId, missionId, offerContext, offerInput, audienceInput,
-    locationInput, icpAngles, missionCta, senderSignature, cap = 10,
+    locationInput, icpAngles, missionCta, senderSignature, painSolved, valueOutcome, cap = 10,
   } = params
 
   const { data: allLeads } = await supabase
@@ -249,6 +256,8 @@ async function generateMissingDrafts(params: {
         angles: icpAngles,
         context,
         offer_context: offerContext,
+        pain_solved: painSolved,
+        value_outcome: valueOutcome,
       })
 
       if (!draft.subject || !draft.body) continue
@@ -454,6 +463,10 @@ export async function POST(req: Request) {
           icpAngles.push(...(icpExpanded as string[]).slice(0, 2))
         }
 
+        // Richer offer framing for email generation
+        const painSolved = offerContext?.angle ?? null
+        const valueOutcome = offerContext?.main_benefit ?? null
+
         // ── 1. Run scraper rounds + persistence ──
         const result = await runMission({
           supabase,
@@ -489,6 +502,8 @@ export async function POST(req: Request) {
           icpAngles,
           missionCta,
           senderSignature,
+          painSolved,
+          valueOutcome,
         })
 
         // ── 4. Backfill: generate drafts for any leads still missing one ──
@@ -503,6 +518,8 @@ export async function POST(req: Request) {
           icpAngles,
           missionCta,
           senderSignature,
+          painSolved,
+          valueOutcome,
           cap: 10,
         })
 

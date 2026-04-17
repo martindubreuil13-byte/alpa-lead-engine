@@ -1,17 +1,12 @@
 /**
  * Agent mission runner — scraper-first, minimal control layer.
  *
- * The agent does NOT scrape, score, or filter by ICP.
- * It calls the existing scraper, keeps only leads with an email,
- * deduplicates via dedup_key (DB is source of truth), and stops
- * when the target is reached.
- *
- * Loop (max MAX_ROUNDS):
- *   1. Call runSharedProspectorDiscovery (fast mode)
- *   2. Filter: keep only leads that have an email
- *   3. Dedup: skip any key already seen this run (loaded from DB on start)
- *   4. Upsert to DB with ON CONFLICT DO NOTHING (DB enforces uniqueness)
- *   5. Stop if collected >= target OR scraper returned 0 email leads
+ * Execution contract:
+ *   - MAX 3 rounds, each with a UNIQUE query
+ *   - Each round calls the scraper exactly ONCE
+ *   - Stops immediately on: target reached | no new email leads | no queries left
+ *   - Dedup is domain-first; DB is the hard source of truth (upsert + unique index)
+ *   - Expected: 2–3 total scraper calls per mission run
  */
 
 import { buildLeadKey } from '@/lib/agent/lead-key'
@@ -26,6 +21,16 @@ type MissionRow = Database['public']['Tables']['agent_missions']['Row']
 
 const MAX_ROUNDS = 3
 const BATCH_SIZE = 20
+
+// Basic email validation — rejects missing, malformed, or obviously junk addresses
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const JUNK_EMAIL_RE = /^(noreply|no-reply|do-not-reply|donotreply|mailer-daemon|postmaster)@/i
+
+function isValidEmail(email: string | null | undefined): boolean {
+  if (!email) return false
+  const e = email.trim()
+  return e.length < 255 && EMAIL_RE.test(e) && !JUNK_EMAIL_RE.test(e)
+}
 
 export type MissionRunOutput = {
   collected: number
@@ -47,6 +52,11 @@ function parseMissionLocation(label: string) {
 
 // ─── Query variants ───────────────────────────────────────────────────────────
 
+/**
+ * Return up to MAX_ROUNDS unique, normalised queries.
+ * Pre-built search_patterns take priority; otherwise derive 3 variations
+ * from audience + location to maximise result diversity.
+ */
 function buildQueryVariants(mission: MissionRow): string[] {
   if (
     Array.isArray(mission.search_patterns) &&
@@ -55,6 +65,7 @@ function buildQueryVariants(mission: MissionRow): string[] {
     return (mission.search_patterns as string[])
       .map((p) => String(p).trim())
       .filter(Boolean)
+      .filter((q, i, arr) => arr.indexOf(q) === i) // deduplicate
       .slice(0, MAX_ROUNDS)
   }
 
@@ -65,13 +76,21 @@ function buildQueryVariants(mission: MissionRow): string[] {
     throw new Error('Mission has no audience_input or search_patterns')
   }
 
-  const variants = [
-    [audience, location].filter(Boolean).join(' '),
-    [audience, 'near', location].filter(Boolean).join(' '),
-    [audience, 'companies', location].filter(Boolean).join(' '),
-  ]
+  // Three distinct phrasings — different word order often yields different results
+  const candidates = location
+    ? [
+        `${audience} ${location}`,
+        `${audience} near ${location}`,
+        `${location} ${audience}`,
+      ]
+    : [
+        audience,
+        `${audience} services`,
+        `${audience} companies`,
+      ]
 
-  return [...new Set(variants)].slice(0, MAX_ROUNDS)
+  // Deduplicate and cap
+  return [...new Set(candidates)].slice(0, MAX_ROUNDS)
 }
 
 // ─── Dedup key ────────────────────────────────────────────────────────────────
@@ -135,7 +154,7 @@ async function persistLeads(params: {
     draft_status: 'pending',
   }))
 
-  // ON CONFLICT DO NOTHING — DB unique index on (mission_id, dedup_key) is the hard guard
+  // DB unique index on (mission_id, dedup_key) is the hard guard
   const { error, data } = await supabase
     .from('agent_lead_queue')
     .upsert(rows, { onConflict: 'mission_id,dedup_key', ignoreDuplicates: true })
@@ -166,7 +185,7 @@ export async function runMission(params: {
     .maybeSingle()
 
   if (!liveCheck || liveCheck.status === 'deleted') {
-    console.log('[runMission] mission deleted → stop')
+    console.log('[STOP] mission deleted')
     return { collected: 0, rounds: 0, newLeads: [], query: '', location: '' }
   }
 
@@ -176,14 +195,9 @@ export async function runMission(params: {
   const location = parseMissionLocation(locationLabel)
   const queries = buildQueryVariants(mission)
 
-  console.log('[runMission] start', {
-    missionId: mission.id,
-    queries,
-    location: locationLabel,
-    target,
-  })
+  console.log('[runMission] start', { missionId: mission.id, queries, target })
 
-  // Seed seen-Set from DB using stored dedup_key (source of truth)
+  // Seed seen-Set from DB dedup_key column (source of truth)
   const seen = new Set<string>()
 
   const { data: existing } = await supabase
@@ -196,27 +210,45 @@ export async function runMission(params: {
     if (row.dedup_key) {
       seen.add(row.dedup_key)
     } else {
-      // Fallback for rows that predate the migration
+      // Fallback for rows that predate the dedup_key migration
       const k = buildLeadKey({ website: row.website, email: row.email })
       if (k) seen.add(k)
     }
   }
 
+  // Track which queries have actually been sent to the scraper this run
+  const executedQueries = new Set<string>()
+
   const collected: TrialLead[] = []
   let roundsRun = 0
+  let stopReason = 'no queries left'
 
   for (let round = 0; round < queries.length; round++) {
-    if (collected.length >= target) break
+    // Stop: target reached
+    if (collected.length >= target) {
+      stopReason = 'target reached'
+      break
+    }
 
-    const query = queries[round]
-    console.log(`[runMission] ROUND ${round + 1} — query="${query}"`)
+    const rawQuery = queries[round]
+    const normalisedQuery = rawQuery.trim().toLowerCase()
 
+    // Skip duplicate queries within this run
+    if (executedQueries.has(normalisedQuery)) {
+      console.log(`[QUERY] skipped (duplicate): "${rawQuery}"`)
+      continue
+    }
+
+    console.log(`[QUERY] executing: "${rawQuery}"`)
+    executedQueries.add(normalisedQuery)
+
+    let totalFound = 0
     let emailLeads: DiscoveryLead[] = []
 
     try {
       const result = await runSharedProspectorDiscovery(
         {
-          query,
+          query: rawQuery,
           defaultCity: location.city,
           region: location.region,
           country: location.country,
@@ -230,24 +262,18 @@ export async function runMission(params: {
         }
       )
 
-      console.log(`[scraper] discovered=${result.discoveredCount}`)
-
-      // ONLY keep leads that have an email — no other filtering
-      emailLeads = result.finalEnrichedLeads.filter((l) => Boolean(l.email))
+      totalFound = result.discoveredCount
+      // Keep only leads with a valid, non-junk email
+      emailLeads = result.finalEnrichedLeads.filter((l) => isValidEmail(l.email))
     } catch (err) {
-      console.error(`[runMission] ROUND ${round + 1} scraper error:`, err)
+      console.error(`[ROUND ${round + 1}] scraper error:`, err)
+      stopReason = 'scraper error'
       break
     }
 
     roundsRun++
 
-    // Hard stop: scraper returned 0 email leads — pool exhausted
-    if (emailLeads.length === 0) {
-      console.log('[runMission] 0 email leads returned — stopping early')
-      break
-    }
-
-    // Dedup against in-memory seen Set (mirrors DB state)
+    // Dedup against seen Set
     const accepted: DiscoveryLead[] = []
     for (const lead of emailLeads) {
       const key = getKey(lead)
@@ -257,37 +283,46 @@ export async function runMission(params: {
     }
 
     console.log(
-      `[filter] emailLeads=${emailLeads.length}`,
-      `\n[dedup] accepted=${accepted.length} total=${collected.length + accepted.length}/${target}`
+      `[ROUND ${round + 1}]\n` +
+      `  leads found:  ${totalFound}\n` +
+      `  email leads:  ${emailLeads.length}\n` +
+      `  accepted:     ${accepted.length} / ${target}`
     )
 
-    if (accepted.length > 0) {
-      const budget = target + 2 - collected.length
-      const toInsert = accepted.slice(0, Math.max(0, budget))
+    // Stop: no email leads from scraper
+    if (emailLeads.length === 0) {
+      stopReason = 'no email leads'
+      break
+    }
 
-      const inserted = await persistLeads({
-        supabase,
-        userId,
-        missionId: mission.id,
-        icpId,
-        leads: toInsert,
-      })
+    // Stop: all email leads were already seen (pool exhausted for this query)
+    if (accepted.length === 0) {
+      stopReason = 'no new leads'
+      // Don't break — try next query variant
+      continue
+    }
 
-      // Only add truly inserted leads to collected (DB may have rejected some via unique constraint)
-      collected.push(...toInsert.slice(0, inserted).map(toTrialLead))
+    const budget = target + 2 - collected.length
+    const toInsert = accepted.slice(0, Math.max(0, budget))
 
-      console.log(
-        `[runMission] ROUND ${round + 1} done — ` +
-        `inserted=${inserted} total=${collected.length}/${target}`
-      )
+    const inserted = await persistLeads({
+      supabase,
+      userId,
+      missionId: mission.id,
+      icpId,
+      leads: toInsert,
+    })
+
+    collected.push(...toInsert.slice(0, inserted).map(toTrialLead))
+
+    if (collected.length >= target) {
+      stopReason = 'target reached'
+      break
     }
   }
 
-  console.log('[runMission] done', {
-    collected: collected.length,
-    rounds: roundsRun,
-    target,
-  })
+  console.log(`[STOP] reason: ${stopReason}`)
+  console.log('[runMission] done', { collected: collected.length, rounds: roundsRun, target })
 
   return {
     collected: collected.length,

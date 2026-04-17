@@ -18,7 +18,7 @@ type OfferContext = {
   angle: string
 }
 
-type GenerateParams = {
+export type GenerateParams = {
   company_name: string
   audience_input: string
   location_input: string | null
@@ -28,91 +28,161 @@ type GenerateParams = {
   angles: string[]
   context: LeadContext
   offer_context?: OfferContext | null
+  // Richer sender identity — optional, derived from mission/signature when absent
+  user_name?: string | null
+  user_role?: string | null
+  user_company?: string | null
+  // Offer framing — optional, derived from offer_context when absent
+  pain_solved?: string | null
+  value_outcome?: string | null
+  // CTA shape — auto-detected from mission_cta when absent
+  cta_type?: 'conversation' | 'link' | 'offer' | null
+  cta_link?: string | null
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Pull a first name out of a free-form signature string. */
+function extractUserName(signature: string | null | undefined): string | null {
+  if (!signature) return null
+  // "— Martin", "- Martin Dubreuil", "Best,\nMartin", "Martin | ALPA", "Martin"
+  const cleaned = signature.replace(/^[-—\s]+/, '').trim()
+  const firstLine = cleaned.split(/[\n,|]/)[0]?.trim() ?? ''
+  const firstWord = firstLine.split(/\s+/)[0] ?? ''
+  return firstWord.length >= 2 ? firstWord : null
+}
+
+/** Detect CTA shape and extract a bare link if present. */
+function resolveCtaShape(params: GenerateParams): {
+  type: 'conversation' | 'link' | 'offer' | 'none'
+  text: string
+  link: string | null
+} {
+  const { mission_cta, cta_type, cta_link } = params
+
+  if (!mission_cta) return { type: 'none', text: '', link: null }
+
+  const ctaText = mission_cta.trim()
+  const urlMatch = ctaText.match(/https?:\/\/[^\s]+/)
+
+  const type: 'conversation' | 'link' | 'offer' =
+    cta_type ??
+    (urlMatch || cta_link ? 'link' : /\?|worth|happy|open|curious|quick/i.test(ctaText) ? 'conversation' : 'offer')
+
+  const link = cta_link ?? urlMatch?.[0] ?? null
+
+  return { type, text: ctaText, link }
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
 function buildPrompt(params: GenerateParams): string {
-  const { company_name, audience_input, location_input, mission_cta, offer, offer_context, context } = params
+  const { company_name, audience_input, location_input, offer, offer_context, context } = params
 
-  const companyRef = context.enriched && (context.h1 || context.title)
-    ? `${company_name} (headline: "${context.h1 || context.title}")`
-    : company_name
+  // ── Lead context
+  const websiteStr = context.website || 'Not available'
+  const contextLines = [
+    context.h1 && `H1: ${context.h1}`,
+    context.title && `Title: ${context.title}`,
+    context.description && `Description: ${context.description}`,
+  ].filter(Boolean)
+  const contextStr = contextLines.length > 0 ? contextLines.join('\n') : 'No website data available.'
 
-  const offerDescription = offer_context
-    ? `${offer_context.what_you_do}. Helps ${offer_context.who_you_help}. Key benefit: ${offer_context.main_benefit}.`
-    : offer
+  // ── User identity
+  const userName = params.user_name ?? extractUserName(params.sender_signature) ?? 'the sender'
+  const userRole = params.user_role ?? null
+  const userCompany = params.user_company ?? offer_context?.what_you_do?.split(' ').slice(0, 3).join(' ') ?? null
+  const userLines = [
+    `Name: ${userName}`,
+    userRole && `Role: ${userRole}`,
+    userCompany && `Company: ${userCompany}`,
+  ].filter(Boolean).join('\n')
 
-  const ctaInstruction = mission_cta
-    ? `Line 4 — CTA: Use this string EXACTLY, word for word: "${mission_cta}"`
-    : `No CTA. End after line 3.`
+  // ── Offer framing
+  const offerStr = offer_context ? offer_context.what_you_do : offer
+  const painStr = params.pain_solved ?? offer_context?.angle ?? 'manual, time-consuming lead generation'
+  const outcomeStr = params.value_outcome ?? offer_context?.main_benefit ?? 'generates consistent results'
+  const audienceStr = [audience_input, location_input].filter(Boolean).join(' in ')
 
-  const ctaJson = mission_cta ? `"${mission_cta}"` : `""`
+  // ── CTA instruction
+  const cta = resolveCtaShape(params)
+  let ctaInstruction: string
+  if (cta.type === 'none') {
+    ctaInstruction = 'No CTA. End after the solution paragraph.'
+  } else if (cta.type === 'conversation') {
+    ctaInstruction = `CTA type: conversation\nUse this exact text: "${cta.text}"`
+  } else if (cta.type === 'link') {
+    const linkDisplay = cta.link ?? ''
+    ctaInstruction = `CTA type: link\nText: "${cta.text.replace(linkDisplay, '').trim() || cta.text}"\nLink: ${linkDisplay}\nFormat the CTA as the text followed by the link on the same line.`
+  } else {
+    ctaInstruction = `CTA type: offer\nSoft close — no link. Use something like: "Happy to show you how it works." or "Worth a quick look?"`
+  }
 
-  const locationNote = location_input ? ` in ${location_input}` : ''
+  return `You are generating a highly personalized cold email.
 
-  return `You are writing a short cold email on behalf of ALPA — a lead generation tool that finds business leads instantly (with website, email, and phone number).
+---------------------------------------
+INPUT — LEAD
+---------------------------------------
+Company: ${company_name}
+Website: ${websiteStr}
+Context:
+${contextStr}
 
-The recipient is: ${companyRef}
-Their audience type: ${audience_input}${locationNote}
+---------------------------------------
+INPUT — USER
+---------------------------------------
+${userLines}
 
-PRODUCT BEING OFFERED:
-${offerDescription}
+Offer: ${offerStr}
+Target audience: ${audienceStr}
+Pain solved: ${painStr}
+Outcome: ${outcomeStr}
 
-EMAIL STRUCTURE — follow this pattern exactly:
-
-Line 1 (opening): A short curiosity-driven question about how they currently find clients.
-  - Personalise to their business type using the company name or audience type.
-  - Examples:
-      "Quick one for [Company] — how are you currently finding new clients?"
-      "How does [Company] currently build its client pipeline?"
-      "Quick question — how is [Company] finding new [audience type] clients right now?"
-  - NEVER say: "your headline caught my attention", "I noticed your website", "I came across"
-
-Line 2 (problem): One sentence on why manual lead sourcing is slow or unpredictable.
-  - Make it specific to their audience type: ${audience_input}
-  - Examples:
-      "Most [audience type] still rely on referrals or manual search — which makes the pipeline unpredictable."
-      "Finding [audience type] clients manually eats time and gives no guarantees."
-  - NEVER say: "many businesses", "most companies", "boost efficiency", "streamline"
-
-Line 3 (solution): One sentence describing what ALPA does.
-  - Must be grounded in the offer above. Do not invent features.
-  - Examples:
-      "We built a tool that finds [audience type] leads in seconds — with website, email, and phone included."
-      "ALPA pulls [audience type] leads instantly — website, email, phone — so you can reach out the same day."
-
+---------------------------------------
+CTA HANDLING
+---------------------------------------
 ${ctaInstruction}
 
-RULES:
-- Total body word count: 50–80 words (lines 1–3 only, not counting CTA or subject)
-- Subject: max 6 words, no "Boost X" patterns, title-case, relevant to the opening
-- Conversational tone — slightly informal, no buzzwords, no long paragraphs
-- Each line is its own short paragraph (separated by blank line)
-- Never invent a CTA if none is specified
+---------------------------------------
+RULES
+---------------------------------------
+- 80–120 words max (body only, subject excluded)
+- Natural, human tone — no corporate or sales language
+- No generic phrases ("your website caught my attention", "I came across", "I noticed your company")
+- No fake personalization — only use details present in the context above
+- If context is weak: keep the message simple and clean, do not invent details
+- Vary sentence structure
 
-OUTPUT — valid JSON only, no markdown, no preamble:
+---------------------------------------
+LOGIC
+---------------------------------------
+Follow this reasoning:
+  "Because [company] does [X from context] → they likely face [pain] → I help with [offer]"
+If context is empty: skip the relevance line and go straight to problem → solution.
+
+---------------------------------------
+STRUCTURE (MANDATORY)
+---------------------------------------
+1. Opening → short, natural question (1 sentence)
+2. Relevance → show understanding of what they do (1 sentence max — skip if no context)
+3. Problem → real-world pain this business faces
+4. Solution → one sentence describing the offer
+5. CTA → as specified above (ONCE, at the end, exactly as written)
+
+---------------------------------------
+OUTPUT FORMAT
+---------------------------------------
+Return ONLY valid JSON — no markdown, no preamble:
 {
-  "subject": "<max 6 words, title-case>",
-  "hook": "<line 1 only>",
-  "body": "<lines 1–3 joined with double newlines>",
-  "cta": ${ctaJson},
-  "personalization_score": <integer 0–5>,
-  "quality_score": <integer 0–5>
-}
-
-Scoring:
-- personalization_score: +2 if company name used in line 1, +2 if audience type used in line 2, +1 if location mentioned
-- quality_score: +2 if under 80 words, +2 if CTA is exact match (or none required), +1 if tone is conversational with no jargon`
+  "subject": "<3–6 words, natural, curiosity-driven, no clickbait, no ALL CAPS>",
+  "body": "<complete email body — paragraphs separated by \\n\\n — CTA on its own line at the end>"
+}`
 }
 
 // ─── Post-process ─────────────────────────────────────────────────────────────
 
-/**
- * Remove duplicate paragraphs and ensure the CTA appears exactly once.
- */
-function cleanBody(body: string, cta: string | null): string {
-  // Split into paragraphs, deduplicate by normalised content
+/** Deduplicate identical paragraphs. Does NOT strip the CTA — it belongs in the body. */
+function cleanBody(body: string): string {
   const paragraphs = body.split(/\n\n+/)
   const seen = new Set<string>()
   const deduped = paragraphs.filter((p) => {
@@ -121,61 +191,41 @@ function cleanBody(body: string, cta: string | null): string {
     seen.add(key)
     return true
   })
-
-  let result = deduped.join('\n\n')
-
-  // Ensure CTA appears at most once in the body (it will be appended via buildFullEmail)
-  if (cta) {
-    const escaped = cta.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(escaped, 'gi')
-    const occurrences = [...result.matchAll(regex)]
-    if (occurrences.length > 0) {
-      // Strip all occurrences from the body — CTA lives in full_email only
-      result = result.replace(regex, '').replace(/\n{3,}/g, '\n\n').trim()
-    }
-  }
-
-  return result.trim()
-}
-
-// ─── Full email builder ───────────────────────────────────────────────────────
-
-/**
- * Build full_email from components — never trust AI to format this correctly.
- * Structure: body\n\n{cta}\n\n—\n{signature}
- */
-function buildFullEmail(body: string, cta: string | null, signature: string | null): string {
-  const parts = [body]
-  if (cta) parts.push(cta)
-  let result = parts.join('\n\n')
-  if (signature) result = `${result}\n\n—\n${signature}`
-  return result
+  return deduped.join('\n\n').trim()
 }
 
 // ─── Fallback ─────────────────────────────────────────────────────────────────
 
-function fallbackDraft(
-  company_name: string,
-  audience_input: string,
-  mission_cta: string | null,
-  sender_signature: string | null
-): OutreachDraft {
-  const name = company_name || 'your company'
-  const audience = audience_input || 'clients'
-  const hook = `Quick one for ${name} — how are you currently finding new ${audience}?`
-  const body = [
+function fallbackDraft(params: GenerateParams): OutreachDraft {
+  const name = params.company_name || 'your business'
+  const audience = params.audience_input || 'clients'
+  const cta = resolveCtaShape(params)
+  const userName = params.user_name ?? extractUserName(params.sender_signature) ?? null
+
+  const hook = `Quick question — how is ${name} currently finding new ${audience}?`
+  const paragraphs = [
     hook,
-    `Most teams still rely on referrals or manual search — which makes the pipeline slow and unpredictable.`,
-    `We built a tool that finds ${audience} leads in seconds — complete with website, email, and phone.`,
-  ].join('\n\n')
-  const cta = mission_cta ?? ''
+    `Most teams still rely on referrals or manual search, which makes the pipeline slow and unpredictable.`,
+    `We built a tool that finds leads in seconds — complete with website, email, and phone.`,
+  ]
+  if (cta.type !== 'none' && cta.text) {
+    paragraphs.push(cta.type === 'link' && cta.link ? `${cta.text} ${cta.link}` : cta.text)
+  }
+
+  const body = paragraphs.join('\n\n')
+  const full_email = params.sender_signature
+    ? `${body}\n\n—\n${params.sender_signature}`
+    : body
+
+  const ctaWord = name.split(' ')[0] ?? name
+
   return {
-    subject: `Finding New ${audience.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ')} Clients`,
+    subject: `Finding New ${ctaWord} Clients`,
     hook,
     body,
-    cta,
-    full_email: buildFullEmail(body, cta || null, sender_signature),
-    personalization_score: 2,
+    cta: cta.text,
+    full_email,
+    personalization_score: 1,
     quality_score: 2,
   }
 }
@@ -183,11 +233,10 @@ function fallbackDraft(
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function generateOutreachDraft(params: GenerateParams): Promise<OutreachDraft> {
-  const companyName = params.company_name || 'your company'
   const missionCta = params.mission_cta ?? null
   const senderSignature = params.sender_signature ?? null
-  const audienceInput = params.audience_input || 'clients'
-  const prompt = buildPrompt({ ...params, company_name: companyName })
+  const prompt = buildPrompt(params)
+  const cta = resolveCtaShape(params)
 
   try {
     const completion = await openai.chat.completions.create({
@@ -200,7 +249,7 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
         { role: 'user', content: prompt },
       ],
       temperature: 0.6,
-      max_tokens: 400,
+      max_tokens: 450,
       response_format: { type: 'json_object' },
     })
 
@@ -208,45 +257,45 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     const parsed = JSON.parse(text) as Record<string, unknown>
 
     const subject = String(parsed.subject || '').trim().slice(0, 80)
-    const rawBody = String(parsed.body || '').trim().slice(0, 600)
+    const rawBody = String(parsed.body || '').trim().slice(0, 800)
 
     if (!subject || !rawBody) {
-      console.log('[generate-outreach-draft] missing subject/body → fallback', { company: companyName })
-      return fallbackDraft(companyName, audienceInput, missionCta, senderSignature)
+      console.log('[generate-outreach-draft] missing subject/body → fallback', { company: params.company_name })
+      return fallbackDraft(params)
     }
 
-    // CTA enforcement: AI must return exact string
-    if (missionCta) {
-      const generatedCta = String(parsed.cta || '').trim()
-      if (generatedCta !== missionCta.trim()) {
-        console.log('[generate-outreach-draft] CTA mismatch → fallback', {
-          company: companyName,
-          expected: missionCta,
-          got: generatedCta,
-        })
-        return fallbackDraft(companyName, audienceInput, missionCta, senderSignature)
-      }
+    // If mission has a CTA, verify it appears in the body
+    if (missionCta && !rawBody.includes(missionCta.trim())) {
+      console.log('[generate-outreach-draft] CTA missing from body → fallback', {
+        company: params.company_name,
+        expectedCta: missionCta,
+      })
+      return fallbackDraft(params)
     }
 
-    const cta = missionCta ? missionCta.trim() : ''
-    const hook = String(parsed.hook || '').trim().slice(0, 300)
+    const body = cleanBody(rawBody)
+    const hook = body.split('\n\n')[0]?.trim() ?? ''
 
-    // Clean body: remove duplicate paragraphs, strip CTA if AI embedded it
-    const body = cleanBody(rawBody, cta || null)
+    // full_email = body (CTA already embedded by AI) + signature
+    const full_email = senderSignature ? `${body}\n\n—\n${senderSignature}` : body
 
-    const full_email = buildFullEmail(body, cta || null, senderSignature)
+    // Score locally — no AI scoring needed
+    const wordCount = body.split(/\s+/).length
+    const hasRealContext = params.context.enriched && Boolean(params.context.h1 || params.context.description)
+    const personalization_score = hasRealContext ? 4 : 2
+    const quality_score = wordCount <= 120 ? (wordCount >= 60 ? 4 : 3) : 2
 
     return {
       subject,
       hook,
       body,
-      cta,
+      cta: cta.text,
       full_email,
-      personalization_score: Math.min(5, Math.max(0, Number(parsed.personalization_score ?? 0))),
-      quality_score: Math.min(5, Math.max(0, Number(parsed.quality_score ?? 0))),
+      personalization_score,
+      quality_score,
     }
   } catch (err) {
-    console.log('[generate-outreach-draft] error → fallback', { company: companyName, err })
-    return fallbackDraft(companyName, audienceInput, missionCta, senderSignature)
+    console.log('[generate-outreach-draft] error → fallback', { company: params.company_name, err })
+    return fallbackDraft(params)
   }
 }
