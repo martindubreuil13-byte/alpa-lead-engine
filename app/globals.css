@@ -348,6 +348,66 @@ body {
   will-change: opacity;
 }
 
+/* ── AI Core System ──────────────────────────────────────────────────────────── */
+
+@keyframes ai-core-breathe {
+  0%, 100% { scale: 1; }
+  50% { scale: 1.04; }
+}
+
+@keyframes ai-core-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes ai-orbit-cw {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+
+@keyframes ai-orbit-ccw {
+  from { rotate: 0deg; }
+  to { rotate: -360deg; }
+}
+
+@keyframes ai-node-float {
+  0%, 100% { translate: 0 0px; }
+  50% { translate: 0 -4px; }
+}
+
+@keyframes ai-log-rise {
+  0%   { opacity: 0; transform: translateY(0px); }
+  15%  { opacity: 1; }
+  75%  { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-22px); }
+}
+
+@keyframes ai-pulse-ring {
+  0%   { opacity: 0.45; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0;    transform: translate(-50%, -50%) scale(2.4); }
+}
+
+.ai-core-breathe {
+  animation: ai-core-breathe 3.2s ease-in-out infinite;
+  will-change: scale;
+}
+.ai-core-glow {
+  animation: ai-core-glow 3.2s ease-in-out infinite;
+  will-change: opacity;
+}
+.ai-node-float {
+  animation: ai-node-float 3.4s ease-in-out infinite;
+  will-change: translate;
+}
+.ai-log-rise {
+  animation: ai-log-rise 2.6s ease-out forwards;
+  will-change: opacity, transform;
+}
+.ai-pulse-ring {
+  animation: ai-pulse-ring 1.4s ease-out forwards;
+  will-change: opacity, transform;
+}
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus,
