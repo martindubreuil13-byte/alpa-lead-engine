@@ -51,7 +51,7 @@ export function ActiveMissionBar({ missions, actioning, onToggle, onStop }: Prop
           const title = missionTitle(m)
           const progress = Math.min(100, Math.round((m.leadsToday / Math.max(1, m.daily_target)) * 100))
           const isActive = m.status === 'active'
-          const isNeedsReview = m.status === 'needs_review'
+          const isScheduled = m.status === 'scheduled'
           const busy = actioning === m.id
 
           return (
@@ -65,8 +65,8 @@ export function ActiveMissionBar({ missions, actioning, onToggle, onStop }: Prop
                   className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                     isActive
                       ? 'animate-pulse bg-emerald-400'
-                      : isNeedsReview
-                      ? 'bg-violet-400'
+                      : isScheduled
+                      ? 'bg-blue-400'
                       : 'bg-amber-400'
                   }`}
                 />

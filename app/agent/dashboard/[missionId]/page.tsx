@@ -55,15 +55,31 @@ type MissionData = {
   name: string | null
   cta: string | null
   sender_signature: string | null
-  completed_at: string | null
+  last_run_at: string | null
+  last_run_status: string | null
+  last_stop_reason: string | null
   next_run_at: string | null
+  schedule_timezone: string
+  schedule_local_time: string
   created_at: string
+}
+
+type MissionRunData = {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  stop_reason: string | null
+  accepted_count: number
+  drafts_generated_count: number
+  started_at: string | null
+  finished_at: string | null
 }
 
 type StatusData = {
   mission: MissionData
+  latestRun: MissionRunData | null
   leadsToday: number
   totalLeads: number
+  leads_count: number
   emailsReady: number
   emailsApproved: number
   emailsRejected: number
@@ -149,20 +165,29 @@ export default function MissionDashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   // ── Execution state
-  const [running, setRunning] = useState(false)
+  // runInitiated: optimistic flag — set when user clicks Run, cleared when DB
+  // confirms the run has started (queued/running) or failed to start.
+  const [runInitiated, setRunInitiated] = useState(false)
   const [round, setRound] = useState(0)
   const [msgIndex, setMsgIndex] = useState(0)
   const [idleIndex, setIdleIndex] = useState(0)
   const [genIndex, setGenIndex] = useState(0)
   const [genCompanyIdx, setGenCompanyIdx] = useState(0)
-  const [optimisticGenerating, setOptimisticGenerating] = useState(false)
-  const runningRef = useRef(false)
+  // triggerInFlightRef: prevents duplicate HTTP calls while one is in-flight
+  const triggerInFlightRef = useRef(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const msgRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const idleRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const genRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const genCompRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isGeneratingRef = useRef(false)
+
+  // ── Derived run state (computed early so effects below can reference it) ──
+  // isRunActive drives: polling, Run button lock, animated messages.
+  // It is true when the DB says a run is queued/running, OR when the user just
+  // clicked Run but the first poll hasn't confirmed it yet (runInitiated).
+  const latestRunStatus = status?.latestRun?.status ?? null
+  const isRunActive = latestRunStatus === 'running' || latestRunStatus === 'queued' || runInitiated
 
   // ── Sound
   const sound = useSound()
@@ -192,29 +217,29 @@ export default function MissionDashboardPage() {
 
   // ── Message rotation
   useEffect(() => {
-    if (running) {
+    if (isRunActive) {
       msgRef.current = setInterval(() => setMsgIndex((i) => (i + 1) % SCAN_MESSAGES.length), 2200)
     } else {
       if (msgRef.current) clearInterval(msgRef.current)
     }
     return () => { if (msgRef.current) clearInterval(msgRef.current) }
-  }, [running])
+  }, [isRunActive])
 
   useEffect(() => {
-    const isActive = status?.mission.status === 'active'
-    if (isActive && !running) {
+    const missionActive = status?.mission.status === 'active' || status?.mission.status === 'scheduled'
+    if (missionActive && !isRunActive) {
       idleRef.current = setInterval(() => setIdleIndex((i) => (i + 1) % IDLE_MESSAGES.length), 2000)
     } else {
       if (idleRef.current) clearInterval(idleRef.current)
     }
     return () => { if (idleRef.current) clearInterval(idleRef.current) }
-  }, [running, status?.mission.status])
+  }, [isRunActive, status?.mission.status])
 
   useEffect(() => {
     const totalOutreach = (status?.emailsReady ?? 0) + (status?.emailsApproved ?? 0) + (status?.emailsRejected ?? 0)
     const isGen =
       (status?.leadsToday ?? 0) > 0 &&
-      (status?.mission.status === 'active' || status?.mission.status === 'needs_review') &&
+      (status?.mission.status === 'active' || status?.mission.status === 'scheduled') &&
       totalOutreach < (status?.leadsToday ?? 0)
 
     isGeneratingRef.current = isGen
@@ -274,12 +299,19 @@ export default function MissionDashboardPage() {
       setStatus(data)
       setFetchError(null)
 
-      // Sound: mission reached completed / needs_review
-      const newSt = data.mission.status
+      // Clear optimistic initiated flag once DB confirms run is no longer active.
+      // This ensures isRunActive drops to false when the run finishes, stopping polling.
+      const dbRunStatus = data.latestRun?.status ?? null
+      if (dbRunStatus !== 'running' && dbRunStatus !== 'queued') {
+        setRunInitiated(false)
+      }
+
+      // Sound: latest run finished with useful output
+      const newSt = data.latestRun?.status ?? data.mission.status
       const prevSt = prevMissionStatus.current
       if (
-        (newSt === 'completed' || newSt === 'needs_review') &&
-        prevSt !== 'completed' && prevSt !== 'needs_review'
+        (newSt === 'completed' || newSt === 'partial') &&
+        prevSt !== 'completed' && prevSt !== 'partial'
       ) {
         sound.play('complete')
       }
@@ -331,11 +363,17 @@ export default function MissionDashboardPage() {
   }, [missionId, router, sound])
 
   // ── Trigger run
+  // Fire-and-forget: we POST to run-mission and immediately mark the run as
+  // initiated (runInitiated=true). This causes isRunActive→true, which starts
+  // the polling interval (see smart-poll effect). The polling then tracks the
+  // actual run status from the DB and stops when it finishes.
   const triggerMission = useCallback(async () => {
-    if (runningRef.current) return
-    runningRef.current = true
-    setRunning(true)
-    setOptimisticGenerating(true)
+    // Prevent duplicate calls while one is in-flight or a run is already active
+    if (triggerInFlightRef.current || isRunActive) return
+    triggerInFlightRef.current = true
+
+    setRunInitiated(true)
+    setActionError(null)
     sound.play('start')
     setRound((r) => {
       const next = r + 1
@@ -354,25 +392,56 @@ export default function MissionDashboardPage() {
       })
       if (!res.ok) {
         console.warn('[triggerMission] run-mission responded with', res.status)
+        // Revert optimistic state on failure — polling will not start
+        setRunInitiated(false)
+        setActionError('Failed to start run. Please try again.')
       }
+      // On success: isRunActive is true → smart-poll effect starts 5s interval.
+      // fetchStatus will be called by that interval and will update status from DB.
     } catch (err) {
       console.warn('[triggerMission] fetch failed', err)
+      setRunInitiated(false)
+      setActionError('Connection error. Please try again.')
     } finally {
-      runningRef.current = false
-      setRunning(false)
-      setOptimisticGenerating(false)
-      // Refresh status once after the run to pick up new leads/state
-      await fetchStatus()
-      // No automatic re-trigger — user controls when to run again
+      triggerInFlightRef.current = false
     }
-  }, [missionId, fetchStatus, sound])
+  }, [missionId, isRunActive, sound])
 
-  // ── Bootstrap: fetch status once, then poll every 8s (read-only, no auto-run)
+  // ── fetchStatusRef: always points to latest fetchStatus without being a dep
+  const fetchStatusRef = useRef(fetchStatus)
+  fetchStatusRef.current = fetchStatus
+
+  // ── Initial fetch: once on mount / missionId change
   useEffect(() => {
-    void fetchStatus()
-    pollRef.current = setInterval(() => void fetchStatus(), 8_000)
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [missionId, fetchStatus])
+    void fetchStatusRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missionId])
+
+  // ── Smart polling: only active while isRunActive is true
+  // When the run finishes, fetchStatus sets runInitiated=false → isRunActive
+  // becomes false → this effect clears the interval automatically.
+  // This prevents the infinite polling loop that occurred with unconditional polling.
+  useEffect(() => {
+    if (!isRunActive) {
+      // Run is not active — ensure no stale interval is running
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+      return
+    }
+
+    // Run is active — start polling every 5s
+    if (pollRef.current) clearInterval(pollRef.current)   // clear any stale interval first
+    pollRef.current = setInterval(() => void fetchStatusRef.current(), 5_000)
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, [isRunActive])
 
   // ── Seed edit fields when panel opens
   useEffect(() => {
@@ -387,7 +456,10 @@ export default function MissionDashboardPage() {
 
   async function handleToggle() {
     if (!status || toggling) return
-    const newStatus = status.mission.status === 'active' ? 'paused' : 'active'
+    const newStatus =
+      status.mission.status === 'active' || status.mission.status === 'scheduled'
+        ? 'paused'
+        : 'active'
     setToggling(true)
     setActionError(null)
     try {
@@ -414,10 +486,10 @@ export default function MissionDashboardPage() {
       const res = await fetch('/api/agent/missions/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ missionId, status: 'stopped' }),
+        body: JSON.stringify({ missionId, status: 'archived' }),
       })
       if (res.ok) {
-        setStatus((prev) => prev ? { ...prev, mission: { ...prev.mission, status: 'stopped' } } : prev)
+        setStatus((prev) => prev ? { ...prev, mission: { ...prev.mission, status: 'archived' } } : prev)
         setConfirmStop(false)
       }
     } catch {
@@ -431,6 +503,7 @@ export default function MissionDashboardPage() {
     if (toggling) return
     setToggling(true)
     setActionError(null)
+    console.log('[MISSION DELETE]', missionId)
     try {
       const res = await fetch('/api/agent/missions/delete', {
         method: 'POST',
@@ -458,7 +531,7 @@ export default function MissionDashboardPage() {
       const res = await fetch('/api/agent/missions/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ missionId, status: 'active', next_run_at: null }),
+        body: JSON.stringify({ missionId, status: 'active', next_run_at: new Date().toISOString() }),
       })
       if (res.ok) {
         await fetchStatus()
@@ -511,20 +584,30 @@ export default function MissionDashboardPage() {
   // ─── Derived ─────────────────────────────────────────────────────────────
 
   const mission = status?.mission
+  // Note: latestRunStatus and isRunActive are declared early (after state) so effects can use them.
   const isActive = mission?.status === 'active'
+  const isScheduled = mission?.status === 'scheduled'
   const isPaused = mission?.status === 'paused'
-  const isStopped = mission?.status === 'stopped'
-  const isNeedsReview = mission?.status === 'needs_review'
-  const isCompleted = mission?.status === 'completed'
-  const isExhausted = mission?.status === 'exhausted'
+  const isArchived = mission?.status === 'archived'
+  const isCompleted = latestRunStatus === 'completed'
+  const isPartial = latestRunStatus === 'partial'
+  const isFailed = latestRunStatus === 'failed'
+  // isRunQueuedOrRunning = isRunActive (same value, kept for JSX readability)
+  const isRunQueuedOrRunning = isRunActive
+
+  // Authoritative lead count: real-time queue count > stale run field
+  const displayedLeads = status?.leads_count ?? status?.latestRun?.accepted_count ?? 0
 
   const totalOutreach = (status?.emailsReady ?? 0) + (status?.emailsApproved ?? 0) + (status?.emailsRejected ?? 0)
   const targetReached = !!mission && (status?.leadsToday ?? 0) >= mission.daily_target
-  const isGenerating = targetReached && totalOutreach < (status?.leadsToday ?? 0) && (isActive || isNeedsReview)
+  const isGenerating = targetReached && totalOutreach < (status?.leadsToday ?? 0) && (isActive || isScheduled)
   const isOutreachComplete = targetReached && totalOutreach >= (status?.leadsToday ?? 0) && totalOutreach > 0
+  const isReviewReady = displayedEmails > 0 || totalOutreach > 0
+  const isNoResults = status?.latestRun?.stop_reason === 'no_accepted_leads'
 
   const rawGenerating = Math.max((status?.leadsToday ?? 0) - totalOutreach, 0)
-  const emailsGenerating = optimisticGenerating && rawGenerating === 0 && (status?.leadsToday ?? 0) > 0 ? 1 : rawGenerating
+  // Show optimistic "1 generating" only while runInitiated is true and no real count yet
+  const emailsGenerating = runInitiated && rawGenerating === 0 && (status?.leadsToday ?? 0) > 0 ? 1 : rawGenerating
 
   const progress = mission
     ? Math.min(100, Math.round(((status?.leadsToday ?? 0) / Math.max(1, mission.daily_target)) * 100))
@@ -598,26 +681,26 @@ export default function MissionDashboardPage() {
         {/* ─────────────────────────────────────────────────────────────── */}
         <div
           className={`relative overflow-hidden rounded-2xl border p-5 transition ${
-            isActive
+            isActive || isScheduled
               ? 'border-emerald-400/15 bg-[linear-gradient(135deg,rgba(16,185,129,0.05),rgba(59,130,246,0.04))]'
-              : isNeedsReview
-              ? 'border-violet-400/20 bg-violet-500/[0.05]'
               : isCompleted
               ? 'border-blue-400/15 bg-blue-500/[0.04]'
+              : isPartial
+              ? 'border-violet-400/20 bg-violet-500/[0.05]'
               : isPaused
               ? 'border-amber-400/15 bg-amber-500/[0.04]'
-              : isExhausted
+              : isFailed
               ? 'border-orange-400/15 bg-orange-500/[0.04]'
               : 'border-white/[0.07] bg-white/[0.02]'
           }`}
         >
           {/* Breathing glow overlay (active only) */}
-          {isActive && (
+          {(isActive || isScheduled) && (
             <div className="mission-glow-breathe pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_at_50%_0%,rgba(16,185,129,0.12),transparent_65%)]" />
           )}
 
           {/* Live ping (active only) */}
-          {isActive && (
+          {(isActive || isScheduled) && (
             <div className="absolute right-5 top-5">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -628,10 +711,10 @@ export default function MissionDashboardPage() {
 
           {/* Status label */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            {isActive && (
+            {(isActive || isScheduled) && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                Agent in Motion
+                {isScheduled ? 'Scheduled' : 'Active'}
               </span>
             )}
             {isPaused && (
@@ -640,19 +723,19 @@ export default function MissionDashboardPage() {
                 Paused
               </span>
             )}
-            {isStopped && (
+            {isArchived && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/30 bg-slate-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
                 <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
-                Stopped
+                Archived
               </span>
             )}
-            {isExhausted && (
+            {isFailed && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-400/20 bg-orange-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
-                Search Exhausted
+                Last Run Failed
               </span>
             )}
-            {isNeedsReview && (
+            {isReviewReady && !isRunQueuedOrRunning && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/25 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-violet-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
                 Review Ready
@@ -661,13 +744,13 @@ export default function MissionDashboardPage() {
             {isCompleted && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-blue-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                Mission Complete
+                Run Complete
               </span>
             )}
-            {running && (
+            {isRunQueuedOrRunning && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-blue-300">
                 <span className="h-1.5 w-1.5 animate-ping rounded-full bg-blue-400" />
-                Scanning
+                Running
               </span>
             )}
           </div>
@@ -683,14 +766,14 @@ export default function MissionDashboardPage() {
           )}
 
           {/* Live status line */}
-          {isActive && !isCompleted && (
+          {(isActive || isScheduled) && !isCompleted && (
             <p className="mt-2.5 text-xs text-slate-500">
-              {running
+              {isRunQueuedOrRunning
                 ? SCAN_MESSAGES[msgIndex]
                 : IDLE_MESSAGES[idleIndex]}
             </p>
           )}
-          {isCompleted && mission.next_run_at && (
+          {(isCompleted || isPartial || isFailed || isActive || isScheduled) && mission.next_run_at && (
             <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500">
               <Clock className="h-3 w-3" />
               Next run {nextRunLabel(mission.next_run_at)}
@@ -713,19 +796,19 @@ export default function MissionDashboardPage() {
               label: 'Discovered',
               sublabel: `${status.leadsToday} found`,
               done: (status.leadsToday ?? 0) > 0,
-              active: running,
+              active: isRunActive,
             },
             {
               label: 'Qualified',
-              sublabel: `${status.totalLeads} total`,
-              done: (status.totalLeads ?? 0) > 0,
-              active: running && (status.leadsToday ?? 0) > 0,
+              sublabel: `${displayedLeads} total`,
+              done: displayedLeads > 0,
+              active: isRunActive && (status.leadsToday ?? 0) > 0,
             },
             {
               label: 'Messages',
               sublabel: `${displayedEmails} ready`,
               done: displayedEmails > 0,
-              active: isGenerating || (optimisticGenerating && !isOutreachComplete),
+              active: isGenerating || (runInitiated && !isOutreachComplete),
             },
           ].map(({ label, sublabel, done, active }, i) => (
             <div
@@ -784,7 +867,7 @@ export default function MissionDashboardPage() {
           <div className="glass rounded-2xl p-4">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">Total</div>
             <div className="mt-2">
-              <span className="text-3xl font-semibold tabular-nums text-white">{status.totalLeads}</span>
+              <span className="text-3xl font-semibold tabular-nums text-white">{displayedLeads}</span>
             </div>
             <div className="mt-2 text-[10px] text-slate-700">leads collected</div>
           </div>
@@ -819,7 +902,7 @@ export default function MissionDashboardPage() {
         {/* ─────────────────────────────────────────────────────────────── */}
         {/* GENERATING STATE                                                */}
         {/* ─────────────────────────────────────────────────────────────── */}
-        {(isGenerating || (optimisticGenerating && !isOutreachComplete)) && (
+        {(isGenerating || (runInitiated && !isOutreachComplete)) && (
           <div className="rounded-2xl border border-violet-400/15 bg-violet-500/[0.06] p-4">
             <div className="flex items-start gap-3">
               <span className="relative mt-0.5 flex h-4 w-4 shrink-0">
@@ -874,11 +957,11 @@ export default function MissionDashboardPage() {
         )}
 
         {/* Needs review fallback */}
-        {isNeedsReview && !isOutreachComplete && displayedEmails === 0 && (
+        {isPartial && !isOutreachComplete && displayedEmails === 0 && (
           <div className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.06] p-5">
-            <p className="text-sm font-semibold text-white">Mission complete</p>
+            <p className="text-sm font-semibold text-white">Run finished</p>
             <p className="mt-1 text-xs text-slate-500">
-              Daily target reached. Check the outreach queue for ready drafts.
+              This run collected leads but has not hit the full daily quota yet. Check the outreach queue for ready drafts.
             </p>
             <button
               type="button"
@@ -891,7 +974,7 @@ export default function MissionDashboardPage() {
         )}
 
         {/* Exhausted CTA */}
-        {isExhausted && (
+        {isNoResults && (
           <div className="overflow-hidden rounded-2xl border border-orange-400/20 bg-[linear-gradient(135deg,rgba(249,115,22,0.06),rgba(234,88,12,0.04))]">
             <div className="p-5">
               <div className="flex items-start gap-3">
@@ -899,9 +982,9 @@ export default function MissionDashboardPage() {
                   <AlertTriangle className="h-4 w-4 text-orange-300" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-white">Market exhausted</p>
+                  <p className="text-sm font-semibold text-white">No accepted leads this run</p>
                   <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                    No new contacts found after multiple search rounds. Refine your audience, location, or targeting angle to unlock new prospects.
+                    The deterministic pipeline ran, filtered to email-valid leads, and did not find enough new matches. Refine the audience, location, or ICP variants to widen the search pool.
                   </p>
                   <button
                     type="button"
@@ -991,16 +1074,16 @@ export default function MissionDashboardPage() {
           ) : feed.length === 0 ? (
             <div className="px-5 py-10 text-center">
               <p className="text-sm text-slate-600">
-                {isActive && running
+                {isActive && isRunActive
                   ? 'Searching now...'
-                  : isActive
+                  : isActive || isScheduled
                   ? IDLE_MESSAGES[idleIndex]
                   : isPaused
                   ? 'Resume to continue searching.'
-                  : isStopped
-                  ? 'This mission has been stopped.'
-                  : isExhausted
-                  ? 'Search pool exhausted — edit mission to continue.'
+                  : isArchived
+                  ? 'This mission has been archived.'
+                  : isNoResults
+                  ? 'Last run finished without accepted leads.'
                   : 'Waiting to start.'}
               </p>
             </div>
@@ -1023,7 +1106,7 @@ export default function MissionDashboardPage() {
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {/* Run — explicit user-controlled trigger */}
-            {isActive && !running && (
+            {(isActive || isScheduled) && !isRunQueuedOrRunning && (
               <button
                 type="button"
                 onClick={() => void triggerMission()}
@@ -1034,7 +1117,7 @@ export default function MissionDashboardPage() {
                 Run Now
               </button>
             )}
-            {isActive && running && (
+            {(isActive || isScheduled) && isRunQueuedOrRunning && (
               <div className="flex items-center justify-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.05] px-4 py-2.5 text-sm font-medium text-emerald-400/60">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                 Running…
@@ -1042,24 +1125,24 @@ export default function MissionDashboardPage() {
             )}
 
             {/* Pause / Resume — always shown when mission can be toggled */}
-            {!isStopped && !isCompleted && !isExhausted && (
+            {!isArchived && !isRunQueuedOrRunning && (
               <button
                 type="button"
                 onClick={() => void handleToggle()}
                 disabled={toggling}
                 className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition disabled:opacity-40 ${
-                  isActive
+                  isActive || isScheduled
                     ? 'border-white/[0.08] bg-white/[0.03] text-slate-300 hover:text-white'
                     : 'border-emerald-400/20 bg-emerald-500/[0.07] text-emerald-300 hover:text-white'
                 }`}
               >
-                {isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                {isActive || isNeedsReview ? 'Pause' : 'Resume'}
+                {isActive || isScheduled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {isActive || isScheduled ? 'Pause' : 'Resume'}
               </button>
             )}
 
             {/* Relaunch */}
-            {(isCompleted || isStopped || isExhausted) && (
+            {isArchived && (
               <button
                 type="button"
                 onClick={() => void handleRelaunch()}
@@ -1094,7 +1177,7 @@ export default function MissionDashboardPage() {
             )}
 
             {/* Stop — always shown when mission is running */}
-            {!isStopped && !isCompleted && !isExhausted && (
+            {!isArchived && !isRunQueuedOrRunning && (
               confirmStop ? (
                 <div className="col-span-2 flex items-center gap-2 sm:col-span-2">
                   <span className="text-xs text-slate-500">Stop permanently?</span>
@@ -1159,7 +1242,7 @@ export default function MissionDashboardPage() {
           </div>
 
           {/* Automation indicator */}
-          {isCompleted && mission.next_run_at && (
+          {(isActive || isScheduled || isCompleted || isPartial || isFailed) && mission.next_run_at && (
             <div className="flex items-center gap-3 rounded-xl border border-blue-400/15 bg-blue-500/[0.05] px-4 py-3">
               <Calendar className="h-4 w-4 shrink-0 text-blue-400/60" />
               <div className="flex-1 text-xs text-slate-500">
@@ -1199,11 +1282,11 @@ export default function MissionDashboardPage() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* MOBILE STICKY BOTTOM BAR (active mission quick actions)           */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {(isActive || isPaused || isNeedsReview) && (
+      {(isActive || isScheduled || isPaused) && (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/[0.06] bg-[rgba(8,12,24,0.92)] px-4 py-3 backdrop-blur-xl sm:hidden">
           <div className="mx-auto flex max-w-sm items-center justify-between gap-3">
             {/* Run button — explicit trigger, active missions only */}
-            {isActive && !running && (
+            {(isActive || isScheduled) && !isRunQueuedOrRunning && (
               <button
                 type="button"
                 onClick={() => void triggerMission()}
@@ -1214,7 +1297,7 @@ export default function MissionDashboardPage() {
                 Run
               </button>
             )}
-            {isActive && running && (
+            {(isActive || isScheduled) && isRunQueuedOrRunning && (
               <div className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.05] py-3 text-sm font-medium text-emerald-400/60">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                 Running…
@@ -1225,13 +1308,13 @@ export default function MissionDashboardPage() {
               onClick={() => void handleToggle()}
               disabled={toggling}
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition disabled:opacity-40 ${
-                isActive
+                isActive || isScheduled
                   ? 'border-amber-400/20 bg-amber-500/[0.08] text-amber-300'
                   : 'border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-300'
               }`}
             >
-              {isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {isActive ? 'Pause' : 'Resume'}
+              {isActive || isScheduled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {isActive || isScheduled ? 'Pause' : 'Resume'}
             </button>
             {displayedEmails > 0 && (
               <button

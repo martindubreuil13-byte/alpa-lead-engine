@@ -42,6 +42,7 @@ export async function GET(req: Request) {
       emailsRejectedResult,
       recentActivityResult,
       recentOutreachResult,
+      latestRunResult,
     ] = await Promise.all([
       supabase
         .from('agent_lead_queue')
@@ -85,17 +86,27 @@ export async function GET(req: Request) {
         .eq('mission_id', missionId)
         .order('created_at', { ascending: false })
         .limit(20),
+
+      supabase
+        .from('agent_mission_runs')
+        .select('*')
+        .eq('mission_id', missionId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
 
     return NextResponse.json({
       mission,
       leadsToday: leadsTodayResult.count ?? 0,
       totalLeads: totalLeadsResult.count ?? 0,
+      leads_count: totalLeadsResult.count ?? 0,
       emailsReady: emailsReadyResult.count ?? 0,
       emailsApproved: emailsApprovedResult.count ?? 0,
       emailsRejected: emailsRejectedResult.count ?? 0,
       recentActivity: recentActivityResult.data ?? [],
       recentOutreach: recentOutreachResult.data ?? [],
+      latestRun: latestRunResult.data ?? null,
     })
   } catch (err) {
     console.error('[mission-status]', err)

@@ -33,6 +33,7 @@ type Props = {
   missions: MissionCardData[]
   onCardClick: (id: string) => void
   onNewMission: () => void
+  onDeleteMission: (id: string) => Promise<void>
   highlightedMissionId?: string | null
 }
 
@@ -48,11 +49,13 @@ export const MissionCarousel = memo(function MissionCarousel({
   missions,
   onCardClick,
   onNewMission,
+  onDeleteMission,
   highlightedMissionId,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const clipRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
+  const deletingMissionIdsRef = useRef<Set<string>>(new Set())
 
   // ── Core scroll refs (never trigger re-render) ───────────────────────────
 
@@ -75,6 +78,13 @@ export const MissionCarousel = memo(function MissionCarousel({
   const dragStartOffsetRef = useRef(0)
   const velSamplesRef = useRef<{ x: number; t: number }[]>([])
   const velocityRef = useRef(0)          // px/ms — positive = rightward motion
+
+  // Document-level drag listeners (stored in refs so they can be removed)
+  // Using document listeners instead of setPointerCapture avoids the browser
+  // retargeting the subsequent click event to the capturing element — which was
+  // causing card clicks to fire on the clip div rather than on the card button.
+  const docMoveRef = useRef<((e: PointerEvent) => void) | null>(null)
+  const docUpRef = useRef<((e: PointerEvent) => void) | null>(null)
 
   // ── Virtual rendering state ──────────────────────────────────────────────
 
@@ -101,6 +111,22 @@ export const MissionCarousel = memo(function MissionCarousel({
     ro.observe(el)
     setContainerWidth(el.offsetWidth)
     return () => ro.disconnect()
+  }, [])
+
+  // ── Cleanup document listeners on unmount ────────────────────────────────
+
+  useEffect(() => {
+    return () => {
+      if (docMoveRef.current) {
+        document.removeEventListener('pointermove', docMoveRef.current)
+        docMoveRef.current = null
+      }
+      if (docUpRef.current) {
+        document.removeEventListener('pointerup', docUpRef.current)
+        document.removeEventListener('pointercancel', docUpRef.current)
+        docUpRef.current = null
+      }
+    }
   }, [])
 
   // ── Pure helpers (no state — used from RAF and event handlers) ───────────
@@ -146,6 +172,71 @@ export const MissionCarousel = memo(function MissionCarousel({
 
   function setCursor(c: string) {
     if (clipRef.current) clipRef.current.style.cursor = c
+  }
+
+  function setMissionDeletingState(id: string, deleting: boolean) {
+    const root = containerRef.current
+    if (!root) return
+
+    const escapedId =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(id)
+        : id
+
+    const cards = root.querySelectorAll<HTMLElement>(`[data-mission-card-id="${escapedId}"]`)
+    const buttons = root.querySelectorAll<HTMLButtonElement>(`[data-mission-delete-id="${escapedId}"]`)
+
+    cards.forEach((card) => {
+      card.style.opacity = deleting ? '0.55' : ''
+      card.style.pointerEvents = deleting ? 'none' : ''
+    })
+
+    buttons.forEach((button) => {
+      button.disabled = deleting
+      button.style.opacity = deleting ? '0.45' : ''
+      button.style.pointerEvents = deleting ? 'none' : ''
+    })
+  }
+
+  async function handleDeleteClick(
+    e: React.MouseEvent<HTMLButtonElement>,
+    missionId: string,
+  ) {
+    e.stopPropagation()
+
+    if (deletingMissionIdsRef.current.has(missionId)) return
+    if (!confirm('Delete this mission?')) return
+
+    deletingMissionIdsRef.current.add(missionId)
+    setMissionDeletingState(missionId, true)
+
+    try {
+      await onDeleteMission(missionId)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+
+      console.error('Mission delete failed:', error)
+      setMissionDeletingState(missionId, false)
+    } finally {
+      deletingMissionIdsRef.current.delete(missionId)
+      setMissionDeletingState(missionId, false)
+    }
+  }
+
+  // ── Remove document drag listeners ──────────────────────────────────────
+
+  function removeDragListeners() {
+    if (docMoveRef.current) {
+      document.removeEventListener('pointermove', docMoveRef.current)
+      docMoveRef.current = null
+    }
+    if (docUpRef.current) {
+      document.removeEventListener('pointerup', docUpRef.current)
+      document.removeEventListener('pointercancel', docUpRef.current)
+      docUpRef.current = null
+    }
   }
 
   // ── Main RAF loop ────────────────────────────────────────────────────────
@@ -227,6 +318,11 @@ export const MissionCarousel = memo(function MissionCarousel({
   }
 
   // ── Pointer event handlers ───────────────────────────────────────────────
+  // We use document-level listeners (not setPointerCapture) so that the
+  // click event is always dispatched to the actual element under the cursor.
+  // With setPointerCapture on the clip div, pointerup fires on the clip div
+  // and some browsers retarget the click to that element — the card button's
+  // onClick never fires because click bubbles up, not down to child buttons.
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     // Ignore non-primary mouse buttons
@@ -242,57 +338,65 @@ export const MissionCarousel = memo(function MissionCarousel({
     dragStartXRef.current = e.clientX
     dragStartOffsetRef.current = offsetRef.current
     velSamplesRef.current = [{ x: e.clientX, t: e.timeStamp }]
-
-    // Capture so pointermove/up fire even when cursor leaves the element
-    e.currentTarget.setPointerCapture(e.pointerId)
     setCursor('grabbing')
-  }
 
-  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current) return
+    // Remove any stale listeners from a prior interrupted drag
+    removeDragListeners()
 
-    const dx = e.clientX - dragStartXRef.current
+    const handleMove = (ev: PointerEvent) => {
+      if (!isDraggingRef.current) return
 
-    if (!didDragRef.current && Math.abs(dx) > DRAG_THRESHOLD_PX) {
-      didDragRef.current = true
+      const dx = ev.clientX - dragStartXRef.current
+
+      if (!didDragRef.current && Math.abs(dx) > DRAG_THRESHOLD_PX) {
+        didDragRef.current = true
+      }
+
+      offsetRef.current = dragStartOffsetRef.current + dx
+      normalizeOffset()
+      applyTransform()
+
+      // Keep only the last VEL_SAMPLE_MS worth of samples for release velocity
+      const now = ev.timeStamp
+      velSamplesRef.current.push({ x: ev.clientX, t: now })
+      velSamplesRef.current = velSamplesRef.current.filter((s) => now - s.t <= VEL_SAMPLE_MS)
     }
 
-    offsetRef.current = dragStartOffsetRef.current + dx
-    normalizeOffset()
-    applyTransform()
+    const handleUp = (_ev: PointerEvent) => {
+      isDraggingRef.current = false
+      setCursor('grab')
+      removeDragListeners()
 
-    // Keep only the last VEL_SAMPLE_MS worth of samples for release velocity
-    const now = e.timeStamp
-    velSamplesRef.current.push({ x: e.clientX, t: now })
-    velSamplesRef.current = velSamplesRef.current.filter((s) => now - s.t <= VEL_SAMPLE_MS)
-  }
+      // Compute release velocity from the recent sample window
+      const samples = velSamplesRef.current
+      let vx = 0
+      if (samples.length >= 2) {
+        const first = samples[0]
+        const last = samples[samples.length - 1]
+        const dt = last.t - first.t
+        if (dt > 0) vx = (last.x - first.x) / dt
+      }
 
-  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current) return
-    isDraggingRef.current = false
-    setCursor('grab')
+      velocityRef.current = vx
 
-    // Compute release velocity from the recent sample window
-    const samples = velSamplesRef.current
-    let vx = 0
-    if (samples.length >= 2) {
-      const first = samples[0]
-      const last = samples[samples.length - 1]
-      const dt = last.t - first.t
-      if (dt > 0) vx = (last.x - first.x) / dt
+      if (Math.abs(vx) > INERTIA_MIN_VX) {
+        inertiaRef.current = true
+        // scheduleResume() fires from inside the RAF loop once inertia settles
+      } else {
+        scheduleResume()
+      }
     }
 
-    velocityRef.current = vx
+    docMoveRef.current = handleMove
+    docUpRef.current = handleUp
 
-    if (Math.abs(vx) > INERTIA_MIN_VX) {
-      inertiaRef.current = true
-      // scheduleResume() fires from inside the RAF loop once inertia settles
-    } else {
-      scheduleResume()
-    }
+    document.addEventListener('pointermove', handleMove)
+    document.addEventListener('pointerup', handleUp)
+    document.addEventListener('pointercancel', handleUp)
   }
 
-  // Suppress card click events that follow a drag gesture
+  // Suppress card click events that follow a drag gesture.
+  // Runs in capture phase so it intercepts before the card button's onClick.
   function onClickCapture(e: React.MouseEvent) {
     if (didDragRef.current) {
       e.stopPropagation()
@@ -355,9 +459,6 @@ export const MissionCarousel = memo(function MissionCarousel({
           touchAction: 'pan-y',
         }}
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
         onClickCapture={onClickCapture}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -373,39 +474,91 @@ export const MissionCarousel = memo(function MissionCarousel({
             ...(isVirtual && { position: 'relative', width: loopWidth }),
           }}
         >
-          {isVirtual ? (
-            // Virtual mode — only render the visible window
-            Array.from({ length: virtualEndIdx - virtualStart }, (_, i) => {
-              const idx = virtualStart + i
-              const m = getVirtualItem(idx)
-              if (!m) return null
-              return (
-                <div
-                  key={m.id}
-                  style={{ position: 'absolute', left: idx * CARD_STRIDE, top: 0 }}
-                >
-                  <MissionCard
-                    mission={m}
-                    onClick={() => onCardClick(m.id)}
-                    highlighted={m.id === highlightedMissionId}
-                  />
-                </div>
-              )
-            })
-          ) : (
-            // Standard mode — duplicated array for seamless looping
-            displayMissions.map((m, i) => (
-              <MissionCard
-                key={`${m.id}-${i}`}
-                mission={m}
-                onClick={() => onCardClick(m.id)}
-                highlighted={m.id === highlightedMissionId}
-              />
-            ))
-          )}
+  {isVirtual ? (
+  // Virtual mode
+  Array.from({ length: virtualEndIdx - virtualStart }, (_, i) => {
+    const idx = virtualStart + i
+    const m = getVirtualItem(idx)
+    if (!m) return null
+    return (
+      <div
+        key={m.id}
+        data-mission-card-id={m.id}
+        style={{ position: 'absolute', left: idx * CARD_STRIDE, top: 0 }}
+      >
+        <div style={{ position: 'relative' }}>
+          <MissionCard
+            mission={m}
+            onClick={() => {
+              if (m.id) onCardClick(m.id)
+            }}
+            highlighted={m.id === highlightedMissionId}
+          />
 
-          {/* "New Mission" placeholder card — appended once in standard mode */}
-          {!isVirtual && <NewMissionCard onClick={onNewMission} />}
+          <button
+            type="button"
+            data-mission-delete-id={m.id}
+            onClick={(e) => void handleDeleteClick(e, m.id)}
+            style={{
+              position: 'absolute',
+              top: 6,
+              right: 6,
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              background: 'rgba(255,0,0,0.15)',
+              border: '1px solid rgba(255,0,0,0.3)',
+              color: 'rgba(255,255,255,0.7)',
+              fontSize: 10,
+              cursor: 'pointer',
+              zIndex: 10,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    )
+  })
+) : (
+  <>
+    {displayMissions.map((m, i) => (
+      <div key={`${m.id}-${i}`} data-mission-card-id={m.id} style={{ position: 'relative' }}>
+        <MissionCard
+          mission={m}
+          onClick={() => {
+            if (m.id) onCardClick(m.id)
+          }}
+          highlighted={m.id === highlightedMissionId}
+        />
+
+        <button
+          type="button"
+          data-mission-delete-id={m.id}
+          onClick={(e) => void handleDeleteClick(e, m.id)}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: 'rgba(255,0,0,0.15)',
+            border: '1px solid rgba(255,0,0,0.3)',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: 10,
+            cursor: 'pointer',
+            zIndex: 10,
+          }}
+        >
+          ×
+        </button>
+      </div>
+    ))}
+
+    <NewMissionCard onClick={onNewMission} />
+  </>
+)}
         </div>
       </div>
     </div>
@@ -413,7 +566,6 @@ export const MissionCarousel = memo(function MissionCarousel({
 })
 
 // ─── Arrow button ──────────────────────────────────────────────────────────────
-// Kept as a separate component so opacity transitions stay encapsulated.
 
 function ArrowButton({
   direction,

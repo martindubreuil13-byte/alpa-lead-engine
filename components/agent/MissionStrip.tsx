@@ -22,7 +22,7 @@ function stripTitle(m: MissionStripItem): string {
 
 function statusDot(status: string): string {
   if (status === 'active') return 'bg-emerald-400 animate-pulse'
-  if (status === 'needs_review') return 'bg-violet-400'
+  if (status === 'scheduled') return 'bg-blue-400'
   if (status === 'paused') return 'bg-amber-400'
   return 'bg-slate-500'
 }
@@ -64,7 +64,7 @@ export function MissionStrip({ missions, actioning, onToggle, onStop }: Props) {
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    disabled={busy || m.status === 'needs_review'}
+                    disabled={busy}
                     onClick={() => onToggle(m)}
                     title={isActive ? 'Pause' : 'Resume'}
                     className="flex h-5 w-5 items-center justify-center rounded-md border border-white/[0.07] text-slate-500 transition hover:border-white/12 hover:text-slate-300 disabled:opacity-30"

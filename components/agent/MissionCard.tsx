@@ -24,12 +24,9 @@ type Props = {
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string }> = {
   active:       { dot: '#34d399', label: 'Active'       },
-  running:      { dot: '#34d399', label: 'Running'      },
-  needs_review: { dot: '#a78bfa', label: 'Review ready' },
+  scheduled:    { dot: '#60a5fa', label: 'Scheduled'    },
   paused:       { dot: '#fbbf24', label: 'Paused'       },
-  exhausted:    { dot: '#fb923c', label: 'Exhausted'    },
-  completed:    { dot: '#94a3b8', label: 'Completed'    },
-  stopped:      { dot: '#475569', label: 'Stopped'      },
+  archived:     { dot: '#475569', label: 'Archived'     },
 }
 
 function cardTitle(m: MissionCardData): string {
@@ -51,9 +48,9 @@ function relativeTime(iso: string | null | undefined, fallback: string): string 
 
 export const MissionCard = memo(function MissionCard({ mission, onClick, highlighted = false }: Props) {
   const cfg = STATUS_CONFIG[mission.status] ?? { dot: '#64748b', label: mission.status }
-  const isActive = mission.status === 'active' || mission.status === 'running'
+  const isActive = mission.status === 'active'
   const isPaused = mission.status === 'paused'
-  const isStopped = mission.status === 'stopped'
+  const isArchived = mission.status === 'archived'
 
   // All visual state is CSS-driven — no JS animation loops.
   const edgeShadow =
@@ -82,7 +79,7 @@ export const MissionCard = memo(function MissionCard({ mission, onClick, highlig
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         boxShadow: edgeShadow,
-        opacity: isStopped ? 0.42 : isPaused ? 0.68 : 1,
+        opacity: isArchived ? 0.42 : isPaused ? 0.68 : 1,
         // GPU-safe transitions only — no box-shadow, no blur animation
         transform: highlighted ? 'scale(1.02)' : 'scale(1)',
         transition: 'transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease',

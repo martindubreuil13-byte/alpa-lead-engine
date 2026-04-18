@@ -21,7 +21,7 @@ type MissionRow = {
   location_input: string | null
   location: string
   created_at: string
-  completed_at: string | null
+  last_run_at: string | null
   next_run_at: string | null
   leadsToday: number
   totalLeads: number
@@ -48,30 +48,26 @@ function relativeDate(iso: string | null): string {
 }
 
 const STATUS_GROUPS = {
-  live: ['active', 'needs_review'],
+  live: ['active', 'scheduled'],
   paused: ['paused'],
-  inactive: ['completed', 'stopped', 'exhausted'],
+  inactive: ['archived'],
 }
 
 type StatusBadgeProps = { status: string }
 function StatusBadge({ status }: StatusBadgeProps) {
   const map: Record<string, { label: string; cls: string }> = {
     active:        { label: 'Active',        cls: 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300' },
-    needs_review:  { label: 'Review Ready',  cls: 'border-violet-400/25 bg-violet-500/10 text-violet-300' },
+    scheduled:     { label: 'Scheduled',     cls: 'border-blue-400/20 bg-blue-500/10 text-blue-300' },
     paused:        { label: 'Paused',         cls: 'border-amber-400/20 bg-amber-500/10 text-amber-300' },
-    completed:     { label: 'Complete',       cls: 'border-blue-400/20 bg-blue-500/10 text-blue-300' },
-    stopped:       { label: 'Stopped',        cls: 'border-slate-600/30 bg-slate-500/10 text-slate-500' },
-    exhausted:     { label: 'Exhausted',      cls: 'border-orange-400/20 bg-orange-500/10 text-orange-300' },
+    archived:      { label: 'Archived',      cls: 'border-slate-600/30 bg-slate-500/10 text-slate-500' },
   }
   const cfg = map[status] ?? { label: status, cls: 'border-white/10 bg-white/[0.04] text-slate-400' }
 
   const dotMap: Record<string, string> = {
     active:       'bg-emerald-400 animate-pulse',
-    needs_review: 'bg-violet-400 animate-pulse',
+    scheduled:    'bg-blue-400',
     paused:       'bg-amber-400',
-    completed:    'bg-blue-400',
-    stopped:      'bg-slate-600',
-    exhausted:    'bg-orange-400',
+    archived:     'bg-slate-600',
   }
 
   return (
@@ -106,9 +102,9 @@ export default function MissionsListPage() {
 
     const { data: rawMissions } = await supabase
       .from('agent_missions')
-      .select('id, name, status, daily_target, audience_input, location_input, location, created_at, completed_at, next_run_at')
+      .select('id, name, status, daily_target, audience_input, location_input, location, created_at, last_run_at, next_run_at')
       .eq('user_id', userId)
-      .not('status', 'in', '("draft","deleted")')
+      .neq('status', 'draft')
       .order('created_at', { ascending: false })
 
     const valid = (rawMissions ?? []).filter((m) => m.id && m.status)
@@ -184,7 +180,10 @@ export default function MissionsListPage() {
 
   async function handleToggle(m: MissionRow) {
     if (actioning === m.id) return
-    const newStatus = m.status === 'active' ? 'paused' : 'active'
+    const newStatus =
+      m.status === 'active' || m.status === 'scheduled'
+        ? 'paused'
+        : 'active'
     setActioning(m.id)
     try {
       await doUpdate(m.id, { status: newStatus })
@@ -199,8 +198,8 @@ export default function MissionsListPage() {
     setActioning(m.id)
     setConfirmStop(null)
     try {
-      await doUpdate(m.id, { status: 'stopped' })
-      setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'stopped' } : x)))
+      await doUpdate(m.id, { status: 'archived' })
+      setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'archived' } : x)))
     } finally {
       setActioning(null)
     }
@@ -210,7 +209,7 @@ export default function MissionsListPage() {
     if (actioning === m.id) return
     setActioning(m.id)
     try {
-      await doUpdate(m.id, { status: 'active', next_run_at: null })
+      await doUpdate(m.id, { status: 'active', next_run_at: new Date().toISOString() })
       setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'active' } : x)))
       router.push(`/agent/dashboard/${m.id}`)
     } finally {
@@ -222,13 +221,23 @@ export default function MissionsListPage() {
     if (actioning === m.id) return
     setActioning(m.id)
     setConfirmDelete(null)
+    // Optimistic remove — UI responds immediately
+    setMissions((prev) => prev.filter((x) => x.id !== m.id))
     try {
-      await fetch('/api/agent/missions/delete', {
+      const res = await fetch('/api/agent/missions/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: m.id }),
       })
-      setMissions((prev) => prev.filter((x) => x.id !== m.id))
+      if (res.ok) {
+        // Refetch to confirm DB state matches
+        void fetchMissions()
+      } else {
+        // Revert optimistic remove on failure
+        void fetchMissions()
+      }
+    } catch {
+      void fetchMissions()
     } finally {
       setActioning(null)
     }
@@ -437,15 +446,14 @@ function MissionCard({
   onCancelDelete,
 }: CardProps) {
   const isActive = m.status === 'active'
+  const isScheduled = m.status === 'scheduled'
   const isPaused = m.status === 'paused'
-  const isNeedsReview = m.status === 'needs_review'
-  const isStopped = m.status === 'stopped' || m.status === 'exhausted'
-  const isCompleted = m.status === 'completed'
-  const canToggle = isActive || isPaused
-  const canRelaunch = isStopped || isCompleted
+  const isArchived = m.status === 'archived'
+  const canToggle = isActive || isPaused || isScheduled
+  const canRelaunch = isArchived
 
   const progress = Math.min(100, Math.round((m.leadsToday / Math.max(1, m.daily_target)) * 100))
-  const lastRunStr = relativeDate(m.completed_at ?? m.created_at)
+  const lastRunStr = relativeDate(m.last_run_at ?? m.created_at)
 
   return (
     <div
@@ -482,7 +490,7 @@ function MissionCard({
           </div>
 
           {/* Progress (only for active/paused) */}
-          {(isActive || isPaused || isNeedsReview) && (
+          {(isActive || isPaused || isScheduled) && (
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,#3b82f6,#818cf8)] transition-all duration-700"
@@ -566,7 +574,7 @@ function MissionCard({
           )}
 
           {/* Delete for inactive */}
-          {!isActive && (
+          {isArchived && (
             confirmDelete ? (
               <div className="flex items-center gap-1">
                 <button

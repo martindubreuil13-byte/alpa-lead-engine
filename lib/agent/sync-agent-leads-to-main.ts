@@ -1,9 +1,11 @@
 import { createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { Database } from '@/lib/supabase/types'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createServerClient>>
+type SupabaseAdminClient = ReturnType<typeof createAdminClient>
 type SyncAgentLeadsParams = {
-  supabase: SupabaseServerClient
+  supabase: SupabaseServerClient | SupabaseAdminClient | any
   userId: string
   missionId: string
 }
@@ -62,13 +64,13 @@ export async function syncAgentLeadsToMain({
     const existingEmails = new Set(
       (existingLeads || [])
         .map((lead: ExistingLeadRow) => normalizeEmail(lead.email))
-        .filter((value): value is string => Boolean(value))
+        .filter((value: string | null): value is string => Boolean(value))
     )
 
     const existingDomains = new Set(
       (existingLeads || [])
         .map((lead: ExistingLeadRow) => normalizeDomain(lead.website))
-        .filter((value): value is string => Boolean(value))
+        .filter((value: string | null): value is string => Boolean(value))
     )
 
     const pendingEmails = new Set<string>()

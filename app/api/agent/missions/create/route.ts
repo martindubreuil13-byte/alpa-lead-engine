@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { normalizeScheduleTime } from '@/lib/agent/schedule'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -14,6 +15,8 @@ export async function POST(req: Request) {
       require_phone,
       require_website,
       location,
+      schedule_timezone,
+      schedule_local_time,
     } = await req.json()
 
     if (!icp_id) {
@@ -44,6 +47,10 @@ export async function POST(req: Request) {
         location: typeof location === 'string' && location.trim() ? location.trim() : 'Global',
         status: 'draft',
         outreach_mode: 'draft_only',
+        schedule_timezone: typeof schedule_timezone === 'string' && schedule_timezone.trim() ? schedule_timezone.trim() : 'UTC',
+        schedule_local_time: normalizeScheduleTime(
+          typeof schedule_local_time === 'string' ? schedule_local_time : '09:00'
+        ),
       })
       .select()
       .single()

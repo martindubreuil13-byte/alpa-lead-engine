@@ -210,9 +210,17 @@ export interface Database {
           cta: string | null;
           send_window: string | null;
           sender_signature: string | null;
+          schedule_timezone: string;
+          schedule_local_time: string;
+          starts_at: string | null;
+          last_run_at: string | null;
+          last_run_status: string | null;
+          last_stop_reason: string | null;
+          rotation_cursor: number;
           completed_at: string | null;
           next_run_at: string | null;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
           id?: string;
@@ -237,11 +245,110 @@ export interface Database {
           cta?: string | null;
           send_window?: string | null;
           sender_signature?: string | null;
+          schedule_timezone?: string;
+          schedule_local_time?: string;
+          starts_at?: string | null;
+          last_run_at?: string | null;
+          last_run_status?: string | null;
+          last_stop_reason?: string | null;
+          rotation_cursor?: number;
           completed_at?: string | null;
           next_run_at?: string | null;
           created_at?: string;
+          updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["agent_missions"]["Insert"]>;
+      };
+      agent_mission_icps: {
+        Row: {
+          id: string;
+          user_id: string;
+          mission_id: string;
+          label: string;
+          query: string | null;
+          position: number;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          mission_id: string;
+          label: string;
+          query?: string | null;
+          position?: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_mission_icps"]["Insert"]>;
+      };
+      agent_mission_runs: {
+        Row: {
+          id: string;
+          user_id: string;
+          mission_id: string;
+          status: string;
+          trigger_type: string;
+          scheduled_for: string | null;
+          started_at: string | null;
+          finished_at: string | null;
+          requested_leads: number;
+          discovered_count: number;
+          accepted_count: number;
+          email_count: number;
+          deduped_count: number;
+          drafts_generated_count: number;
+          stop_reason: string | null;
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          mission_id: string;
+          status?: string;
+          trigger_type?: string;
+          scheduled_for?: string | null;
+          started_at?: string | null;
+          finished_at?: string | null;
+          requested_leads?: number;
+          discovered_count?: number;
+          accepted_count?: number;
+          email_count?: number;
+          deduped_count?: number;
+          drafts_generated_count?: number;
+          stop_reason?: string | null;
+          error_message?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_mission_runs"]["Insert"]>;
+      };
+      agent_mission_run_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          mission_id: string;
+          run_id: string;
+          level: string;
+          message: string;
+          meta: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          mission_id: string;
+          run_id: string;
+          level?: string;
+          message: string;
+          meta?: Json | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["agent_mission_run_logs"]["Insert"]>;
       };
       agent_lead_queue: {
         Row: {
@@ -249,11 +356,17 @@ export interface Database {
           user_id: string;
           mission_id: string;
           icp_id: string;
+          run_id: string | null;
           business_name: string | null;
           website: string | null;
           email: string | null;
           phone: string | null;
           location: string | null;
+          normalized_business_name: string | null;
+          normalized_location: string | null;
+          normalized_domain: string | null;
+          normalized_phone: string | null;
+          normalized_website: string | null;
           qualification_status: string;
           context_status: string;
           draft_status: string;
@@ -266,11 +379,17 @@ export interface Database {
           user_id?: string;
           mission_id: string;
           icp_id: string;
+          run_id?: string | null;
           business_name?: string | null;
           website?: string | null;
           email?: string | null;
           phone?: string | null;
           location?: string | null;
+          normalized_business_name?: string | null;
+          normalized_location?: string | null;
+          normalized_domain?: string | null;
+          normalized_phone?: string | null;
+          normalized_website?: string | null;
           qualification_status?: string;
           context_status?: string;
           draft_status?: string;
@@ -360,6 +479,7 @@ export interface Database {
           id: string;
           user_id: string;
           lead_id: string | null;
+          run_id: string | null;
           source: string;
           mission_id: string | null;
           company_name: string | null;
@@ -389,6 +509,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           lead_id?: string | null;
+          run_id?: string | null;
           source?: string;
           mission_id?: string | null;
           company_name?: string | null;

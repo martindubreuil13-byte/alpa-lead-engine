@@ -18,18 +18,17 @@ function nodeTitle(m: NodeMission): string {
 }
 
 function nodeStat(m: NodeMission): string {
-  if (m.status === 'needs_review') return 'review ready'
+  if (m.status === 'scheduled') return 'scheduled'
   if (m.status === 'paused') return 'paused'
-  if (m.status === 'exhausted') return 'exhausted'
+  if (m.status === 'archived') return 'archived'
   if (m.leadsToday > 0) return `${m.leadsToday} lead${m.leadsToday !== 1 ? 's' : ''} today`
   return 'scanning…'
 }
 
 function dotColor(status: string): string {
   if (status === 'active') return 'bg-emerald-400'
-  if (status === 'needs_review') return 'bg-violet-400'
+  if (status === 'scheduled') return 'bg-blue-400'
   if (status === 'paused') return 'bg-amber-400'
-  if (status === 'exhausted') return 'bg-orange-400'
   return 'bg-slate-500'
 }
 

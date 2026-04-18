@@ -27,17 +27,16 @@ type AgentEvent = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_ORDER: Record<string, number> = {
-  needs_review: 0,
-  active: 1,
-  running: 2,
-  paused: 3,
-  completed: 4,
-  stopped: 5,
-  exhausted: 6,
+  active: 0,
+  scheduled: 1,
+  paused: 2,
+  archived: 3,
 }
 
 const IS_DEV = process.env.NODE_ENV === 'development'
-const LOAD_TIMEOUT_MS = 3000
+// Timeout that starts only AFTER profile resolves and a fetch is in-flight.
+// 3 s was too short: profileLoading itself can take 1-2 s before any fetch begins.
+const FETCH_TIMEOUT_MS = 10_000
 const POLL_INTERVAL_MS = 30_000   // re-fetch every 30s to detect new leads
 
 /** Core diameter — 25 % smaller than original. */
@@ -55,9 +54,7 @@ function computeCoreLabel(
 ): string {
   if (newLeadActive) return 'New match found'
   if (missions.length === 0) return 'No missions yet'
-  const active = missions.filter(
-    (m) => m.status === 'active' || m.status === 'running',
-  ).length
+  const active = missions.filter((m) => m.status === 'active' || m.status === 'scheduled').length
   if (active === 0) return 'All missions paused'
   if (active === 1) return 'Running 1 mission'
   return `Running ${active} missions`
@@ -152,6 +149,7 @@ export default function AgentCorePage() {
   const prevStatusesRef = useRef<Map<string, string>>(new Map())
 
   const didRedirect = useRef(false)
+  const deletingMissionIdsRef = useRef<Set<string>>(new Set())
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const newLeadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -171,21 +169,6 @@ export default function AgentCorePage() {
       router.replace('/dashboard')
     }
   }, [profile, profileLoading, router])
-
-  // ── Safety timeout ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!loading) {
-      if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
-      return
-    }
-    loadTimerRef.current = setTimeout(() => {
-      console.warn('[agent] loading timeout — failing open')
-      setLoading(false)
-    }, LOAD_TIMEOUT_MS)
-    return () => {
-      if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
-    }
-  }, [loading])
 
   // ── Event emission ────────────────────────────────────────────────────────
 
@@ -299,13 +282,13 @@ export default function AgentCorePage() {
           if (
             prevStatus !== undefined &&
             prevStatus !== 'active' &&
-            (m.status === 'active' || m.status === 'running')
+            (m.status === 'active' || m.status === 'scheduled')
           ) {
             emitEvent({ type: 'mission_started', missionId: m.id, timestamp: Date.now() })
           }
           if (
             prevStatus !== undefined &&
-            (prevStatus === 'active' || prevStatus === 'running') &&
+            (prevStatus === 'active' || prevStatus === 'scheduled') &&
             m.status === 'paused'
           ) {
             emitEvent({ type: 'mission_paused', missionId: m.id, timestamp: Date.now() })
@@ -322,26 +305,42 @@ export default function AgentCorePage() {
         console.warn('[agent] fetchMissions exception:', err)
         if (!isSilentPoll) setFetchError(true)
       } finally {
-        if (!isSilentPoll) setLoading(false)
+        if (!isSilentPoll) {
+          // Cancel the safety timeout so it never fires after data arrives
+          if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
+          setLoading(false)
+        }
       }
     },
     [emitEvent],
   )
 
   // ── Initial fetch + polling ───────────────────────────────────────────────
+  // Waits for profileLoading to resolve before touching loading state or fetching.
+  // Safety timeout starts HERE — after we know a fetch is actually in-flight.
   useEffect(() => {
-    if (!profileLoading && profile && isAdmin(profile)) {
-      void fetchMissions(false)
+    if (profileLoading) return  // not ready yet — don't start any timers
 
-      // Silent background poll every 30s
-      pollTimerRef.current = setInterval(
-        () => void fetchMissions(true),
-        POLL_INTERVAL_MS,
-      )
-    } else if (!profileLoading && !profile) {
+    if (!profile || !isAdmin(profile)) {
       setLoading(false)
+      return
     }
+
+    // Safety net: if the fetch hasn't finished after FETCH_TIMEOUT_MS, fail open
+    loadTimerRef.current = setTimeout(() => {
+      console.warn('[agent] fetch timeout — failing open')
+      setLoading(false)
+    }, FETCH_TIMEOUT_MS)
+
+    void fetchMissions(false)
+
+    pollTimerRef.current = setInterval(
+      () => void fetchMissions(true),
+      POLL_INTERVAL_MS,
+    )
+
     return () => {
+      if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
     }
   }, [profileLoading, profile, fetchMissions])
@@ -349,27 +348,53 @@ export default function AgentCorePage() {
   // ── Auto-redirect: single active + only non-terminal mission ─────────────
   useEffect(() => {
     if (loading || didRedirect.current || missions.length === 0) return
-    const active = missions.filter((m) => m.status === 'active')
-    const nonTerminal = missions.filter(
-      (m) => !['stopped', 'completed', 'exhausted'].includes(m.status),
-    )
+    const active = missions.filter((m) => m.status === 'active' || m.status === 'scheduled')
+    const nonTerminal = missions.filter((m) => m.status !== 'archived')
     if (active.length === 1 && nonTerminal.length === 1) {
       didRedirect.current = true
       router.replace(`/agent/dashboard/${active[0].id}`)
     }
   }, [loading, missions, router])
 
-  function handleRetry() {
-    setFetchError(false)
-    setFetchErrorDismissed(false)
-    setLoading(true)
-    void fetchMissions(false)
+function handleRetry() {
+  setFetchError(false)
+  setFetchErrorDismissed(false)
+  setLoading(true)
+  void fetchMissions(false)
+}
+
+async function handleDeleteMission(id: string) {
+  if (deletingMissionIdsRef.current.has(id)) return
+
+  deletingMissionIdsRef.current.add(id)
+
+  // optimistic UI update
+  setMissions((prev) => prev.filter((m) => m.id !== id))
+
+  try {
+    const res = await fetch('/api/agent/missions/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+
+    if (!res.ok) throw new Error('Delete failed')
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return
+    }
+
+    console.error('Delete failed:', err)
+    await fetchMissions(false)
+  } finally {
+    deletingMissionIdsRef.current.delete(id)
   }
+}
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const carouselMissions = missions.filter(
-    (m) => !['stopped', 'completed'].includes(m.status),
+    (m) => m.status !== 'archived',
   )
 
   const coreLabel = computeCoreLabel(missions, newLeadActive)
@@ -504,12 +529,17 @@ export default function AgentCorePage() {
                 >
                   Active Missions
                 </p>
-                <MissionCarousel
-                  missions={carouselMissions}
-                  onCardClick={(id) => router.push(`/agent/dashboard/${id}`)}
-                  onNewMission={() => router.push('/agent/setup')}
-                  highlightedMissionId={highlightedMissionId}
-                />
+  <MissionCarousel
+  missions={carouselMissions}
+  onCardClick={(id) => {
+    console.log('[agent] card clicked:', id)
+    router.push(`/agent/dashboard/${id}`)
+  }}
+  onDeleteMission={handleDeleteMission}
+  onNewMission={() => router.push('/agent/setup')}
+  highlightedMissionId={highlightedMissionId}
+/>
+
               </div>
             )}
           </>

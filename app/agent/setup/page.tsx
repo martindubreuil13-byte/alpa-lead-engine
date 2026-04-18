@@ -31,6 +31,12 @@ const THINKING_LINES = [
 
 const TARGET_OPTIONS = [10, 25, 50]
 
+function buildDefaultStartAtLocal() {
+  const base = new Date(Date.now() + 60 * 60 * 1000)
+  base.setSeconds(0, 0)
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}T${String(base.getHours()).padStart(2, '0')}:${String(base.getMinutes()).padStart(2, '0')}`
+}
+
 export default function AgentSetupPage() {
   const router = useRouter()
 
@@ -42,6 +48,9 @@ export default function AgentSetupPage() {
   const [customTarget, setCustomTarget] = useState('')
   const [cta, setCta] = useState('')
   const [senderSignature, setSenderSignature] = useState('')
+  const [startMode, setStartMode] = useState<'now' | 'later'>('now')
+  const [startAtLocal, setStartAtLocal] = useState(buildDefaultStartAtLocal)
+  const [scheduleTimezone, setScheduleTimezone] = useState('UTC')
   const [thinkingIndex, setThinkingIndex] = useState(0)
   const [expanded, setExpanded] = useState<ExpandedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +63,13 @@ export default function AgentSetupPage() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isCustomTarget = !TARGET_OPTIONS.includes(dailyTarget)
+
+  useEffect(() => {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (detected) setScheduleTimezone(detected)
+    } catch {}
+  }, [])
 
   // Thinking ticker
   useEffect(() => {
@@ -156,25 +172,42 @@ export default function AgentSetupPage() {
           daily_target: dailyTarget,
           cta: cta.trim(),
           sender_signature: senderSignature.trim() || null,
+          start_mode: startMode,
+          start_at_local: startMode === 'later' ? startAtLocal : null,
+          schedule_timezone: scheduleTimezone,
+          schedule_local_time: startMode === 'later' ? startAtLocal.split('T')[1] || null : null,
         }),
       })
 
       const data = await res.json()
       if (!res.ok || !data.missionId) {
-        setError("Couldn't create your mission. Please try again.")
+        const isDev = process.env.NODE_ENV !== 'production'
+        const devDetail = isDev && data.details ? ` (${data.error}: ${data.details})` : ''
+        setError(`Couldn't create your mission. Please try again.${devDetail}`)
         setStep('icp')
         return
       }
 
       await new Promise((r) => setTimeout(r, 800))
       router.push(`/agent/dashboard/${data.missionId}`)
-    } catch {
-      setError("Couldn't create your mission. Please try again.")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setError(
+        process.env.NODE_ENV !== 'production'
+          ? `Connection error: ${msg}`
+          : "Couldn't create your mission. Please try again.",
+      )
       setStep('icp')
     }
   }
 
-  const canSubmit = offer.trim() && audience.trim() && location.trim() && cta.trim() && dailyTarget > 0
+  const canSubmit =
+    offer.trim() &&
+    audience.trim() &&
+    location.trim() &&
+    cta.trim() &&
+    dailyTarget > 0 &&
+    (startMode === 'now' || Boolean(startAtLocal))
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -310,6 +343,54 @@ export default function AgentSetupPage() {
                   />
                 </div>
 
+                {/* Schedule */}
+                <div className="border-b border-white/[0.06] p-5 space-y-3">
+                  <label className="block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                    Schedule
+                  </label>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStartMode('now')}
+                      className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                        startMode === 'now'
+                          ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                          : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:border-white/20 hover:text-slate-200'
+                      }`}
+                    >
+                      Start now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStartMode('later')}
+                      className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                        startMode === 'later'
+                          ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                          : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:border-white/20 hover:text-slate-200'
+                      }`}
+                    >
+                      Start later
+                    </button>
+                  </div>
+
+                  {startMode === 'later' && (
+                    <input
+                      type="datetime-local"
+                      value={startAtLocal}
+                      onChange={(e) => setStartAtLocal(e.target.value)}
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none transition hover:border-white/20 focus:border-blue-400/30"
+                    />
+                  )}
+
+                  <p className="text-xs text-slate-600">
+                    Timezone: {scheduleTimezone}
+                    {startMode === 'now'
+                      ? ' • recurring runs will keep this local time'
+                      : ' • recurring runs will follow this local time every day'}
+                  </p>
+                </div>
+
                 {/* Signature (optional) */}
                 <div className="p-5">
                   <div className="mb-2 flex items-center gap-2">
@@ -388,6 +469,13 @@ export default function AgentSetupPage() {
                   { label: 'For', value: audience },
                   { label: 'Where', value: location },
                   { label: 'Target', value: `${dailyTarget} leads/day` },
+                  {
+                    label: 'Start',
+                    value:
+                      startMode === 'now'
+                        ? `Now • ${scheduleTimezone}`
+                        : `${new Date(startAtLocal).toLocaleString()} • ${scheduleTimezone}`,
+                  },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-start gap-3 text-sm">
                     <span className="w-12 shrink-0 text-slate-600">{label}</span>
@@ -523,7 +611,7 @@ export default function AgentSetupPage() {
               <div className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
                 <Target className="h-4 w-4 shrink-0 text-slate-600" />
                 <p className="text-xs text-slate-500">
-                  {dailyTarget} leads/day · CTA: {cta.length > 40 ? cta.slice(0, 40) + '...' : cta}
+                  {dailyTarget} leads/day · {startMode === 'now' ? 'starts now' : 'starts later'} · CTA: {cta.length > 40 ? cta.slice(0, 40) + '...' : cta}
                 </p>
               </div>
 
