@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 
-const ALLOWED_STATUSES = ['active', 'paused', 'completed', 'stopped', 'needs_review', 'exhausted']
+const ALLOWED_STATUSES = ['active', 'paused', 'completed', 'stopped', 'needs_review', 'exhausted', 'running']
 const ALLOWED_FIELDS = [
   'daily_target',
   'cta',

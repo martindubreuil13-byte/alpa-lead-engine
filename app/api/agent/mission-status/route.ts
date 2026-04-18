@@ -14,14 +14,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'MISSING_MISSION_ID' }, { status: 400 })
     }
 
-    console.log('MISSION STATUS FETCH', { missionId })
-
     const supabase = await createServerClient()
     const { userId, error: adminError } = await requireAdmin(supabase)
     if (adminError) return adminError
-
-    console.log('AUTH USER:', userId)
-    console.log('MISSION QUERY:', { missionId, userId })
 
     const { data: mission, error: missionError } = await supabase
       .from('agent_missions')
@@ -29,9 +24,6 @@ export async function GET(req: Request) {
       .eq('id', missionId)
       .eq('user_id', userId)
       .maybeSingle()
-
-    console.log('MISSION RESULT:', mission)
-    console.log('MISSION ERROR:', missionError)
 
     if (missionError || !mission) {
       console.error('[mission-status] not found:', { missionId, userId, missionError })

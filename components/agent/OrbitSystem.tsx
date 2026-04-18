@@ -12,12 +12,13 @@ type Sizes = {
   nodeH: number
 }
 
-const ORBIT_DURATIONS = [48, 54, 44, 58, 50] // seconds, one per slot (max 5)
+// Slower, more contemplative durations (ease-in-out feel via desync)
+const ORBIT_DURATIONS = [58, 66, 54, 72, 62] // seconds per slot (max 5)
 
 function computeSizes(w: number): Sizes {
-  if (w < 640) return { core: 220, orbit: 148, nodeW: 130, nodeH: 44 }
-  if (w < 1024) return { core: 280, orbit: 195, nodeW: 148, nodeH: 44 }
-  return { core: 340, orbit: 238, nodeW: 164, nodeH: 44 }
+  if (w < 640) return { core: 252, orbit: 168, nodeW: 162, nodeH: 48 }
+  if (w < 1024) return { core: 322, orbit: 218, nodeW: 184, nodeH: 48 }
+  return { core: 390, orbit: 268, nodeW: 205, nodeH: 48 }
 }
 
 type Props = {
@@ -40,11 +41,12 @@ export function OrbitSystem({ missions, onNodeClick }: Props) {
   const N = visibleMissions.length
   const { core, orbit, nodeW, nodeH } = sizes
 
-  // Core status
-  const coreStatus =
-    missions.some((m) => m.status === 'active') ? 'running'
-    : missions.some((m) => ['paused', 'needs_review'].includes(m.status)) ? 'paused'
-    : 'idle'
+  // Core label (legacy — OrbitSystem is no longer used in the app)
+  const activeCount = missions.filter((m) => m.status === 'active').length
+  const coreLabel =
+    activeCount === 0 ? 'All missions paused'
+    : activeCount === 1 ? 'Running 1 mission'
+    : `Running ${activeCount} missions`
 
   return (
     // Full-area container — orbit is positioned absolutely from center
@@ -58,7 +60,7 @@ export function OrbitSystem({ missions, onNodeClick }: Props) {
           transform: `translate(-50%, -50%)`,
         }}
       >
-        <Core size={core} status={coreStatus} />
+        <Core size={core} label={coreLabel} pulseKey={0} />
       </div>
 
       {/* Orbit nodes */}

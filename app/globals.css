@@ -350,62 +350,39 @@ body {
 
 /* ── AI Core System ──────────────────────────────────────────────────────────── */
 
+/* Slow breathe — GPU-safe transform only, 5s loop */
 @keyframes ai-core-breathe {
-  0%, 100% { scale: 1; }
-  50% { scale: 1.04; }
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.025); }
 }
 
+/* Glow layer — opacity only */
 @keyframes ai-core-glow {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  0%, 100% { opacity: 0.45; }
+  50%       { opacity: 0.80; }
 }
 
-@keyframes ai-orbit-cw {
-  from { rotate: 0deg; }
-  to { rotate: 360deg; }
-}
-
-@keyframes ai-orbit-ccw {
-  from { rotate: 0deg; }
-  to { rotate: -360deg; }
-}
-
-@keyframes ai-node-float {
-  0%, 100% { translate: 0 0px; }
-  50% { translate: 0 -4px; }
-}
-
-@keyframes ai-log-rise {
-  0%   { opacity: 0; transform: translateY(0px); }
-  15%  { opacity: 1; }
-  75%  { opacity: 1; transform: translateY(-6px); }
-  100% { opacity: 0; transform: translateY(-22px); }
-}
-
-@keyframes ai-pulse-ring {
-  0%   { opacity: 0.45; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0;    transform: translate(-50%, -50%) scale(2.4); }
+/* Event pulse overlay — fired imperatively via JS */
+@keyframes ai-edge-pulse {
+  0%   { opacity: 0.85; transform: translate(-50%, -50%) scale(1);    }
+  100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.10); }
 }
 
 .ai-core-breathe {
-  animation: ai-core-breathe 3.2s ease-in-out infinite;
-  will-change: scale;
+  animation: ai-core-breathe 5s ease-in-out infinite;
+  will-change: transform;
 }
 .ai-core-glow {
-  animation: ai-core-glow 3.2s ease-in-out infinite;
+  animation: ai-core-glow 5s ease-in-out infinite;
   will-change: opacity;
 }
-.ai-node-float {
-  animation: ai-node-float 3.4s ease-in-out infinite;
-  will-change: translate;
+
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.ai-log-rise {
-  animation: ai-log-rise 2.6s ease-out forwards;
-  will-change: opacity, transform;
-}
-.ai-pulse-ring {
-  animation: ai-pulse-ring 1.4s ease-out forwards;
-  will-change: opacity, transform;
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 input:-webkit-autofill,

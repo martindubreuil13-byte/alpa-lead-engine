@@ -385,7 +385,7 @@ async function markCompleted(
     })
     .eq('id', missionId)
     .eq('user_id', userId)
-    .in('status', ['active', 'needs_review'])
+    .in('status', ['active', 'needs_review', 'running'])
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -428,8 +428,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    // Execution guard: only run if active, or if completed and next_run_at has passed
     const now = new Date()
+
+    // Guard 1: already running — block duplicate (pipeline is in-flight)
+    if (mission.status === 'running') {
+      console.log('[run-mission] blocked — pipeline already running', { missionId })
+      return NextResponse.json({ success: true, status: 'already_running' })
+    }
+
+    // Guard 2: only run if active, or if completed and next_run_at has passed
     const isScheduledRun =
       mission.status === 'completed' &&
       !!mission.next_run_at &&
@@ -440,6 +447,16 @@ export async function POST(req: Request) {
         { error: 'MISSION_NOT_ACTIVE', status: mission.status },
         { status: 200 }
       )
+    }
+
+    // Guard 3: active but next_run_at is still in the future — wait for scheduled slot
+    if (mission.status === 'active' && mission.next_run_at && now < new Date(mission.next_run_at)) {
+      console.log('[run-mission] waiting for next scheduled slot', {
+        missionId,
+        next_run_at: mission.next_run_at,
+        now: now.toISOString(),
+      })
+      return NextResponse.json({ success: true, status: 'waiting_for_next_run' })
     }
 
     // Reset completed → active for this new cycle
@@ -472,6 +489,14 @@ export async function POST(req: Request) {
     // ── Return immediately — all scraping + generation runs in after() ──
     after(async () => {
       try {
+        // Mark as running so concurrent requests are blocked
+        await supabase
+          .from('agent_missions')
+          .update({ status: 'running' })
+          .eq('id', missionId)
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+
         const dailyTarget = mission.daily_target ?? 10
 
         // Collect offer context for email generation
@@ -573,7 +598,28 @@ export async function POST(req: Request) {
       } catch (err) {
         console.error('[run-mission] after() pipeline error (non-fatal):', err)
       } finally {
-        // Release the run lock so a subsequent manual trigger can proceed
+        // Reset running → active + stamp timestamps.
+        // The .eq('status', 'running') guard means this is a no-op if the pipeline
+        // already transitioned the mission to completed/exhausted/stopped.
+        const pipelineDone = new Date()
+        await supabase
+          .from('agent_missions')
+          .update({
+            status: 'active',
+            last_run_at: pipelineDone.toISOString(),
+            next_run_at: computeNextRunAt(),
+          })
+          .eq('id', missionId)
+          .eq('user_id', user.id)
+          .eq('status', 'running')
+
+        console.log('[run-mission] after() pipeline complete — next_run_at set', {
+          missionId,
+          next_run_at: computeNextRunAt(),
+          elapsed: Date.now() - startTime,
+        })
+
+        // Release the run lock
         runLocks.delete(missionId)
       }
     })

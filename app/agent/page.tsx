@@ -2,28 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, Plus, RefreshCw, X } from 'lucide-react'
+import { AlertCircle, RefreshCw, X } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
-import { OrbitSystem } from '@/components/agent/OrbitSystem'
-import { SignalEffects } from '@/components/agent/SignalEffects'
+import { Core } from '@/components/agent/Core'
+import { MissionCarousel } from '@/components/agent/MissionCarousel'
+import type { MissionCardData } from '@/components/agent/MissionCard'
 import { isAdmin } from '@/lib/auth/access'
 import { supabase } from '@/lib/supabase'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
-import type { NodeMission } from '@/components/agent/MissionNode'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type MissionSummary = {
-  id: string
-  name: string | null
-  status: string
-  daily_target: number
-  audience_input: string | null
-  location_input: string | null
-  location: string
-  created_at: string
-  leadsToday: number
+type MissionSummary = MissionCardData
+
+type AgentEventType = 'lead_found' | 'mission_started' | 'mission_paused'
+
+type AgentEvent = {
+  type: AgentEventType
+  missionId?: string
+  timestamp: number
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -31,22 +29,55 @@ type MissionSummary = {
 const STATUS_ORDER: Record<string, number> = {
   needs_review: 0,
   active: 1,
-  paused: 2,
-  completed: 3,
-  stopped: 4,
-  exhausted: 5,
+  running: 2,
+  paused: 3,
+  completed: 4,
+  stopped: 5,
+  exhausted: 6,
 }
 
 const IS_DEV = process.env.NODE_ENV === 'development'
 const LOAD_TIMEOUT_MS = 3000
+const POLL_INTERVAL_MS = 30_000   // re-fetch every 30s to detect new leads
+
+/** Core diameter — 25 % smaller than original. */
+function computeCoreSize(): number {
+  if (typeof window === 'undefined') return 240
+  if (window.innerWidth < 640) return 180
+  if (window.innerWidth < 1024) return 225
+  return 270
+}
+
+/** Real computed label — no fake rotation, driven purely by mission data. */
+function computeCoreLabel(
+  missions: MissionSummary[],
+  newLeadActive: boolean,
+): string {
+  if (newLeadActive) return 'New match found'
+  if (missions.length === 0) return 'No missions yet'
+  const active = missions.filter(
+    (m) => m.status === 'active' || m.status === 'running',
+  ).length
+  if (active === 0) return 'All missions paused'
+  if (active === 1) return 'Running 1 mission'
+  return `Running ${active} missions`
+}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function FetchWarningBanner({ onRetry, onDismiss }: { onRetry: () => void; onDismiss: () => void }) {
+function FetchWarningBanner({
+  onRetry,
+  onDismiss,
+}: {
+  onRetry: () => void
+  onDismiss: () => void
+}) {
   return (
     <div className="absolute top-16 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-amber-400/15 bg-[rgba(10,10,18,0.90)] px-4 py-2.5 backdrop-blur">
       <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-400/60" />
-      <p className="text-[11px] text-amber-300/60">Could not load missions. You can still create one.</p>
+      <p className="text-[11px] text-amber-300/60">
+        Could not load missions. You can still create one.
+      </p>
       <button
         type="button"
         onClick={onRetry}
@@ -55,15 +86,29 @@ function FetchWarningBanner({ onRetry, onDismiss }: { onRetry: () => void; onDis
         <RefreshCw className="h-2.5 w-2.5" />
         Retry
       </button>
-      <button type="button" onClick={onDismiss} className="text-slate-700 transition hover:text-slate-500">
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="text-slate-700 transition hover:text-slate-500"
+      >
         <X className="h-3 w-3" />
       </button>
     </div>
   )
 }
 
-function DevOverlay({ authOk, loading, fetchError, count }: {
-  authOk: boolean | null; loading: boolean; fetchError: boolean; count: number
+function DevOverlay({
+  authOk,
+  loading,
+  fetchError,
+  count,
+  lastEvent,
+}: {
+  authOk: boolean | null
+  loading: boolean
+  fetchError: boolean
+  count: number
+  lastEvent: AgentEvent | null
 }) {
   if (!IS_DEV) return null
   return (
@@ -72,6 +117,12 @@ function DevOverlay({ authOk, loading, fetchError, count }: {
       <div>loading: {String(loading)}</div>
       <div>error: {String(fetchError)}</div>
       <div>missions: {count}</div>
+      {lastEvent && (
+        <div>
+          last: {lastEvent.type}
+          {lastEvent.missionId ? ` (${lastEvent.missionId.slice(0, 6)})` : ''}
+        </div>
+      )}
     </div>
   )
 }
@@ -87,17 +138,41 @@ export default function AgentCorePage() {
   const [fetchError, setFetchError] = useState(false)
   const [fetchErrorDismissed, setFetchErrorDismissed] = useState(false)
   const [authOk, setAuthOk] = useState<boolean | null>(null)
+  const [coreSize, setCoreSize] = useState(240)
+
+  // Event system — latest event stored in ref, transient UI state in React state
+  const lastEventRef = useRef<AgentEvent | null>(null)
+  const [lastEventDisplay, setLastEventDisplay] = useState<AgentEvent | null>(null)
+  const [pulseKey, setPulseKey] = useState(0)           // increment triggers core pulse
+  const [newLeadActive, setNewLeadActive] = useState(false)  // drives 2s label override
+  const [highlightedMissionId, setHighlightedMissionId] = useState<string | null>(null)
+
+  // Previous lead counts per mission — used to detect new leads across polls
+  const prevLeadCountsRef = useRef<Map<string, number>>(new Map())
+  const prevStatusesRef = useRef<Map<string, string>>(new Map())
+
   const didRedirect = useRef(false)
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const newLeadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // ── Guard: admins only
+  // ── Responsive core size ──────────────────────────────────────────────────
+  useEffect(() => {
+    setCoreSize(computeCoreSize())
+    const handler = () => setCoreSize(computeCoreSize())
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+
+  // ── Guard: admins only ────────────────────────────────────────────────────
   useEffect(() => {
     if (!profileLoading && profile && !isAdmin(profile)) {
       router.replace('/dashboard')
     }
   }, [profile, profileLoading, router])
 
-  // ── Safety timeout: never stay on spinner indefinitely
+  // ── Safety timeout ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!loading) {
       if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
@@ -107,81 +182,177 @@ export default function AgentCorePage() {
       console.warn('[agent] loading timeout — failing open')
       setLoading(false)
     }, LOAD_TIMEOUT_MS)
-    return () => { if (loadTimerRef.current) clearTimeout(loadTimerRef.current) }
+    return () => {
+      if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
+    }
   }, [loading])
 
-  // ── Fetch missions
-  const fetchMissions = useCallback(async () => {
-    console.log('[agent] fetchMissions:start')
-    setFetchError(false)
-    setFetchErrorDismissed(false)
-    try {
-      const { data: userData, error: authErr } = await supabase.auth.getUser()
-      const userId = userData?.user?.id ?? null
-      console.log('[agent] auth user:', userId ?? 'null', authErr ? `err=${authErr.message}` : 'ok')
-      setAuthOk(!!userId)
+  // ── Event emission ────────────────────────────────────────────────────────
 
-      if (!userId) return // not logged in — show empty core
+  const emitEvent = useCallback((event: AgentEvent) => {
+    lastEventRef.current = event
+    setLastEventDisplay(event)
 
-      const { data: raw, error: qErr } = await supabase
-        .from('agent_missions')
-        .select('id, name, status, daily_target, audience_input, location_input, location, created_at')
-        .eq('user_id', userId)
-        .neq('status', 'draft')
-        .neq('status', 'deleted')
-        .order('created_at', { ascending: false })
+    if (event.type === 'lead_found') {
+      // Core pulse — increment key; Core fires animation imperatively
+      setPulseKey((k) => k + 1)
 
-      console.log('[agent] missions raw:', raw?.length ?? 'null', 'rows, err:', qErr?.message ?? 'none')
+      // 2-second label override
+      setNewLeadActive(true)
+      if (newLeadTimerRef.current) clearTimeout(newLeadTimerRef.current)
+      newLeadTimerRef.current = setTimeout(() => setNewLeadActive(false), 2000)
 
-      if (qErr) {
-        console.warn('[agent] query error:', qErr.code, qErr.message)
-        setFetchError(true)
-        return
+      // 400ms card highlight
+      if (event.missionId) {
+        setHighlightedMissionId(event.missionId)
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = setTimeout(
+          () => setHighlightedMissionId(null),
+          400,
+        )
       }
-
-      const valid = Array.isArray(raw) ? raw.filter((m) => m.id && m.status) : []
-      if (valid.length === 0) { setMissions([]); return }
-
-      const missionIds = valid.map((m) => m.id)
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-
-      const { data: leadCounts } = await supabase
-        .from('agent_lead_queue')
-        .select('mission_id')
-        .eq('user_id', userId)
-        .in('mission_id', missionIds)
-        .gte('created_at', todayStart.toISOString())
-
-      const leadsByMission = new Map<string, number>()
-      leadCounts?.forEach((r) => leadsByMission.set(r.mission_id, (leadsByMission.get(r.mission_id) ?? 0) + 1))
-
-      const built: MissionSummary[] = valid.map((m) => ({
-        ...m,
-        leadsToday: leadsByMission.get(m.id) ?? 0,
-      }))
-      built.sort((a, b) => (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99))
-
-      console.log('[agent] setting missions:', built.length)
-      setMissions(built)
-    } catch (err) {
-      console.warn('[agent] fetchMissions exception:', err)
-      setFetchError(true)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  // ── Trigger fetch once profile resolves
+  // ── Fetch missions (+ diff for events) ────────────────────────────────────
+
+  const fetchMissions = useCallback(
+    async (isSilentPoll = false) => {
+      if (!isSilentPoll) {
+        console.log('[agent] fetchMissions:start')
+        setFetchError(false)
+        setFetchErrorDismissed(false)
+      }
+      try {
+        const { data: userData, error: authErr } = await supabase.auth.getUser()
+        const userId = userData?.user?.id ?? null
+        if (!isSilentPoll)
+          console.log(
+            '[agent] auth user:',
+            userId ?? 'null',
+            authErr ? `err=${authErr.message}` : 'ok',
+          )
+        setAuthOk(!!userId)
+        if (!userId) return
+
+        const { data: raw, error: qErr } = await supabase
+          .from('agent_missions')
+          .select(
+            'id, name, status, daily_target, audience_input, location_input, location, created_at, last_run_at',
+          )
+          .eq('user_id', userId)
+          .neq('status', 'draft')
+          .neq('status', 'deleted')
+          .order('created_at', { ascending: false })
+
+        if (!isSilentPoll)
+          console.log(
+            '[agent] missions raw:',
+            raw?.length ?? 'null',
+            'rows, err:',
+            qErr?.message ?? 'none',
+          )
+
+        if (qErr) {
+          if (!isSilentPoll) setFetchError(true)
+          return
+        }
+
+        const valid = Array.isArray(raw) ? raw.filter((m) => m.id && m.status) : []
+        if (valid.length === 0) {
+          setMissions([])
+          return
+        }
+
+        const missionIds = valid.map((m) => m.id)
+        const todayStart = new Date()
+        todayStart.setHours(0, 0, 0, 0)
+
+        const { data: leadCounts } = await supabase
+          .from('agent_lead_queue')
+          .select('mission_id')
+          .eq('user_id', userId)
+          .in('mission_id', missionIds)
+          .gte('created_at', todayStart.toISOString())
+
+        const leadsByMission = new Map<string, number>()
+        leadCounts?.forEach((r) =>
+          leadsByMission.set(r.mission_id, (leadsByMission.get(r.mission_id) ?? 0) + 1),
+        )
+
+        const built: MissionSummary[] = valid.map((m) => ({
+          ...m,
+          leadsToday: leadsByMission.get(m.id) ?? 0,
+        }))
+        built.sort(
+          (a, b) => (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99),
+        )
+
+        // ── Event detection (runs on every poll) ──────────────────────────
+        built.forEach((m) => {
+          const prevLeads = prevLeadCountsRef.current.get(m.id) ?? -1
+          const prevStatus = prevStatusesRef.current.get(m.id)
+
+          if (prevLeads >= 0 && m.leadsToday > prevLeads) {
+            emitEvent({ type: 'lead_found', missionId: m.id, timestamp: Date.now() })
+          }
+          if (
+            prevStatus !== undefined &&
+            prevStatus !== 'active' &&
+            (m.status === 'active' || m.status === 'running')
+          ) {
+            emitEvent({ type: 'mission_started', missionId: m.id, timestamp: Date.now() })
+          }
+          if (
+            prevStatus !== undefined &&
+            (prevStatus === 'active' || prevStatus === 'running') &&
+            m.status === 'paused'
+          ) {
+            emitEvent({ type: 'mission_paused', missionId: m.id, timestamp: Date.now() })
+          }
+
+          prevLeadCountsRef.current.set(m.id, m.leadsToday)
+          prevStatusesRef.current.set(m.id, m.status)
+        })
+
+        if (!isSilentPoll)
+          console.log('[agent] setting missions:', built.length)
+        setMissions(built)
+      } catch (err) {
+        console.warn('[agent] fetchMissions exception:', err)
+        if (!isSilentPoll) setFetchError(true)
+      } finally {
+        if (!isSilentPoll) setLoading(false)
+      }
+    },
+    [emitEvent],
+  )
+
+  // ── Initial fetch + polling ───────────────────────────────────────────────
   useEffect(() => {
-    if (!profileLoading && profile && isAdmin(profile)) void fetchMissions()
-    else if (!profileLoading && !profile) setLoading(false)
+    if (!profileLoading && profile && isAdmin(profile)) {
+      void fetchMissions(false)
+
+      // Silent background poll every 30s
+      pollTimerRef.current = setInterval(
+        () => void fetchMissions(true),
+        POLL_INTERVAL_MS,
+      )
+    } else if (!profileLoading && !profile) {
+      setLoading(false)
+    }
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
   }, [profileLoading, profile, fetchMissions])
 
-  // ── Auto-redirect: only when single active mission is the only non-terminal one
+  // ── Auto-redirect: single active + only non-terminal mission ─────────────
   useEffect(() => {
     if (loading || didRedirect.current || missions.length === 0) return
     const active = missions.filter((m) => m.status === 'active')
-    const nonTerminal = missions.filter((m) => !['stopped', 'completed', 'exhausted'].includes(m.status))
+    const nonTerminal = missions.filter(
+      (m) => !['stopped', 'completed', 'exhausted'].includes(m.status),
+    )
     if (active.length === 1 && nonTerminal.length === 1) {
       didRedirect.current = true
       router.replace(`/agent/dashboard/${active[0].id}`)
@@ -192,19 +363,16 @@ export default function AgentCorePage() {
     setFetchError(false)
     setFetchErrorDismissed(false)
     setLoading(true)
-    void fetchMissions()
+    void fetchMissions(false)
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
-  const visibleMissions = missions
-    .filter((m) => !['stopped', 'completed'].includes(m.status))
-    .slice(0, 5) as NodeMission[]
+  const carouselMissions = missions.filter(
+    (m) => !['stopped', 'completed'].includes(m.status),
+  )
 
-  const isRunning = missions.some((m) => m.status === 'active')
-  const locationHint = missions.find((m) => m.location_input)?.location_input
-    ?? missions.find((m) => m.location)?.location
-    ?? null
+  const coreLabel = computeCoreLabel(missions, newLeadActive)
   const showWarning = fetchError && !fetchErrorDismissed
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -221,54 +389,83 @@ export default function AgentCorePage() {
 
   return (
     <DashboardShell adminEmail={null}>
-      {/*
-        Full-bleed container: negates DashboardShell's inner padding so the
-        core can be truly centered in the content area.
-      */}
       <div
         className="-mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-8"
         style={{
           position: 'relative',
           minHeight: 'calc(100vh - 64px)',
-          background: 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(59,130,246,0.07) 0%, transparent 70%), #020617',
+          // Calm, static background — no animated gradients
+          background:
+            'radial-gradient(ellipse 65% 50% at 50% 36%, rgba(59,130,246,0.07) 0%, transparent 65%), #020617',
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        {/* New Mission CTA — top-right */}
+        {/* ── New Mission CTA — top-right ───────────────────────────────── */}
         <button
           type="button"
           onClick={() => router.push('/agent/setup')}
-          className="absolute right-6 top-6 z-10 flex cursor-pointer items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/15 px-5 py-2 text-[13px] font-medium text-white/90 transition-all hover:scale-[1.03] hover:bg-blue-500/25 hover:shadow-[0_0_24px_rgba(59,130,246,0.28)]"
+          className="absolute right-6 top-6 z-20 flex cursor-pointer items-center gap-2 rounded-full border border-blue-500/22 bg-[rgba(8,13,28,0.80)] px-5 py-2 text-[12px] font-medium text-white/65 backdrop-blur transition-all hover:border-blue-400/38 hover:text-white/88 hover:shadow-[0_0_18px_rgba(59,130,246,0.14)]"
+          style={{ letterSpacing: '0.04em' }}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              border: '1px solid rgba(96,165,250,0.30)',
+              fontSize: 14,
+              lineHeight: 1,
+              color: 'rgba(96,165,250,0.72)',
+            }}
+          >
+            +
+          </span>
           New Mission
         </button>
 
-        {/* Loading state — core area shows spinner */}
+        {/* ── Loading ───────────────────────────────────────────────────── */}
         {loading ? (
-          <div className="flex h-full min-h-[inherit] items-center justify-center">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400/60" />
+          <div className="flex flex-1 items-center justify-center">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400/50" />
           </div>
         ) : (
           <>
-            {/* Orbit system — fills entire container, positioned absolutely */}
-            <OrbitSystem
-              missions={visibleMissions}
-              onNodeClick={(id) => router.push(`/agent/dashboard/${id}`)}
-            />
+            {/* ── Core — centered vertically in upper portion ────────────── */}
+            <div
+              style={{
+                position: 'absolute',
+                top: carouselMissions.length > 0 ? '42%' : '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                transition: 'top 0.5s ease',
+              }}
+            >
+              <Core
+                size={coreSize}
+                label={coreLabel}
+                pulseKey={pulseKey}
+              />
+            </div>
 
-            {/* Signal effects — floating logs + pulse rings */}
-            <SignalEffects active={isRunning} locationHint={locationHint} />
-
-            {/* Empty state CTA — below core, only when no missions */}
+            {/* ── Empty state CTA ───────────────────────────────────────── */}
             {missions.length === 0 && !fetchError && (
               <div
-                className="pointer-events-none absolute left-1/2 -translate-x-1/2"
-                style={{ top: 'calc(50% + 200px)' }}
+                style={{
+                  position: 'absolute',
+                  top: `calc(50% + ${coreSize / 2 + 28}px)`,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                }}
               >
                 <button
                   type="button"
-                  className="pointer-events-auto cursor-pointer rounded-full border border-blue-500/25 bg-blue-500/10 px-6 py-2.5 text-[13px] font-medium text-blue-200/80 transition hover:bg-blue-500/18 hover:text-blue-100"
+                  className="cursor-pointer rounded-full border border-blue-500/18 bg-blue-500/[0.06] px-6 py-2.5 text-[12px] font-medium text-blue-200/65 transition hover:border-blue-400/32 hover:text-blue-100/85"
+                  style={{ letterSpacing: '0.06em', backdropFilter: 'blur(8px)' }}
                   onClick={() => router.push('/agent/setup')}
                 >
                   Create your first mission
@@ -276,18 +473,56 @@ export default function AgentCorePage() {
               </div>
             )}
 
-            {/* Fetch warning banner */}
+            {/* ── Fetch warning ─────────────────────────────────────────── */}
             {showWarning && (
               <FetchWarningBanner
                 onRetry={handleRetry}
                 onDismiss={() => setFetchErrorDismissed(true)}
               />
             )}
+
+            {/* ── Mission carousel — pinned to bottom ───────────────────── */}
+            {carouselMissions.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 32,
+                  left: 0,
+                  right: 0,
+                }}
+              >
+                <p
+                  style={{
+                    textAlign: 'center',
+                    fontSize: 9.5,
+                    fontWeight: 500,
+                    letterSpacing: '0.18em',
+                    color: 'rgba(255,255,255,0.16)',
+                    textTransform: 'uppercase',
+                    marginBottom: 14,
+                  }}
+                >
+                  Active Missions
+                </p>
+                <MissionCarousel
+                  missions={carouselMissions}
+                  onCardClick={(id) => router.push(`/agent/dashboard/${id}`)}
+                  onNewMission={() => router.push('/agent/setup')}
+                  highlightedMissionId={highlightedMissionId}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
 
-      <DevOverlay authOk={authOk} loading={loading} fetchError={fetchError} count={missions.length} />
+      <DevOverlay
+        authOk={authOk}
+        loading={loading}
+        fetchError={fetchError}
+        count={missions.length}
+        lastEvent={lastEventDisplay}
+      />
     </DashboardShell>
   )
 }
