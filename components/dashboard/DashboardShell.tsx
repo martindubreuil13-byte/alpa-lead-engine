@@ -120,9 +120,12 @@ const HOME_BACK_ROUTES = new Set([
 export default function DashboardShell({
   children,
   adminEmail = null,
+  hideBottomNav = false,
 }: {
   children: ReactNode
   adminEmail?: string | null
+  /** When true, hides the mobile bottom tab bar and removes the space reserved for it. */
+  hideBottomNav?: boolean
 }) {
   const pathname = usePathname()
   const [forcedGuestTrial, setForcedGuestTrial] = useState(() => isGuestTrialModeForced())
@@ -392,7 +395,7 @@ export default function DashboardShell({
           </div>
         </aside>
 
-        <main className="flex min-h-screen min-w-0 flex-1 flex-col px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10 lg:pt-8">
+        <main className={`flex min-h-screen min-w-0 flex-1 flex-col px-4 pt-4 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10 lg:pt-8 ${hideBottomNav ? 'pb-0' : 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]'}`}>
           <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-white/6 bg-[#020617]/88 px-4 pb-4 pt-1 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -448,7 +451,7 @@ export default function DashboardShell({
         </main>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/8 bg-[#050b17]/92 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden">
+      <div className={`fixed inset-x-0 bottom-0 z-30 border-t border-white/8 bg-[#050b17]/92 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden ${hideBottomNav ? 'hidden' : ''}`}>
         <div className="mx-auto grid max-w-3xl grid-cols-5 gap-2">
           {mobilePrimaryItems.map((item) => {
             const locked = isLocked(item)

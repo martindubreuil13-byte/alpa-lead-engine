@@ -379,7 +379,7 @@ export default function AgentCorePage() {
 
   if (profileLoading) {
     return (
-      <DashboardShell adminEmail={null}>
+      <DashboardShell adminEmail={null} hideBottomNav>
         <div className="flex min-h-[60vh] items-center justify-center">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
         </div>
@@ -388,7 +388,7 @@ export default function AgentCorePage() {
   }
 
   return (
-    <DashboardShell adminEmail={null}>
+    <DashboardShell adminEmail={null} hideBottomNav>
       <div
         className="-mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-8"
         style={{
@@ -486,7 +486,7 @@ export default function AgentCorePage() {
               <div
                 style={{
                   position: 'absolute',
-                  bottom: 32,
+                  bottom: 'max(28px, calc(env(safe-area-inset-bottom) + 20px))',
                   left: 0,
                   right: 0,
                 }}
