@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
-import { enrichLeadContext } from '@/lib/agent/enrich-context'
+import { enrichLeadContext, type LeadContext } from '@/lib/agent/enrich-context'
 import { generateOutreachDraft } from '@/lib/agent/generate-outreach-draft'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
       .from('outreach_queue')
       .select('lead_id')
       .eq('user_id', user.id)
-      .eq('status', 'draft')
+      .eq('review_status', 'draft')
       .in('lead_id', leadIds)
 
     const alreadyQueued = new Set((existingDrafts || []).map((d) => d.lead_id).filter(Boolean))
@@ -89,22 +89,58 @@ export async function POST(req: Request) {
     for (const lead of leads) {
       if (alreadyQueued.has(lead.id)) continue
 
-      const context = await enrichLeadContext({
-        company_name: lead.company_name,
-        website: lead.website,
-      })
+      let context: LeadContext = {
+        enriched: false,
+        website: lead.website || '',
+        company_name: lead.company_name || '',
+        title: '',
+        description: '',
+        h1: '',
+      }
 
-      const draft = await generateOutreachDraft({
-        company_name: lead.company_name,
-        audience_input: activeMission?.audience_input || '',
-        location_input: activeMission?.location_input || lead.city || null,
-        mission_cta: activeMission?.cta || null,
-        sender_signature: activeMission?.sender_signature || null,
-        offer,
-        angles,
-        offer_context: offerContext,
-        context,
-      })
+      try {
+        context = await enrichLeadContext({
+          company_name: lead.company_name,
+          website: lead.website,
+        })
+      } catch (contextError) {
+        console.error('[prepare-outreach] context enrichment failed, using basic context:', contextError)
+      }
+
+      let draft
+      try {
+        draft = await generateOutreachDraft({
+          company_name: lead.company_name,
+          audience_input: activeMission?.audience_input || '',
+          location_input: activeMission?.location_input || lead.city || null,
+          mission_cta: activeMission?.cta || null,
+          sender_signature: activeMission?.sender_signature || null,
+          offer,
+          angles,
+          offer_context: offerContext,
+          context,
+        })
+      } catch (generationError) {
+        console.error('[prepare-outreach] generation failed, using fallback:', generationError)
+        draft = await generateOutreachDraft({
+          company_name: lead.company_name,
+          audience_input: activeMission?.audience_input || '',
+          location_input: activeMission?.location_input || lead.city || null,
+          mission_cta: null,
+          sender_signature: activeMission?.sender_signature || null,
+          offer,
+          angles,
+          offer_context: offerContext,
+          context: {
+            enriched: false,
+            website: lead.website || '',
+            company_name: lead.company_name || '',
+            title: '',
+            description: '',
+            h1: '',
+          },
+        })
+      }
 
       const { data: inserted, error: insertError } = await supabase
         .from('outreach_queue')
@@ -128,6 +164,7 @@ export async function POST(req: Request) {
           context_title: context.title || null,
           context_description: context.description || null,
           context_h1: context.h1 || null,
+          status: 'ready',
           review_status: 'draft',
         })
         .select('id')

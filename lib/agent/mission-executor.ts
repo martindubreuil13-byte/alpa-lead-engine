@@ -346,33 +346,70 @@ async function generateDraftsForRun(admin: AdminClient, params: {
       const lead = toProcess[index]
       if (!lead || !lead.dedup_key) continue
 
-      const cacheKey = (lead.website || lead.business_name || '').toLowerCase()
-      let context = cacheKey ? enrichmentCache.get(cacheKey) : undefined
-      if (!context) {
-        context = await enrichLeadContext({
-          company_name: lead.business_name,
-          website: lead.website,
-        })
-        if (cacheKey) enrichmentCache.set(cacheKey, context)
+      let context: LeadContext = {
+        enriched: false,
+        website: lead.website || '',
+        company_name: lead.business_name || '',
+        title: '',
+        description: '',
+        h1: '',
       }
 
-      const draft = await generateOutreachDraft({
-        company_name: lead.business_name || context.company_name || 'your company',
-        audience_input: missionDraftContext.audienceInput,
-        location_input: missionDraftContext.locationInput || lead.location || null,
-        mission_cta: missionDraftContext.missionCta,
-        sender_signature: missionDraftContext.senderSignature,
-        offer: missionDraftContext.offerInput || 'our service',
-        angles: missionDraftContext.icpAngles,
-        context,
-        offer_context: missionDraftContext.offerContext,
-        pain_solved: missionDraftContext.painSolved,
-        value_outcome: missionDraftContext.valueOutcome,
-        variation_seed: index % 3,
-      })
+      try {
+        const cacheKey = (lead.website || lead.business_name || '').toLowerCase()
+        const cachedContext = cacheKey ? enrichmentCache.get(cacheKey) : undefined
+        if (cachedContext) {
+          context = cachedContext
+        } else {
+          context = await enrichLeadContext({
+            company_name: lead.business_name,
+            website: lead.website,
+          })
+          if (cacheKey) enrichmentCache.set(cacheKey, context)
+        }
+      } catch (error) {
+        console.error('[executor] context enrichment failed, using basic context', error)
+      }
 
-      if (!draft.subject || !draft.body) {
-        continue
+      let draft
+      try {
+        draft = await generateOutreachDraft({
+          company_name: lead.business_name || context.company_name || 'your company',
+          audience_input: missionDraftContext.audienceInput,
+          location_input: missionDraftContext.locationInput || lead.location || null,
+          mission_cta: missionDraftContext.missionCta,
+          sender_signature: missionDraftContext.senderSignature,
+          offer: missionDraftContext.offerInput || 'our service',
+          angles: missionDraftContext.icpAngles,
+          context,
+          offer_context: missionDraftContext.offerContext,
+          pain_solved: missionDraftContext.painSolved,
+          value_outcome: missionDraftContext.valueOutcome,
+          variation_seed: index % 3,
+        })
+      } catch (error) {
+        console.error('[executor] draft generation failed, using fallback', error)
+        draft = await generateOutreachDraft({
+          company_name: lead.business_name || context.company_name || 'your company',
+          audience_input: missionDraftContext.audienceInput,
+          location_input: missionDraftContext.locationInput || lead.location || null,
+          mission_cta: null,
+          sender_signature: missionDraftContext.senderSignature,
+          offer: missionDraftContext.offerInput || 'our service',
+          angles: missionDraftContext.icpAngles,
+          context: {
+            enriched: false,
+            website: lead.website || '',
+            company_name: lead.business_name || '',
+            title: '',
+            description: '',
+            h1: '',
+          },
+          offer_context: missionDraftContext.offerContext,
+          pain_solved: missionDraftContext.painSolved,
+          value_outcome: missionDraftContext.valueOutcome,
+          variation_seed: index % 3,
+        })
       }
 
       const { error } = await fromAdminTable(admin, 'outreach_queue').insert({
@@ -389,7 +426,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         subject: draft.subject,
         hook: draft.hook,
         body: draft.body,
-        cta: missionDraftContext.missionCta,
+        cta: draft.cta,
         full_email: draft.full_email || draft.body,
         personalization_score: draft.personalization_score,
         quality_score: draft.quality_score,
@@ -397,12 +434,15 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         context_title: context.title || null,
         context_description: context.description || null,
         context_h1: context.h1 || null,
+        status: 'ready',
         review_status: 'draft',
       })
 
       if (!error) {
         draftsGenerated += 1
         existingKeys.add(lead.dedup_key)
+      } else {
+        console.error('[executor] outreach insert failed', error)
       }
     }
   })

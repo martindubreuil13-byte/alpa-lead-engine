@@ -289,30 +289,27 @@ function cleanBody(body: string): string {
 // ─── Fallback ─────────────────────────────────────────────────────────────────
 
 function fallbackDraft(params: GenerateParams): OutreachDraft {
-  const name = params.company_name || 'your business'
-  const inferred = inferAudience(params.audience_input)
-  const clientType = inferred.split(',')[0]?.trim() ?? 'clients'
-  const cta = resolveCtaShape(params)
-  const userName = params.user_name ?? extractUserName(params.sender_signature) ?? null
-
-  const hook = `Most ${params.audience_input || 'businesses'} I speak with still rely on referrals to fill their pipeline — is that the case at ${name}?`
-  const paragraphs = [
+  const companyName = params.company_name || 'there'
+  const senderName =
+    params.user_name ??
+    extractUserName(params.sender_signature) ??
+    'Best'
+  const defaultCta = 'Would you be open to a quick 10-minute chat?'
+  const hook = `Hi ${companyName},`
+  const body = [
     hook,
-    `Getting a consistent flow of ${clientType} is one of the hardest parts of growing a business — referrals are unpredictable and manual outreach takes time nobody has.`,
-    `We built a system that finds and contacts qualified ${clientType} automatically, so your team focuses on closing rather than hunting.`,
-  ]
-  if (cta.type !== 'none' && cta.text) {
-    paragraphs.push(cta.type === 'link' && cta.link ? `${cta.text} ${cta.link}` : cta.text)
-  }
-
-  const body = paragraphs.join('\n\n')
-  const full_email = params.sender_signature ? `${body}\n\n—\n${params.sender_signature}` : body
+    'I came across your business and thought there could be an opportunity to connect.',
+    'Would you be open to a quick conversation to explore potential collaboration?',
+    senderName,
+  ].join('\n\n')
+  const full_email = body
+  const cta = params.mission_cta?.trim() || defaultCta
 
   return {
-    subject: `Building your ${clientType} pipeline`,
+    subject: `Quick idea for ${companyName}`,
     hook,
     body,
-    cta: cta.text,
+    cta,
     full_email,
     personalization_score: 1,
     quality_score: 2,
@@ -354,67 +351,64 @@ async function callOpenAI(prompt: string): Promise<{ subject: string; body: stri
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function generateOutreachDraft(params: GenerateParams): Promise<OutreachDraft> {
-  const missionCta = params.mission_cta ?? null
-  const senderSignature = params.sender_signature ?? null
-  const cta = resolveCtaShape(params)
+  try {
+    const missionCta = params.mission_cta ?? null
+    const senderSignature = params.sender_signature ?? null
+    const cta = resolveCtaShape(params)
+    const maxRetries = 2
+    let result: { subject: string; body: string } | null = null
 
-  const prompt = buildPrompt(params)
-  let result = await callOpenAI(prompt)
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const prompt = buildPrompt({
+        ...params,
+        variation_seed: ((params.variation_seed ?? 0) + attempt) % 3,
+      })
 
-  // ── Validate first attempt
-  const isInvalid = (r: { subject: string; body: string } | null): boolean => {
-    if (!r) return true
-    if (missionCta && !r.body.includes(missionCta.trim())) return true
-    if (isEmailContaminated(r.body, params.audience_input)) return true
-    if (isGenericTemplate(r.body)) return true
-    return false
-  }
+      result = await callOpenAI(prompt)
+      if (result?.subject && result.body) {
+        break
+      }
+    }
 
-  // ── Retry once with a stricter variation if first attempt fails quality checks
-  if (isInvalid(result)) {
-    console.log('[generate-outreach-draft] quality check failed, retrying', {
-      company: params.company_name,
-      reason: !result
-        ? 'null result'
-        : missionCta && !result.body.includes(missionCta.trim())
-        ? 'missing CTA'
-        : isEmailContaminated(result.body, params.audience_input)
-        ? 'contaminated'
-        : 'generic template',
-    })
+    if (!result?.subject || !result.body) {
+      console.log('[generate-outreach-draft] fallback after retries', { company: params.company_name })
+      return fallbackDraft(params)
+    }
 
-    const retryPrompt = buildPrompt({
-      ...params,
-      variation_seed: ((params.variation_seed ?? 0) + 1) % 3,
-    })
-    result = await callOpenAI(retryPrompt)
-  }
+    let body = cleanBody(result.body)
+    const subject = String(result.subject || '').trim().slice(0, 80) || fallbackDraft(params).subject
 
-  // ── Final fallback
-  if (isInvalid(result)) {
-    console.log('[generate-outreach-draft] fallback after retry', { company: params.company_name })
+    if (!body) {
+      return fallbackDraft(params)
+    }
+
+    if (missionCta && !body.includes(missionCta.trim())) {
+      body = `${body}\n\n${missionCta.trim()}`
+    } else if (!missionCta && !cta.text) {
+      body = `${body}\n\nWould you be open to a quick 10-minute chat?`
+    }
+
+    const hook = body.split('\n\n')[0]?.trim() ?? ''
+
+    const full_email = senderSignature ? `${body}\n\n—\n${senderSignature}` : body
+
+    const wordCount = body.split(/\s+/).length
+    const hasRealContext =
+      params.context.enriched && Boolean(params.context.h1 || params.context.description)
+    const personalization_score = hasRealContext ? 4 : 2
+    const quality_score = wordCount <= 120 ? (wordCount >= 60 ? 4 : 3) : 2
+
+    return {
+      subject,
+      hook,
+      body,
+      cta: cta.text || 'Would you be open to a quick 10-minute chat?',
+      full_email,
+      personalization_score,
+      quality_score,
+    }
+  } catch (error) {
+    console.error('[generate-outreach-draft] failed, returning fallback', error)
     return fallbackDraft(params)
-  }
-
-  const { subject, body: rawBody } = result!
-  const body = cleanBody(rawBody)
-  const hook = body.split('\n\n')[0]?.trim() ?? ''
-
-  const full_email = senderSignature ? `${body}\n\n—\n${senderSignature}` : body
-
-  const wordCount = body.split(/\s+/).length
-  const hasRealContext =
-    params.context.enriched && Boolean(params.context.h1 || params.context.description)
-  const personalization_score = hasRealContext ? 4 : 2
-  const quality_score = wordCount <= 120 ? (wordCount >= 60 ? 4 : 3) : 2
-
-  return {
-    subject,
-    hook,
-    body,
-    cta: cta.text,
-    full_email,
-    personalization_score,
-    quality_score,
   }
 }

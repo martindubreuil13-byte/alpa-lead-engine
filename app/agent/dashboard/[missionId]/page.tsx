@@ -238,8 +238,8 @@ export default function MissionDashboardPage() {
   useEffect(() => {
     const totalOutreach = (status?.emailsReady ?? 0) + (status?.emailsApproved ?? 0) + (status?.emailsRejected ?? 0)
     const isGen =
+      isRunActive &&
       (status?.leadsToday ?? 0) > 0 &&
-      (status?.mission.status === 'active' || status?.mission.status === 'scheduled') &&
       totalOutreach < (status?.leadsToday ?? 0)
 
     isGeneratingRef.current = isGen
@@ -256,7 +256,7 @@ export default function MissionDashboardPage() {
       if (genCompRef.current) clearInterval(genCompRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.emailsReady, status?.emailsApproved, status?.emailsRejected, status?.leadsToday, status?.mission.status])
+  }, [isRunActive, status?.emailsReady, status?.emailsApproved, status?.emailsRejected, status?.leadsToday])
 
   // ── Animated email counter
   useEffect(() => {
@@ -600,14 +600,14 @@ export default function MissionDashboardPage() {
 
   const totalOutreach = (status?.emailsReady ?? 0) + (status?.emailsApproved ?? 0) + (status?.emailsRejected ?? 0)
   const targetReached = !!mission && (status?.leadsToday ?? 0) >= mission.daily_target
-  const isGenerating = targetReached && totalOutreach < (status?.leadsToday ?? 0) && (isActive || isScheduled)
+  const isGenerating = isRunActive && totalOutreach < (status?.leadsToday ?? 0)
   const isOutreachComplete = targetReached && totalOutreach >= (status?.leadsToday ?? 0) && totalOutreach > 0
   const isReviewReady = displayedEmails > 0 || totalOutreach > 0
   const isNoResults = status?.latestRun?.stop_reason === 'no_accepted_leads'
 
   const rawGenerating = Math.max((status?.leadsToday ?? 0) - totalOutreach, 0)
-  // Show optimistic "1 generating" only while runInitiated is true and no real count yet
-  const emailsGenerating = runInitiated && rawGenerating === 0 && (status?.leadsToday ?? 0) > 0 ? 1 : rawGenerating
+  // Show optimistic "1 generating" only while a run is active and no real count exists yet
+  const emailsGenerating = isRunActive && rawGenerating === 0 && (status?.leadsToday ?? 0) > 0 ? 1 : rawGenerating
 
   const progress = mission
     ? Math.min(100, Math.round(((status?.leadsToday ?? 0) / Math.max(1, mission.daily_target)) * 100))
