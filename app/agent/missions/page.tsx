@@ -252,8 +252,7 @@ export default function MissionsListPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: m.id }),
       })
-      // Refetch to confirm DB state matches
-      void fetchMissions()
+      router.push('/agent')
     } catch (err) {
       console.error('[agent] fetch failed', { url: '/api/agent/missions/delete', missionId: m.id, err })
       void fetchMissions()
@@ -602,7 +601,7 @@ function MissionCard({
                   onClick={onDelete}
                   className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-2 py-1 text-[10px] font-semibold text-red-300 transition hover:text-white disabled:opacity-40"
                 >
-                  Delete
+                  Delete permanently
                 </button>
                 <button
                   type="button"

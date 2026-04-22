@@ -205,7 +205,7 @@ export const MissionCarousel = memo(function MissionCarousel({
     e.stopPropagation()
 
     if (deletingMissionIdsRef.current.has(missionId)) return
-    if (!confirm('Delete this mission?')) return
+    if (!confirm('Delete this mission permanently?')) return
 
     deletingMissionIdsRef.current.add(missionId)
     setMissionDeletingState(missionId, true)

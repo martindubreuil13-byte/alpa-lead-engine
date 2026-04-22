@@ -1430,7 +1430,7 @@ export default function MissionDashboardPage() {
             {/* Delete */}
             {confirmDelete ? (
               <div className="col-span-2 flex items-center gap-2 sm:col-span-2">
-                <span className="text-xs text-slate-500">Delete forever?</span>
+                <span className="text-xs text-slate-500">Delete this mission permanently?</span>
                 <button
                   type="button"
                   onClick={() => void handleDelete()}

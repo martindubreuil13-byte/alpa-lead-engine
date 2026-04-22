@@ -145,6 +145,7 @@ export default function OutreachQueuePage() {
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [approving, setApproving] = useState(false)
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set())
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set())
 
@@ -296,6 +297,48 @@ export default function OutreachQueuePage() {
     setDeleting(false)
   }
 
+  async function handleApproveSelected() {
+    const ids = [...selectedIds].filter(
+      (id) => items.find((item) => item.id === id)?.review_status === 'draft'
+    )
+    if (!ids.length) return
+
+    setApproving(true)
+    try {
+      const response = await fetch('/api/outreach/batch-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+
+      if (!response.ok) {
+        console.error('[outreach-queue] batch approve failed:', await response.text())
+        showToast('Approve failed - check logs')
+        return
+      }
+
+      setItems((prev) =>
+        prev.map((item) =>
+          ids.includes(item.id) ? { ...item, review_status: 'approved' as const } : item
+        )
+      )
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        ids.forEach((id) => next.delete(id))
+        return next
+      })
+      setActiveItem((prev) =>
+        prev && ids.includes(prev.id) ? { ...prev, review_status: 'approved' as const } : prev
+      )
+      showToast(`Approved ${ids.length} message${ids.length > 1 ? 's' : ''}`)
+    } catch (error) {
+      console.error('[outreach-queue] batch approve error:', error)
+      showToast('Approve failed - check logs')
+    } finally {
+      setApproving(false)
+    }
+  }
+
   // ── Send ─────────────────────────────────────────────────────────────────
 
   async function callSend(ids: string[]): Promise<SendOutcome> {
@@ -427,6 +470,9 @@ export default function OutreachQueuePage() {
   const filtered = filter === 'all' ? items : items.filter((i) => i.review_status === filter)
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((i) => selectedIds.has(i.id))
+  const selectedDraftCount = [...selectedIds].filter(
+    (id) => items.find((item) => item.id === id)?.review_status === 'draft'
+  ).length
 
   function toggleSelectAll() {
     if (allFilteredSelected) {
@@ -551,6 +597,15 @@ export default function OutreachQueuePage() {
           <span className="text-sm text-slate-400">
             {selectedIds.size} selected
           </span>
+          <button
+            type="button"
+            disabled={approving || selectedDraftCount === 0}
+            onClick={() => void handleApproveSelected()}
+            className="flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/18 hover:text-white disabled:opacity-40"
+          >
+            {approving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            Approve Selected
+          </button>
           {[...selectedIds].some((id) => items.find((i) => i.id === id)?.review_status === 'approved') && (
             <button
               type="button"
