@@ -19,6 +19,7 @@ const ALLOWED_FIELDS = [
   'schedule_timezone',
   'schedule_local_time',
   'starts_at',
+  'last_stop_reason',
 ] as const
 
 export async function POST(req: Request) {

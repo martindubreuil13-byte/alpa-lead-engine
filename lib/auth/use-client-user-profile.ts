@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react'
 
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { supabase } from '@/lib/supabase'
 import type { UserProfile } from '@/lib/supabase/types'
 
 export function useClientUserProfile() {
+  const { user, loading: userLoading } = useCurrentUser()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -13,16 +15,11 @@ export function useClientUserProfile() {
     let cancelled = false
 
     async function loadProfile() {
+      if (userLoading) return
+
       setLoading(true)
 
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser()
-
-      if (cancelled) return
-
-      if (error || !user?.id) {
+      if (!user?.id) {
         setProfile(null)
         setLoading(false)
         return
@@ -52,17 +49,10 @@ export function useClientUserProfile() {
 
     void loadProfile()
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void loadProfile()
-    })
-
     return () => {
       cancelled = true
-      subscription.unsubscribe()
     }
-  }, [])
+  }, [user, userLoading])
 
   return { profile, loading }
 }

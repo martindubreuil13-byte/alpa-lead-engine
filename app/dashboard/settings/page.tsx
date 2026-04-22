@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import SignaturePreview from '@/components/email/SignaturePreview'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getEmailLimitFeedback } from '@/lib/email/send-limits'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
 import { supabase } from '@/lib/supabase'
@@ -78,6 +79,7 @@ function buildSenderProfile(input: {
 }
 
 export default function SettingsPage() {
+  const { user, loading: userLoading } = useCurrentUser()
   const [rowId, setRowId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -100,17 +102,13 @@ export default function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
+    if (userLoading) return
     void fetchSettings()
-  }, [])
+  }, [user, userLoading])
 
   async function fetchSettings() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
-      console.error('Unable to resolve authenticated user:', userError)
+    if (!user?.id) {
+      console.error('Unable to resolve authenticated user')
       return
     }
 
@@ -165,15 +163,6 @@ export default function SettingsPage() {
     setStatusMessage('')
 
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
-      if (userError) {
-        throw userError
-      }
-
       if (!user?.id) {
         throw new Error('Missing authenticated user')
       }
@@ -222,12 +211,7 @@ export default function SettingsPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
+    if (!user?.id) {
       setStatusMessage('You must be logged in to upload a logo.')
       return
     }
@@ -275,15 +259,6 @@ export default function SettingsPage() {
     setTestStatusTone('default')
 
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
-      if (userError) {
-        throw userError
-      }
-
       if (!user?.email) {
         throw new Error('Missing authenticated user email')
       }

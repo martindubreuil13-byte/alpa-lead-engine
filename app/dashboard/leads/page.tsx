@@ -4,6 +4,7 @@ import {
   mapMissionQueueRowsToInboxLeads,
   type MissionInboxLead,
 } from '@/lib/leads/mission-leads'
+import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -29,13 +30,10 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
 
   if (missionIdFilter) {
     const supabase = await createServerClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+    const profile = await getUserProfile()
 
-    if (userError || !user?.id) {
-      missionQueryError = userError?.message || 'You must be signed in to view mission leads.'
+    if (!profile?.id) {
+      missionQueryError = 'You must be signed in to view mission leads.'
       console.info('[dashboard/leads] mission query', {
         mission_id: missionIdFilter,
         row_count: 0,
@@ -46,7 +44,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         .select(
           'id, user_id, mission_id, business_name, website, email, phone, location, qualification_status, created_at'
         )
-        .eq('user_id', user.id)
+        .eq('user_id', profile.id)
         .eq('mission_id', missionIdFilter)
         .order('created_at', { ascending: false })
 

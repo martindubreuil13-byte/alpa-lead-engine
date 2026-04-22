@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Clock, Loader2, Send, Trash2, XCircle, Zap } from 'lucide-react'
 
 import ReviewPanel from '@/components/outreach/ReviewPanel'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { supabase } from '@/lib/supabase'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 type QueueItem = {
   id: string
@@ -27,6 +29,10 @@ type QueueItem = {
   review_status: 'draft' | 'approved' | 'sent' | 'rejected'
   created_at: string
 }
+
+type SendResult = { sent: number; failed: number }
+type TimeoutResult = { timeout: true }
+type SendOutcome = { result: SendResult | null; timedOut: boolean }
 
 // ─── Badges ──────────────────────────────────────────────────────────────────
 
@@ -130,6 +136,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function OutreachQueuePage() {
+  const { user, loading: userLoading } = useCurrentUser()
   const [items, setItems] = useState<QueueItem[]>([])
   const [loading, setLoading] = useState(true)
   const [activeItem, setActiveItem] = useState<QueueItem | null>(null)
@@ -144,6 +151,7 @@ export default function OutreachQueuePage() {
   // Toast
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isFetchingRef = useRef(false)
 
   function showToast(msg: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -151,26 +159,33 @@ export default function OutreachQueuePage() {
   }
 
   useEffect(() => {
+    if (userLoading) return
     void fetchQueue()
-  }, [])
+  }, [user, userLoading])
 
   async function fetchQueue() {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
+    if (isFetchingRef.current) return
+    isFetchingRef.current = true
 
-    const { data, error } = await supabase
-      .from('outreach_queue')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+    try {
+      setLoading(true)
+      if (!user) return
 
-    if (error) {
-      console.error('[outreach-queue] fetch error:', error)
-    } else {
-      setItems((data || []) as QueueItem[])
+      const { data, error } = await supabase
+        .from('outreach_queue')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('[outreach-queue] fetch error:', error)
+      } else {
+        setItems((data || []) as QueueItem[])
+      }
+    } finally {
+      setLoading(false)
+      isFetchingRef.current = false
     }
-    setLoading(false)
   }
 
   // ── Update (approve / reject / save) ────────────────────────────────────
@@ -180,13 +195,17 @@ export default function OutreachQueuePage() {
     action: 'approve' | 'reject' | 'save',
     payload?: { subject?: string; full_email?: string }
   ) {
-    const res = await fetch('/api/agent/outreach-queue/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ queueId, action, payload }),
-    })
-    if (!res.ok) {
-      console.error('[outreach-queue] update failed:', await res.text())
+    if (!queueId) return
+    const url = '/api/agent/outreach-queue/update'
+    console.log('[FETCH CALL]', { url, queueId, action })
+    try {
+      await safeFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueId, action, payload }),
+      })
+    } catch (err) {
+      console.error('[agent] fetch failed', { url, queueId, action, err })
       return
     }
     setItems((prev) =>
@@ -202,12 +221,20 @@ export default function OutreachQueuePage() {
   // ── Delete ───────────────────────────────────────────────────────────────
 
   async function callDelete(ids: string[]): Promise<boolean> {
-    const res = await fetch('/api/agent/outreach-queue/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
-    return res.ok
+    if (ids.length === 0) return false
+    const url = '/api/agent/outreach-queue/delete'
+    console.log('[FETCH CALL]', { url, ids })
+    try {
+      await safeFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      return true
+    } catch (err) {
+      console.error('[agent] fetch failed', { url, ids, err })
+      return false
+    }
   }
 
   async function handleDeleteSingle(item: QueueItem) {
@@ -271,14 +298,35 @@ export default function OutreachQueuePage() {
 
   // ── Send ─────────────────────────────────────────────────────────────────
 
-  async function callSend(ids: string[]): Promise<{ sent: number; failed: number } | null> {
-    const res = await fetch('/api/agent/outreach-queue/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
-    if (!res.ok) return null
-    return res.json() as Promise<{ sent: number; failed: number }>
+  async function callSend(ids: string[]): Promise<SendOutcome> {
+    if (ids.length === 0) return { result: null, timedOut: false }
+    const url = '/api/agent/outreach-queue/send'
+    console.log('[FETCH CALL]', { url, ids })
+    try {
+      const res = await safeFetch(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        },
+        { timeout: 20000 }
+      )
+      const data = await res.json() as SendResult | TimeoutResult
+      if ('timeout' in data && data.timeout) {
+        return { result: null, timedOut: true }
+      }
+      if (!('sent' in data) || !('failed' in data)) {
+        return { result: null, timedOut: false }
+      }
+      return { result: data, timedOut: false }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Request timeout') {
+        return { result: null, timedOut: true }
+      }
+      console.error('[agent] fetch failed', { url, ids, err })
+      return { result: null, timedOut: false }
+    }
   }
 
   async function handleSendSingle(item: QueueItem) {
@@ -289,12 +337,14 @@ export default function OutreachQueuePage() {
     if (!window.confirm(`Send email to ${item.contact_email}?`)) return
 
     setSendingIds((prev) => new Set(prev).add(item.id))
-    const result = await callSend([item.id])
+    const { result, timedOut } = await callSend([item.id])
     if (result && result.sent > 0) {
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, review_status: 'sent' as const } : i))
       )
       showToast('Email sent')
+    } else if (timedOut) {
+      showToast('Sending is taking longer than expected. Please wait...')
     } else {
       showToast('Send failed — check logs')
     }
@@ -321,7 +371,7 @@ export default function OutreachQueuePage() {
     if (!window.confirm(`Send ${sendable.length} email${sendable.length > 1 ? 's' : ''}?`)) return
 
     setSendingIds((prev) => { const next = new Set(prev); sendable.forEach((id) => next.add(id)); return next })
-    const result = await callSend(sendable)
+    const { result, timedOut } = await callSend(sendable)
     if (result) {
       if (result.sent > 0) {
         setItems((prev) =>
@@ -335,6 +385,8 @@ export default function OutreachQueuePage() {
       } else {
         showToast('Send failed — check logs')
       }
+    } else if (timedOut) {
+      showToast('Sending is taking longer than expected. Please wait...')
     }
     setSendingIds((prev) => { const next = new Set(prev); sendable.forEach((id) => next.delete(id)); return next })
   }
@@ -345,16 +397,17 @@ export default function OutreachQueuePage() {
     if (!item.full_email && !item.body) return
     setTestingIds((prev) => new Set(prev).add(item.id))
     try {
-      const res = await fetch('/api/agent/outreach-queue/send-test', {
+      const url = '/api/agent/outreach-queue/send-test'
+      console.log('[FETCH CALL]', { url, id: item.id })
+      await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: item.id }),
       })
-      if (res.ok) {
-        showToast('Test email sent to your inbox')
-      } else {
-        showToast('Test send failed — check logs')
-      }
+      showToast('Test email sent to your inbox')
+    } catch (err) {
+      console.error('[agent] fetch failed', { url: '/api/agent/outreach-queue/send-test', id: item.id, err })
+      showToast('Test send failed — check logs')
     } finally {
       setTestingIds((prev) => { const next = new Set(prev); next.delete(item.id); return next })
     }

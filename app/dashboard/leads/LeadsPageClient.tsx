@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import LeadCard from '@/components/leads/LeadCard'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
@@ -16,6 +17,7 @@ import { consumeInboxFocusRequest } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
 import { trackEvent } from '@/lib/track'
 import { GUEST_LEADS_UPDATED_EVENT, type TrialLead } from '@/lib/trial'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 type Lead = TrialLead & {
   user_id?: string
@@ -80,6 +82,7 @@ export default function LeadsPageClient({
   missionQueryError,
 }: LeadsPageClientProps) {
   const router = useRouter()
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const missionScopedView = Boolean(missionIdFilter)
   const { initialLoading, initialLeads } = missionScopedView
@@ -110,6 +113,8 @@ export default function LeadsPageClient({
   const isAdminUser = !profileLoading && isAdmin(profile)
 
   useEffect(() => {
+    if (userLoading) return
+
     if (missionScopedView) {
       setIsGuest(false)
       setLeads(initialMissionLeads)
@@ -124,7 +129,7 @@ export default function LeadsPageClient({
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }, 120)
     }
-  }, [initialMissionLeads, missionScopedView])
+  }, [initialMissionLeads, missionScopedView, user, userLoading])
 
   useEffect(() => {
     if (!isGuest || missionScopedView) return
@@ -152,10 +157,6 @@ export default function LeadsPageClient({
 
   async function fetchLeads() {
     setLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user) {
       setIsGuest(true)
@@ -211,16 +212,16 @@ export default function LeadsPageClient({
 
     setPreparingOutreach(true)
     try {
-      const res = await fetch('/api/agent/prepare-outreach', {
+      const url = '/api/agent/prepare-outreach'
+      console.log('[FETCH CALL]', { url, leadIds: ids })
+      await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadIds: ids, source: 'manual' }),
       })
-      if (res.ok) {
-        router.push('/dashboard/outreach')
-      }
+      router.push('/dashboard/outreach')
     } catch (err) {
-      console.error('Prepare outreach failed:', err)
+      console.error('[agent] fetch failed', { url: '/api/agent/prepare-outreach', leadIds: ids, err })
     } finally {
       setPreparingOutreach(false)
     }

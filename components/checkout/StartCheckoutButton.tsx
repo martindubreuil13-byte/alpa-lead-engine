@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
-import { supabase } from '@/lib/supabase'
 
 type StartCheckoutButtonProps = {
   label: string
@@ -22,48 +22,19 @@ export default function StartCheckoutButton({
   disabled = false,
   disabledLabel = label,
 }: StartCheckoutButtonProps) {
+  const { user } = useCurrentUser()
   const [loading, setLoading] = useState(false)
   const [emailInput, setEmailInput] = useState(() =>
     String(email || getGuestCaptureEmail()).trim().toLowerCase()
   )
   const [showEmailInput, setShowEmailInput] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const isAuthenticated = Boolean(user?.id)
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (cancelled) return
-
-      setIsAuthenticated(Boolean(user?.id))
-
-      if (user?.email) {
-        setEmailInput((current) => current || user.email!.trim().toLowerCase())
-      }
+    if (user?.email) {
+      setEmailInput((current) => current || user.email!.trim().toLowerCase())
     }
-
-    void loadUser()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const authUser = session?.user ?? null
-      setIsAuthenticated(Boolean(authUser?.id))
-
-      if (authUser?.email) {
-        setEmailInput((current) => current || authUser.email!.trim().toLowerCase())
-      }
-    })
-
-    return () => {
-      cancelled = true
-      subscription.unsubscribe()
-    }
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (email) {

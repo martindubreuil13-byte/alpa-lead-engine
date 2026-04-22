@@ -6,9 +6,11 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 
 import LeadCard from '@/components/leads/LeadCard'
 import { canAccessFeature, isAdmin } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 type Lead = {
   id: string
@@ -30,6 +32,7 @@ function formatLocation(value: string | null) {
 
 export default function LeadLibraryPage() {
   const router = useRouter()
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,15 +44,12 @@ export default function LeadLibraryPage() {
   const isAdminUser = !profileLoading && isAdmin(profile)
 
   useEffect(() => {
+    if (userLoading) return
     void fetchLeads()
-  }, [])
+  }, [user, userLoading])
 
   async function fetchLeads() {
     setLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user?.id) {
       setIsGuest(true)
@@ -79,17 +79,18 @@ export default function LeadLibraryPage() {
   }
 
   const prepareOutreach = useCallback(async (id: string) => {
+    if (!id) return
     try {
-      const res = await fetch('/api/agent/prepare-outreach', {
+      const url = '/api/agent/prepare-outreach'
+      console.log('[FETCH CALL]', { url, leadIds: [id] })
+      await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadIds: [id], source: 'manual' }),
       })
-      if (res.ok) {
-        router.push('/dashboard/outreach')
-      }
+      router.push('/dashboard/outreach')
     } catch (err) {
-      console.error('Prepare outreach failed:', err)
+      console.error('[agent] fetch failed', { url: '/api/agent/prepare-outreach', leadIds: [id], err })
     }
   }, [router])
 

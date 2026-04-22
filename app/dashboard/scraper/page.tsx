@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import LeadCard from '@/components/leads/LeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import PartialCompletionModal from '@/components/modals/PartialCompletionModal'
@@ -295,6 +296,7 @@ function Select({
 
 export default function Page() {
   const router = useRouter()
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
   const [viewerMode, setViewerMode] = useState<ViewerMode>(() =>
@@ -446,26 +448,20 @@ export default function Page() {
   }, [loading, elapsed, finalElapsed])
 
   useEffect(() => {
+    if (userLoading) return
     void loadViewerMode()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void loadViewerMode()
-    })
 
     return () => {
       if (completionModalTimeoutRef.current) {
         clearTimeout(completionModalTimeoutRef.current)
         completionModalTimeoutRef.current = null
       }
-      subscription.unsubscribe()
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
       }
     }
-  }, [])
+  }, [user, userLoading])
 
   useEffect(() => {
     if (!isAuthenticated || !profile?.id) return
@@ -473,9 +469,10 @@ export default function Page() {
   }, [isAuthenticated, profile?.id, profile?.plan])
 
   useEffect(() => {
+    if (userLoading) return
     if (profileLoading) return
     void loadViewerMode()
-  }, [profile?.id, profile?.plan, profileLoading])
+  }, [profile?.id, profile?.plan, profileLoading, user, userLoading])
 
   useEffect(() => {
     if (!isGuest) return
@@ -618,9 +615,6 @@ export default function Page() {
   async function loadViewerMode() {
     setGuestClaimResult(readStoredGuestClaimResult())
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
     const forcedGuestTrial = isGuestTrialModeForced()
     console.log('SCRAPER INIT', {
       forcedGuestTrial,

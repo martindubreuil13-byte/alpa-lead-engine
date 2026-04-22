@@ -10,7 +10,9 @@ import { MissionCarousel } from '@/components/agent/MissionCarousel'
 import type { MissionCardData } from '@/components/agent/MissionCard'
 import { isAdmin } from '@/lib/auth/access'
 import { supabase } from '@/lib/supabase'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +130,7 @@ function DevOverlay({
 
 export default function AgentCorePage() {
   const router = useRouter()
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
 
   const [missions, setMissions] = useState<MissionSummary[]>([])
@@ -207,13 +210,12 @@ export default function AgentCorePage() {
         setFetchErrorDismissed(false)
       }
       try {
-        const { data: userData, error: authErr } = await supabase.auth.getUser()
-        const userId = userData?.user?.id ?? null
+        const userId = user?.id ?? null
         if (!isSilentPoll)
           console.log(
             '[agent] auth user:',
             userId ?? 'null',
-            authErr ? `err=${authErr.message}` : 'ok',
+            userLoading ? 'loading' : 'ok',
           )
         setAuthOk(!!userId)
         if (!userId) return
@@ -312,13 +314,14 @@ export default function AgentCorePage() {
         }
       }
     },
-    [emitEvent],
+    [emitEvent, user, userLoading],
   )
 
   // ── Initial fetch + polling ───────────────────────────────────────────────
   // Waits for profileLoading to resolve before touching loading state or fetching.
   // Safety timeout starts HERE — after we know a fetch is actually in-flight.
   useEffect(() => {
+    if (userLoading) return
     if (profileLoading) return  // not ready yet — don't start any timers
 
     if (!profile || !isAdmin(profile)) {
@@ -343,7 +346,7 @@ export default function AgentCorePage() {
       if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
     }
-  }, [profileLoading, profile, fetchMissions])
+  }, [profileLoading, profile, fetchMissions, userLoading])
 
   // ── Auto-redirect: single active + only non-terminal mission ─────────────
   useEffect(() => {
@@ -364,6 +367,11 @@ function handleRetry() {
 }
 
 async function handleDeleteMission(id: string) {
+  if (!id || id === 'undefined') {
+    console.warn('[MISSION BLOCKED] invalid missionId', id)
+    return
+  }
+
   if (deletingMissionIdsRef.current.has(id)) return
 
   deletingMissionIdsRef.current.add(id)
@@ -372,19 +380,19 @@ async function handleDeleteMission(id: string) {
   setMissions((prev) => prev.filter((m) => m.id !== id))
 
   try {
-    const res = await fetch('/api/agent/missions/delete', {
+    const url = '/api/agent/missions/delete'
+    console.log('[FETCH CALL]', { url, missionId: id })
+    await safeFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     })
-
-    if (!res.ok) throw new Error('Delete failed')
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return
     }
 
-    console.error('Delete failed:', err)
+    console.error('[agent] fetch failed', { url: '/api/agent/missions/delete', missionId: id, err })
     await fetchMissions(false)
   } finally {
     deletingMissionIdsRef.current.delete(id)

@@ -10,6 +10,7 @@ import {
   type EmailUsageSnapshot,
 } from '@/lib/email/send-limits'
 import { canAccessFeature } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
 
@@ -224,6 +225,7 @@ export default function SendCampaignModal({
   onSent: (sentIds: string[]) => void
 }) {
   const router = useRouter()
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
 
   const [templates, setTemplates] = useState<Template[]>([])
@@ -255,6 +257,7 @@ export default function SendCampaignModal({
 
   useEffect(() => {
     if (!isOpen) return
+    if (userLoading) return
 
     const selectionReady =
       selectedIds.length === 0 || modalSelectedIds.length === selectedIds.length
@@ -262,7 +265,7 @@ export default function SendCampaignModal({
     if (!selectionReady) return
 
     void fetchEmailSetup()
-  }, [isOpen, selectedIds, modalSelectedIds])
+  }, [isOpen, selectedIds, modalSelectedIds, user, userLoading])
 
   useEffect(() => {
     if (!templates || templates.length === 0) {
@@ -333,10 +336,6 @@ export default function SendCampaignModal({
     setLoadingPreview(true)
     setTemplateMessage('')
     setTestStatusMessage('')
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user?.id) {
       setTemplates([])

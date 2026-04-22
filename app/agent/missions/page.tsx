@@ -9,6 +9,7 @@ import DashboardShell from '@/components/dashboard/DashboardShell'
 import { isAdmin } from '@/lib/auth/access'
 import { supabase } from '@/lib/supabase'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -171,11 +172,25 @@ export default function MissionsListPage() {
   // ─── Actions ─────────────────────────────────────────────────────────────
 
   async function doUpdate(id: string, payload: Record<string, unknown>) {
-    await fetch('/api/agent/missions/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ missionId: id, ...payload }),
-    })
+    if (!id || id === 'undefined') {
+      console.warn('[MISSION BLOCKED] invalid missionId', id)
+      return false
+    }
+
+    const url = '/api/agent/missions/update'
+    console.log('[FETCH CALL]', { url, missionId: id })
+
+    try {
+      await safeFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ missionId: id, ...payload }),
+      })
+      return true
+    } catch (err) {
+      console.error('[agent] fetch failed', { url, missionId: id, err })
+      return false
+    }
   }
 
   async function handleToggle(m: MissionRow) {
@@ -186,8 +201,8 @@ export default function MissionsListPage() {
         : 'active'
     setActioning(m.id)
     try {
-      await doUpdate(m.id, { status: newStatus })
-      setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: newStatus } : x)))
+      const ok = await doUpdate(m.id, { status: newStatus })
+      if (ok) setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: newStatus } : x)))
     } finally {
       setActioning(null)
     }
@@ -198,8 +213,8 @@ export default function MissionsListPage() {
     setActioning(m.id)
     setConfirmStop(null)
     try {
-      await doUpdate(m.id, { status: 'archived' })
-      setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'archived' } : x)))
+      const ok = await doUpdate(m.id, { status: 'archived' })
+      if (ok) setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'archived' } : x)))
     } finally {
       setActioning(null)
     }
@@ -209,34 +224,38 @@ export default function MissionsListPage() {
     if (actioning === m.id) return
     setActioning(m.id)
     try {
-      await doUpdate(m.id, { status: 'active', next_run_at: new Date().toISOString() })
-      setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'active' } : x)))
-      router.push(`/agent/dashboard/${m.id}`)
+      const ok = await doUpdate(m.id, { status: 'active', next_run_at: new Date().toISOString() })
+      if (ok) {
+        setMissions((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: 'active' } : x)))
+        router.push(`/agent/dashboard/${m.id}`)
+      }
     } finally {
       setActioning(null)
     }
   }
 
   async function handleDelete(m: MissionRow) {
+    if (!m.id || m.id === 'undefined') {
+      console.warn('[MISSION BLOCKED] invalid missionId', m.id)
+      return
+    }
     if (actioning === m.id) return
     setActioning(m.id)
     setConfirmDelete(null)
     // Optimistic remove — UI responds immediately
     setMissions((prev) => prev.filter((x) => x.id !== m.id))
     try {
-      const res = await fetch('/api/agent/missions/delete', {
+      const url = '/api/agent/missions/delete'
+      console.log('[FETCH CALL]', { url, missionId: m.id })
+      await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: m.id }),
       })
-      if (res.ok) {
-        // Refetch to confirm DB state matches
-        void fetchMissions()
-      } else {
-        // Revert optimistic remove on failure
-        void fetchMissions()
-      }
-    } catch {
+      // Refetch to confirm DB state matches
+      void fetchMissions()
+    } catch (err) {
+      console.error('[agent] fetch failed', { url: '/api/agent/missions/delete', missionId: m.id, err })
       void fetchMissions()
     } finally {
       setActioning(null)

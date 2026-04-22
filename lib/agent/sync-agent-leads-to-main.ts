@@ -8,6 +8,7 @@ type SyncAgentLeadsParams = {
   supabase: SupabaseServerClient | SupabaseAdminClient | any
   userId: string
   missionId: string
+  runId: string
 }
 
 type LeadInsertPayload = Database['public']['Tables']['leads']['Insert']
@@ -35,13 +36,20 @@ export async function syncAgentLeadsToMain({
   supabase,
   userId,
   missionId,
+  runId,
 }: SyncAgentLeadsParams) {
   try {
+    if (!missionId || !runId || !userId) {
+      console.error('SYNC ERROR (ignored): missing write context', { missionId, runId, userId })
+      return { inserted: 0 }
+    }
+
     const { data: queueLeads, error } = await supabase
       .from('agent_lead_queue')
       .select('*')
       .eq('user_id', userId)
       .eq('mission_id', missionId)
+      .eq('run_id', runId)
       .eq('qualification_status', 'qualified')
 
     if (error) {
@@ -111,6 +119,8 @@ export async function syncAgentLeadsToMain({
       email_confidence: 'low',
       is_generic_email: false,
       cost_estimate: 0,
+      mission_id: missionId,
+      run_id: runId,
     }))
 
     try {
@@ -133,6 +143,8 @@ export async function syncAgentLeadsToMain({
       console.error('SYNC ERROR (ignored):', err)
       return { inserted: 0 }
     }
+
+    console.log('[LEADS WRITTEN]', { missionId, runId, count: mapped.length })
 
     return {
       inserted: mapped.length,

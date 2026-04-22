@@ -8,6 +8,7 @@ import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { getEmailLimitFeedback } from '@/lib/email/send-limits'
 import { canAccessFeature } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
@@ -208,6 +209,7 @@ Sent via ALPA
 export default function Page() {
   const params = useParams()
   const leadId = params.id as string
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
 
   const [lead, setLead] = useState<Lead | null>(null)
@@ -226,9 +228,10 @@ export default function Page() {
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
 
   useEffect(() => {
+    if (userLoading) return
     void fetchLead()
     void fetchEmailSetup()
-  }, [leadId])
+  }, [leadId, user, userLoading])
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
   const senderProfile = useMemo(
@@ -249,10 +252,6 @@ export default function Page() {
   }, [lead, selectedTemplate, senderProfile])
 
   async function fetchLead() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
     if (!user) {
       const guestLead = getGuestLeads().find((item) => item.id === leadId)
       if (guestLead) {
@@ -290,10 +289,6 @@ export default function Page() {
 
   async function fetchEmailSetup() {
     setSetupLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user?.id) {
       setTemplates([])

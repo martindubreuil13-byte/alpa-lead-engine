@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import { canAccessFeature } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { buildTemplateBodyHtml } from '@/lib/email/signature'
 import { supabase } from '@/lib/supabase'
@@ -30,6 +31,7 @@ function emptyForm() {
 }
 
 export default function TemplatesPage() {
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
@@ -42,21 +44,17 @@ export default function TemplatesPage() {
   const templatesLocked = !profileLoading && !canAccessFeature('templates', profile)
 
   useEffect(() => {
+    if (userLoading) return
     void fetchTemplates()
-  }, [])
+  }, [user, userLoading])
 
   const previewHtml = useMemo(() => buildTemplateBodyHtml(form.body), [form.body])
 
   async function fetchTemplates() {
     setLoading(true)
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
-      console.error('Unable to resolve authenticated user:', userError)
+    if (!user?.id) {
+      console.error('Unable to resolve authenticated user')
       setLoading(false)
       return
     }
@@ -112,12 +110,7 @@ export default function TemplatesPage() {
     setSaving(true)
     setStatusMessage('')
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
+    if (!user?.id) {
       setSaving(false)
       setStatusMessage('You must be logged in to save templates.')
       return
@@ -174,12 +167,7 @@ export default function TemplatesPage() {
     setDeletingId(id)
     setStatusMessage('')
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user?.id) {
+    if (!user?.id) {
       setDeletingId(null)
       setStatusMessage('You must be logged in to delete templates.')
       return

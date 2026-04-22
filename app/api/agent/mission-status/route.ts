@@ -30,83 +30,82 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'MISSION_NOT_FOUND' }, { status: 404 })
     }
 
-    // Count leads found today
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
+    // Fetch the latest run first so we can scope activity queries to that run.
+    const { data: rawRun, error: runError } = await supabase
+      .from('agent_mission_runs')
+      .select(`
+        id,
+        mission_id,
+        status,
+        started_at,
+        completed_at,
+        finished_at,
+        leads_requested,
+        leads_found,
+        leads_accepted,
+        leads_deduped,
+        drafts_generated,
+        accepted_count,
+        drafts_generated_count,
+        error,
+        created_at,
+        updated_at
+      `)
+      .eq('mission_id', missionId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
+    if (runError) {
+      console.error('[RUN FETCH ERROR]', runError)
+      return NextResponse.json({ mission, latestRun: null })
+    }
+
+    const latestRun = rawRun
+      ? {
+          ...rawRun,
+          accepted_count: rawRun.accepted_count ?? 0,
+          drafts_generated_count: rawRun.drafts_generated_count ?? 0,
+          leads_found: rawRun.leads_found ?? 0,
+          leads_accepted: rawRun.leads_accepted ?? 0,
+          leads_deduped: rawRun.leads_deduped ?? 0,
+          drafts_generated: rawRun.drafts_generated ?? 0,
+        }
+      : null
+    const runId = latestRun?.id ?? null
+
+    // All queries scoped to the current run where possible.
     const [
-      leadsTodayResult,
       totalLeadsResult,
-      emailsReadyResult,
-      emailsApprovedResult,
-      emailsRejectedResult,
       recentActivityResult,
       recentOutreachResult,
-      latestRunResult,
     ] = await Promise.all([
-      supabase
-        .from('agent_lead_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('mission_id', missionId)
-        .gte('created_at', todayStart.toISOString()),
-
       supabase
         .from('agent_lead_queue')
         .select('id', { count: 'exact', head: true })
         .eq('mission_id', missionId),
 
       supabase
-        .from('outreach_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('mission_id', missionId)
-        .eq('review_status', 'draft'),
-
-      supabase
-        .from('outreach_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('mission_id', missionId)
-        .eq('review_status', 'approved'),
-
-      supabase
-        .from('outreach_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('mission_id', missionId)
-        .eq('review_status', 'rejected'),
-
-      supabase
         .from('agent_lead_queue')
         .select('id, business_name, website, email, location, created_at')
-        .eq('mission_id', missionId)
+        .eq(runId ? 'run_id' : 'mission_id', runId ?? missionId)
         .order('created_at', { ascending: false })
         .limit(20),
 
       supabase
         .from('outreach_queue')
         .select('id, company_name, review_status, created_at')
-        .eq('mission_id', missionId)
+        .eq(runId ? 'run_id' : 'mission_id', runId ?? missionId)
         .order('created_at', { ascending: false })
         .limit(20),
-
-      supabase
-        .from('agent_mission_runs')
-        .select('*')
-        .eq('mission_id', missionId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
     ])
 
     return NextResponse.json({
       mission,
-      leadsToday: leadsTodayResult.count ?? 0,
-      totalLeads: totalLeadsResult.count ?? 0,
-      leads_count: totalLeadsResult.count ?? 0,
-      emailsReady: emailsReadyResult.count ?? 0,
-      emailsApproved: emailsApprovedResult.count ?? 0,
-      emailsRejected: emailsRejectedResult.count ?? 0,
+      totalLeads:     totalLeadsResult.count  ?? 0,
       recentActivity: recentActivityResult.data ?? [],
       recentOutreach: recentOutreachResult.data ?? [],
-      latestRun: latestRunResult.data ?? null,
+      latestRun,
     })
   } catch (err) {
     console.error('[mission-status]', err)

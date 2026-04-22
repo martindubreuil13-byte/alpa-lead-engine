@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -26,12 +27,10 @@ function shortenSessionId(value: string | null) {
 
 export default async function AdminActivityPage() {
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
+  const profile = await getUserProfile()
   const supabase = await createServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
 
-  if (!user?.email || user.email.toLowerCase() !== adminEmail) {
+  if (!profile?.email || profile.email.toLowerCase() !== adminEmail) {
     redirect('/dashboard')
   }
 

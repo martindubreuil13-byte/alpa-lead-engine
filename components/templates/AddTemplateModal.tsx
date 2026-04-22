@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { supabase } from '@/lib/supabase'
 import RichTextEditor from '@/components/editor/RichTextEditor'
 
@@ -28,6 +29,7 @@ export default function AddTemplateModal({
   editTemplate,
 }: Props) {
   const isEditMode = !!editTemplate
+  const { user } = useCurrentUser()
 
   const [name, setName] = useState('')
   const [subject, setSubject] = useState('')
@@ -58,10 +60,6 @@ export default function AddTemplateModal({
     }
 
     setLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user?.id) {
       setLoading(false)

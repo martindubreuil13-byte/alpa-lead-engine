@@ -65,6 +65,8 @@ type DraftMissionContext = {
   valueOutcome: string | null
 }
 
+const stopSignalCache = new Map<string, { checkedAt: number; stopped: boolean }>()
+
 function isValidEmail(email: string | null | undefined) {
   const normalized = String(email || '').trim()
   return Boolean(normalized && EMAIL_RE.test(normalized) && !JUNK_EMAIL_RE.test(normalized))
@@ -134,6 +136,36 @@ async function loadMission(admin: AdminClient, missionId: string) {
   return (data ?? null) as MissionRow | null
 }
 
+async function shouldStopMission(admin: AdminClient, missionId: string) {
+  const now = Date.now()
+  const cached = stopSignalCache.get(missionId)
+  if (cached && now - cached.checkedAt < 1000) {
+    return cached.stopped
+  }
+
+  const { data } = await fromAdminTable(admin, 'agent_missions')
+    .select('last_stop_reason')
+    .eq('id', missionId)
+    .maybeSingle()
+
+  const stopped = !data || data.last_stop_reason === 'stopped_by_user'
+  stopSignalCache.set(missionId, { checkedAt: now, stopped })
+
+  return stopped
+}
+
+async function finalizeStoppedRun(admin: AdminClient, missionId: string) {
+  console.log('[executor] RUN STOPPED BY USER', missionId)
+
+  await fromAdminTable(admin, 'agent_missions')
+    .update({
+      status: 'paused',
+      next_run_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', missionId)
+}
+
 async function loadMissionVariants(admin: AdminClient, mission: MissionRow) {
   const { data } = await fromAdminTable(admin, 'agent_mission_icps')
     .select('*')
@@ -171,12 +203,40 @@ async function createRun(admin: AdminClient, mission: MissionRow, triggerType: E
     .insert({
       user_id: mission.user_id,
       mission_id: mission.id,
-      status: 'queued',
+      status: 'running',
       trigger_type: triggerType,
       scheduled_for: mission.next_run_at,
+      leads_requested: mission.daily_target,
       requested_leads: mission.daily_target,
+      leads_found: 0,
+      leads_accepted: 0,
+      leads_deduped: 0,
+      drafts_generated: 0,
+      accepted_count: 0,
+      drafts_generated_count: 0,
     })
-    .select('*')
+    .select(`
+      id,
+      user_id,
+      mission_id,
+      status,
+      trigger_type,
+      scheduled_for,
+      started_at,
+      completed_at,
+      finished_at,
+      leads_requested,
+      requested_leads,
+      leads_found,
+      leads_accepted,
+      leads_deduped,
+      drafts_generated,
+      accepted_count,
+      drafts_generated_count,
+      error,
+      created_at,
+      updated_at
+    `)
     .single()
 
   if (error) {
@@ -269,6 +329,8 @@ const leadToInsert = {
     }
   }
 
+  console.log('[LEADS WRITTEN]', { missionId: mission.id, runId, count: insertedCount })
+
   return insertedCount
 }
 
@@ -314,7 +376,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
   >
 
   if (!typedQueueLeads.length) {
-    return 0
+    return { count: 0, stopped: false }
   }
 
   const { data: existingDrafts } = await fromAdminTable(admin, 'outreach_queue')
@@ -332,15 +394,23 @@ async function generateDraftsForRun(admin: AdminClient, params: {
     (lead) => lead.dedup_key && !existingKeys.has(lead.dedup_key)
   )
   if (toProcess.length === 0) {
-    return 0
+    return { count: 0, stopped: false }
   }
 
   let queueIndex = 0
   let draftsGenerated = 0
+  let stopRequested = false
 
   const workerCount = Math.min(DRAFT_CONCURRENCY, toProcess.length)
   const workers = Array.from({ length: workerCount }, async () => {
     while (queueIndex < toProcess.length) {
+      if (stopRequested) break
+      if (await shouldStopMission(admin, params.mission.id)) {
+        stopRequested = true
+        console.log('[executor] STOP DETECTED (before draft)')
+        break
+      }
+
       const index = queueIndex
       queueIndex += 1
       const lead = toProcess[index]
@@ -448,7 +518,11 @@ async function generateDraftsForRun(admin: AdminClient, params: {
   })
 
   await Promise.all(workers)
-  return draftsGenerated
+  console.log('[DRAFTS WRITTEN]', { missionId: params.mission.id, runId: params.run.id, count: draftsGenerated })
+  return {
+    count: draftsGenerated,
+    stopped: stopRequested,
+  }
 }
 
 export async function executeMissionRun(params: ExecuteMissionRunParams): Promise<ExecuteMissionRunResult> {
@@ -474,6 +548,7 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
   if (!run) {
     return { ok: false, missionId: mission.id, reason: 'already_running' }
   }
+  console.log('[EXECUTOR START]', { missionId: mission.id, runId: run.id })
 
   // Resolved target — guards against 0 / null / undefined which would cause the
   // worker loop to exit immediately without scraping anything.
@@ -493,8 +568,8 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
       status: 'failed',
       started_at: now.toISOString(),
       finished_at: now.toISOString(),
-      stop_reason: 'no_icp_variants',
-      error_message: 'No ICP variants found for mission',
+      completed_at: now.toISOString(),
+      error: 'No ICP variants found for mission',
     })
     await fromAdminTable(admin, 'agent_missions')
       .update({
@@ -526,8 +601,8 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
       status: 'failed',
       started_at: now.toISOString(),
       finished_at: now.toISOString(),
-      stop_reason: 'no_icp_variants',
-      error_message: 'Mission has no active ICP variants',
+      completed_at: now.toISOString(),
+      error: 'Mission has no active ICP variants',
     })
     await fromAdminTable(admin, 'agent_missions')
       .update({
@@ -551,6 +626,37 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
 
   // ── Transition: mark run as 'running' ────────────────────────────────────────
   // Everything from here on MUST finalize through the finally block below.
+
+  if (await shouldStopMission(admin, mission.id)) {
+    const stoppedAt = new Date().toISOString()
+    await finalizeStoppedRun(admin, mission.id)
+    await updateRun(admin, run.id, {
+      status: 'cancelled',
+      started_at: now.toISOString(),
+      finished_at: stoppedAt,
+      completed_at: stoppedAt,
+      error: null,
+    })
+    await fromAdminTable(admin, 'agent_missions')
+      .update({
+        status: 'paused',
+        last_run_at: stoppedAt,
+        last_run_status: 'cancelled',
+        last_stop_reason: 'stopped_by_user',
+        next_run_at: null,
+        updated_at: stoppedAt,
+      })
+      .eq('id', mission.id)
+    return {
+      ok: true,
+      runId: run.id,
+      missionId: mission.id,
+      status: 'cancelled',
+      acceptedCount: 0,
+      draftsGeneratedCount: 0,
+      stopReason: 'stopped_by_user',
+    }
+  }
 
   await updateRun(admin, run.id, {
     status: 'running',
@@ -589,6 +695,7 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
   let stopReason = 'no_more_results'
   let draftsGeneratedCount = 0
   let finalStopReason = 'no_more_results'
+  let stopRequested = false
 
   try {
     const dedupeState = await seedDedupeState(admin, mission)
@@ -598,6 +705,14 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
     const workerCount = Math.min(DISCOVERY_CONCURRENCY, activeVariants.length)
     const workers = Array.from({ length: workerCount }, async () => {
       while (queueIndex < activeVariants.length && acceptedLeads.length < target) {
+        if (stopRequested) break
+        if (await shouldStopMission(admin, mission.id)) {
+          stopRequested = true
+          stopReason = 'stopped_by_user'
+          console.log('[executor] STOP DETECTED (before ICP)')
+          break
+        }
+
         const currentIndex = queueIndex
         queueIndex += 1
         const variant = activeVariants[currentIndex]
@@ -627,6 +742,13 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
           meta: { query, icp: variant.label, remaining, maxLeads },
         })
 
+        if (await shouldStopMission(admin, mission.id)) {
+          stopRequested = true
+          stopReason = 'stopped_by_user'
+          console.log('[executor] STOP DETECTED (before scrape)')
+          break
+        }
+
         const result = await runSharedProspectorDiscovery(
           {
             query,
@@ -641,6 +763,13 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
 
         console.log('[executor] LEADS RETURNED', result.finalEnrichedLeads.length, '(discovered:', result.discoveredCount + ')')
 
+        if (await shouldStopMission(admin, mission.id)) {
+          stopRequested = true
+          stopReason = 'stopped_by_user'
+          console.log('[executor] STOP DETECTED (after scrape)')
+          break
+        }
+
         discoveredCount += result.discoveredCount
 
         const emailFirst = result.finalEnrichedLeads.filter((lead) => isValidEmail(lead.email))
@@ -648,6 +777,13 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
 
         let acceptedThisVariant = 0
         for (const lead of emailFirst) {
+          if (await shouldStopMission(admin, mission.id)) {
+            stopRequested = true
+            stopReason = 'stopped_by_user'
+            console.log('[executor] STOP DETECTED (mid-loop)')
+            break
+          }
+
           if (acceptedLeads.length >= target) {
             stopReason = 'quota_reached'
             break
@@ -706,29 +842,64 @@ export async function executeMissionRun(params: ExecuteMissionRunParams): Promis
 
     await Promise.all(workers)
 
+    if (await shouldStopMission(admin, mission.id)) {
+      stopRequested = true
+      stopReason = 'stopped_by_user'
+      console.log('[executor] STOP DETECTED (before lead persistence)')
+    }
+
 insertedCount = await persistAcceptedLeads(
   admin,
   mission,
   run.id,
   acceptedLeads.slice(0, target)
 )
+    await updateRun(admin, run.id, {
+      leads_found:    discoveredCount,
+      leads_accepted: insertedCount,
+      leads_deduped:  dedupedCount,
+      accepted_count: insertedCount,
+    })
+
     await syncAgentLeadsToMain({
       supabase: admin,
       userId: mission.user_id,
       missionId: mission.id,
+      runId: run.id,
     })
 
-    draftsGeneratedCount = await generateDraftsForRun(admin, { mission, run })
+    if (!stopRequested && await shouldStopMission(admin, mission.id)) {
+      stopRequested = true
+      stopReason = 'stopped_by_user'
+      console.log('[executor] STOP DETECTED (before draft)')
+    }
+
+    if (!stopRequested) {
+      const draftResult = await generateDraftsForRun(admin, { mission, run })
+      draftsGeneratedCount = draftResult.count
+      await updateRun(admin, run.id, {
+        drafts_generated: draftsGeneratedCount,
+        drafts_generated_count: draftsGeneratedCount,
+      })
+      if (draftResult.stopped) {
+        stopRequested = true
+        stopReason = 'stopped_by_user'
+      }
+    }
 
     runStatus =
-      insertedCount >= target
+      stopRequested
+        ? 'cancelled'
+        : insertedCount >= target
         ? 'completed'
         : insertedCount > 0
           ? 'partial'
           : 'failed'
 
     finalStopReason =
-      stopReason === 'quota_reached'
+      stopRequested
+        ? 'stopped_by_user'
+        : stopReason === 'quota_reached'
         ? 'quota_reached'
         : insertedCount > 0
           ? 'no_more_results'
@@ -740,7 +911,7 @@ insertedCount = await persistAcceptedLeads(
       runId: run.id,
       missionId: mission.id,
       userId: mission.user_id,
-      message: 'Mission run completed',
+      message: stopRequested ? 'Mission run stopped by user' : 'Mission run completed',
       meta: {
         status: runStatus,
         stopReason: finalStopReason,
@@ -773,15 +944,25 @@ insertedCount = await persistAcceptedLeads(
     console.log('[executor] RUN FINALIZED', { runStatus: safeStatus, insertedCount, finalStopReason })
 
     try {
+      const leads_found = discoveredCount || 0
+      const leads_accepted = insertedCount || 0
+      const leads_deduped = dedupedCount || 0
+      const drafts_generated = draftsGeneratedCount || 0
+
+      console.log('[LEADS FOUND]', leads_found)
+      console.log('[LEADS ACCEPTED]', leads_accepted)
+      console.log('[DRAFTS GENERATED]', drafts_generated)
+
       await updateRun(admin, run.id, {
         status: safeStatus,
+        completed_at: finishedAt.toISOString(),
         finished_at: finishedAt.toISOString(),
-        discovered_count: discoveredCount || 0,
-        accepted_count: insertedCount || 0,
-        email_count: emailCount || 0,
-        deduped_count: dedupedCount || 0,
-        drafts_generated_count: draftsGeneratedCount || 0,
-        stop_reason: finalStopReason || null,
+        leads_found,
+        leads_accepted,
+        leads_deduped,
+        drafts_generated,
+        accepted_count: leads_accepted,
+        drafts_generated_count: drafts_generated,
       })
     } catch (runUpdateErr) {
       console.error('[executor] FINALIZE RUN UPDATE ERROR', runUpdateErr)
@@ -790,15 +971,18 @@ insertedCount = await persistAcceptedLeads(
     try {
       await fromAdminTable(admin, 'agent_missions')
         .update({
-          status: 'active',
+          status: safeStatus === 'cancelled' ? 'paused' : 'active',
           last_run_at: finishedAt.toISOString(),
           last_run_status: safeStatus,
           last_stop_reason: finalStopReason || null,
-          next_run_at: computeNextRunAfterCompletion({
-            timeZone: mission.schedule_timezone,
-            localTime: mission.schedule_local_time,
-            completedAt: finishedAt,
-          }).toISOString(),
+          next_run_at:
+            safeStatus === 'cancelled'
+              ? null
+              : computeNextRunAfterCompletion({
+                  timeZone: mission.schedule_timezone,
+                  localTime: mission.schedule_local_time,
+                  completedAt: finishedAt,
+                }).toISOString(),
           rotation_cursor:
             variants.length > 0
               ? (mission.rotation_cursor + Math.max(1, activeVariants.length)) % variants.length

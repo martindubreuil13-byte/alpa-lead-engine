@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { clearGuestTrial, getGuestCaptureEmail, getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { supabase } from '@/lib/supabase'
@@ -11,6 +12,8 @@ import { supabase } from '@/lib/supabase'
 export default function PostCheckoutAccountForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { user, loading: userLoading } = useCurrentUser()
+  const initializedRef = useRef(false)
   const sessionId = searchParams.get('session_id') || ''
   const storedGuestEmail = getGuestCaptureEmail()
 
@@ -26,8 +29,11 @@ export default function PostCheckoutAccountForm() {
   const emailToUse = stripeCheckoutEmail || storedGuestEmail || email
 
   useEffect(() => {
+    if (userLoading) return
+    if (initializedRef.current) return
+    initializedRef.current = true
     void initialize()
-  }, [])
+  }, [user, userLoading])
 
   async function initialize() {
     setVerifying(true)
@@ -37,10 +43,6 @@ export default function PostCheckoutAccountForm() {
       if (storedGuestEmail) {
         setEmail(storedGuestEmail)
       }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
 
       if (user?.email) {
         setExistingUser(true)

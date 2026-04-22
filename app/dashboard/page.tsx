@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import UsageCard from '@/components/billing/UsageCard'
 import { isAdmin, isPaid } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { supabase } from '@/lib/supabase'
@@ -65,6 +66,7 @@ function getRangeStart(dateRange: DateRange) {
 }
 
 export default function Page() {
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const plan = profile?.plan ?? null
   const isFree = plan === 'free'
@@ -83,6 +85,7 @@ export default function Page() {
   const [dateRange, setDateRange] = useState<DateRange>('month')
 
   useEffect(() => {
+    if (userLoading) return
     if (profileLoading) return
 
     loadDashboard()
@@ -95,13 +98,9 @@ export default function Page() {
     return () => {
       window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
     }
-  }, [dateRange, profileLoading, profile?.id, profile?.plan])
+  }, [dateRange, profileLoading, profile?.id, profile?.plan, user, userLoading])
 
   async function loadDashboard() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
     if (!user) {
       setIsGuest(true)
       const guestLeads = getGuestLeads()

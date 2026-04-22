@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { CheckCircle2, ChevronRight, Loader2, Plus, Target, X, Zap } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { safeFetch } from '@/lib/utils/safeFetch'
 
 type OfferContext = {
   what_you_do: string
@@ -19,7 +20,7 @@ type ExpandedResult = {
   search_patterns: string[]
 }
 
-type Step = 'input' | 'thinking' | 'icp' | 'activating'
+type Step = 'input' | 'thinking' | 'loading' | 'icp' | 'activating' | 'processing' | 'success'
 
 const THINKING_LINES = [
   'Understanding your offer...',
@@ -73,7 +74,7 @@ export default function AgentSetupPage() {
 
   // Thinking ticker
   useEffect(() => {
-    if (step === 'thinking') {
+    if (step === 'thinking' || step === 'loading' || step === 'processing') {
       setThinkingIndex(0)
       intervalRef.current = setInterval(() => {
         setThinkingIndex((i) => (i + 1) % THINKING_LINES.length)
@@ -129,7 +130,9 @@ export default function AgentSetupPage() {
     setStep('thinking')
 
     try {
-      const res = await fetch('/api/agent/setup', {
+      const url = '/api/agent/setup'
+      console.log('[FETCH CALL]', { url })
+      const res = await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -137,18 +140,30 @@ export default function AgentSetupPage() {
           audience: audience.trim(),
           location: location.trim(),
         }),
-      })
+      }, { timeout: 30000 })
 
       const data = await res.json()
-      if (!res.ok || !data.result) {
+      console.log('[SETUP RESPONSE]', data)
+
+      if (data?.timeout) {
+        console.warn('[agent] setup request timed out; backend may still complete', { url, data })
+        setStep('processing')
+        return
+      }
+
+      const result = data?.result ?? data?.data ?? data
+
+      if (!result) {
+        console.error('[agent] API error', 'missing result', { url, data })
         setError('Something went wrong. Please try again.')
         setStep('input')
         return
       }
 
-      setExpanded(data.result as ExpandedResult)
-      setStep('icp')
-    } catch {
+      setExpanded(result as ExpandedResult)
+      setStep('success')
+    } catch (err) {
+      console.error('[agent] fetch failed', { url: '/api/agent/setup', err })
       setError('Connection error. Please try again.')
       setStep('input')
     }
@@ -159,7 +174,9 @@ export default function AgentSetupPage() {
     setStep('activating')
 
     try {
-      const res = await fetch('/api/agent/confirm', {
+      const url = '/api/agent/confirm'
+      console.log('[FETCH CALL]', { url })
+      const res = await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,17 +197,32 @@ export default function AgentSetupPage() {
       })
 
       const data = await res.json()
-      if (!res.ok || !data.missionId) {
+      console.log('[ACTIVATE RESPONSE]', data)
+
+      if (data?.timeout) {
+        console.warn('[agent] activation request timed out; backend may still complete', { url, data })
+        setStep('loading')
+        setTimeout(() => {
+          window.location.href = '/agent'
+        }, 1500)
+        return
+      }
+
+      const missionId = data?.missionId ?? data?.result?.missionId ?? data?.data?.missionId
+
+      if (!missionId) {
+        console.error('[agent] API error', 'missing missionId', { url, data })
         const isDev = process.env.NODE_ENV !== 'production'
         const devDetail = isDev && data.details ? ` (${data.error}: ${data.details})` : ''
         setError(`Couldn't create your mission. Please try again.${devDetail}`)
-        setStep('icp')
+        setStep('input')
         return
       }
 
       await new Promise((r) => setTimeout(r, 800))
-      router.push(`/agent/dashboard/${data.missionId}`)
+      router.push(`/agent/dashboard/${missionId}`)
     } catch (err) {
+      console.error('[agent] fetch failed', { url: '/api/agent/confirm', err })
       const msg = err instanceof Error ? err.message : 'Unknown error'
       setError(
         process.env.NODE_ENV !== 'production'
@@ -225,17 +257,23 @@ export default function AgentSetupPage() {
           {/* ── Step label ── */}
           <div className="mb-8 text-center">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-400/20 bg-blue-500/[0.07] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-blue-300">
-              <span className={`h-1.5 w-1.5 rounded-full ${step === 'activating' ? 'animate-ping bg-emerald-400' : 'animate-pulse bg-blue-400'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${step === 'activating' || step === 'success' ? 'animate-ping bg-emerald-400' : 'animate-pulse bg-blue-400'}`} />
               {step === 'input' && 'Mission Setup'}
               {step === 'thinking' && 'Building Strategy'}
+              {step === 'loading' && 'Finishing Setup'}
+              {step === 'processing' && 'Processing'}
               {step === 'icp' && 'Define Targets'}
               {step === 'activating' && 'Activating'}
+              {step === 'success' && 'Strategy Ready'}
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-white">
               {step === 'input' && 'Define your mission.'}
               {step === 'thinking' && 'One moment...'}
+              {step === 'loading' && 'Almost ready...'}
+              {step === 'processing' && 'Almost ready...'}
               {step === 'icp' && 'Who should I target?'}
               {step === 'activating' && "I'm on it."}
+              {step === 'success' && 'Who should I target?'}
             </h1>
             {step === 'input' && (
               <p className="mt-2 text-sm text-slate-500">
@@ -427,7 +465,7 @@ export default function AgentSetupPage() {
           )}
 
           {/* ── STEP 2: Thinking ── */}
-          {step === 'thinking' && (
+          {(step === 'thinking' || step === 'loading' || step === 'processing') && (
             <div className="space-y-4">
               <div className="glass overflow-hidden rounded-2xl p-8">
                 {/* Animated orb */}
@@ -487,7 +525,7 @@ export default function AgentSetupPage() {
           )}
 
           {/* ── STEP 3: ICP Review ── */}
-          {step === 'icp' && expanded && (
+          {(step === 'icp' || step === 'success') && expanded && (
             <div className="space-y-3">
               {/* Strategy summary card */}
               <div className="glass overflow-hidden rounded-2xl">
@@ -634,7 +672,7 @@ export default function AgentSetupPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setStep('input'); setExpanded(null) }}
+                  onClick={() => { setStep('input'); setExpanded(null); setError(null) }}
                   className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-[15px] font-medium text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
                 >
                   Edit

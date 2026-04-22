@@ -8,6 +8,7 @@ import SendCampaignModal from '@/components/email/SendCampaignModal'
 import LeadCard from '@/components/leads/LeadCard'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature } from '@/lib/auth/access'
+import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
@@ -71,6 +72,7 @@ function normalizePipelineStage(lead: Lead): PipelineStage {
 }
 
 export default function PipelinePage() {
+  const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
   const [selected, setSelected] = useState<string[]>([])
@@ -93,6 +95,7 @@ export default function PipelinePage() {
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
 
   useEffect(() => {
+    if (userLoading) return
     void fetchLeads()
 
     const syncGuestLeads = () => {
@@ -109,7 +112,7 @@ export default function PipelinePage() {
     return () => {
       window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, syncGuestLeads)
     }
-  }, [])
+  }, [user, userLoading])
 
   useEffect(() => {
     const visibleIds = new Set(leads.map((lead) => lead.id))
@@ -139,10 +142,6 @@ export default function PipelinePage() {
 
   async function fetchLeads() {
     setLoading(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     if (!user) {
       setIsGuest(true)
@@ -324,9 +323,6 @@ async function batchMarkContacted(ids: string[]) {
 
     const leadId = closeLead.id
     const selectedReason = closeReason
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
 
     const statusMap: Record<CloseReason, string> = {
       no_answer: 'no_response',
