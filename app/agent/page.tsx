@@ -153,6 +153,7 @@ export default function AgentCorePage() {
 
   const didRedirect = useRef(false)
   const deletingMissionIdsRef = useRef<Set<string>>(new Set())
+  const deletedMissionIdsRef = useRef<Set<string>>(new Set())
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const newLeadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -243,7 +244,9 @@ export default function AgentCorePage() {
           return
         }
 
-        const valid = Array.isArray(raw) ? raw.filter((m) => m.id && m.status) : []
+        const valid = Array.isArray(raw)
+          ? raw.filter((m) => m.id && m.status && !deletedMissionIdsRef.current.has(m.id))
+          : []
         if (valid.length === 0) {
           setMissions([])
           return
@@ -387,6 +390,13 @@ async function handleDeleteMission(id: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     })
+    deletedMissionIdsRef.current.add(id)
+    setMissions((prev) => prev.filter((m) => m.id !== id))
+    prevLeadCountsRef.current.delete(id)
+    prevStatusesRef.current.delete(id)
+    router.replace('/agent')
+    router.refresh()
+    await fetchMissions(false)
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return
