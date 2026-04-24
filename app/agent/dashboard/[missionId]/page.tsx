@@ -210,9 +210,9 @@ export default function MissionDashboardPage() {
   // Run-counter metrics — authoritative source of truth for this run.
   const thisRunLeads    = latestRun?.leads_accepted  ?? 0
   const thisRunDrafts   = latestRun?.drafts_generated ?? 0
+  const messagesReady   = thisRunDrafts
 
   // Derived from fetched messages (scoped to run_id) — used for CTA + approved card.
-  const readyMessagesCount   = messages.filter((m) => m.status === 'ready' && m.review_status === 'draft').length
   const approvedMessagesCount = messages.filter((m) => m.review_status === 'approved').length
   const pendingMessagesCount  = Math.max(thisRunLeads - thisRunDrafts, 0)
 
@@ -270,16 +270,16 @@ export default function MissionDashboardPage() {
     stopping
       ? 'Stopping mission...'
     : isStoppedByUser
-      ? `${readyMessagesCount} message${readyMessagesCount !== 1 ? 's' : ''} ready`
+      ? `${messagesReady} message${messagesReady !== 1 ? 's' : ''} ready`
       : isRunning && pendingMessagesCount > 0
       ? GEN_MESSAGES[genIndex % GEN_MESSAGES.length]
-      : readyMessagesCount > 0
-      ? `${readyMessagesCount} message${readyMessagesCount !== 1 ? 's' : ''} ready`
+      : messagesReady > 0
+      ? `${messagesReady} message${messagesReady !== 1 ? 's' : ''} ready`
       : isCompleted
       ? 'Run completed'
       : null
   const stableStatusSubcopy =
-    !stopping && readyMessagesCount > 0 && !(isRunning && pendingMessagesCount > 0)
+    !stopping && messagesReady > 0 && !(isRunning && pendingMessagesCount > 0)
       ? 'Review, approve, and send'
       : null
 
@@ -294,7 +294,7 @@ export default function MissionDashboardPage() {
   const isRunQueuedOrRunning = isRunning
   const displayLeads = thisRunLeads
   const displayQualified = thisRunLeads
-  const isOutreachComplete = readyMessagesCount > 0
+  const isOutreachComplete = messagesReady > 0
   const isNoResults = runStatus === 'failed' && thisRunLeads === 0
   const shouldShowCrafting = showCrafting
   const emailsGenerating = showCrafting ? pendingMessagesCount : 0
@@ -316,7 +316,7 @@ export default function MissionDashboardPage() {
   // ── Animated email count
   const [displayedEmails, setDisplayedEmails] = useState(0)
   const emailCountRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const displayReadyMessages = isFrozen ? readyMessagesCount : displayedEmails
+  const displayReadyMessages = isFrozen ? messagesReady : displayedEmails
 
   // ── Edit panel state
   const [editOpen, setEditOpen] = useState(false)

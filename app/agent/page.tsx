@@ -6,7 +6,7 @@ import { AlertCircle, RefreshCw, X } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { Core } from '@/components/agent/Core'
-import { MissionCarousel } from '@/components/agent/MissionCarousel'
+import MissionStage from '@/components/agent/MissionStage'
 import type { MissionCardData } from '@/components/agent/MissionCard'
 import { isAdmin } from '@/lib/auth/access'
 import { supabase } from '@/lib/supabase'
@@ -151,9 +151,9 @@ export default function AgentCorePage() {
   const prevLeadCountsRef = useRef<Map<string, number>>(new Map())
   const prevStatusesRef = useRef<Map<string, string>>(new Map())
 
-  const didRedirect = useRef(false)
   const deletingMissionIdsRef = useRef<Set<string>>(new Set())
   const deletedMissionIdsRef = useRef<Set<string>>(new Set())
+  const shouldAutoOpenRef = useRef(false)
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const newLeadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -351,22 +351,24 @@ export default function AgentCorePage() {
     }
   }, [profileLoading, profile, fetchMissions, userLoading])
 
-  // ── Auto-redirect: single active + only non-terminal mission ─────────────
-  useEffect(() => {
-    if (loading || didRedirect.current || missions.length === 0) return
-    const active = missions.filter((m) => m.status === 'active' || m.status === 'scheduled')
-    const nonTerminal = missions.filter((m) => m.status !== 'archived')
-    if (active.length === 1 && nonTerminal.length === 1) {
-      didRedirect.current = true
-      router.replace(`/agent/dashboard/${active[0].id}`)
-    }
-  }, [loading, missions, router])
-
 function handleRetry() {
   setFetchError(false)
   setFetchErrorDismissed(false)
   setLoading(true)
   void fetchMissions(false)
+}
+
+function handleNewMissionClick() {
+  shouldAutoOpenRef.current = true
+  if (shouldAutoOpenRef.current) {
+    router.push('/agent/setup')
+  }
+}
+
+function handleMissionSelect(id: string) {
+  if (!id) return
+  console.log('[AGENT] redirect triggered by user action')
+  router.push(`/agent/dashboard/${id}`)
 }
 
 async function handleDeleteMission(id: string) {
@@ -448,7 +450,7 @@ async function handleDeleteMission(id: string) {
         {/* ── New Mission CTA — top-right ───────────────────────────────── */}
         <button
           type="button"
-          onClick={() => router.push('/agent/setup')}
+          onClick={handleNewMissionClick}
           className="absolute right-6 top-6 z-20 flex cursor-pointer items-center gap-2 rounded-full border border-blue-500/22 bg-[rgba(8,13,28,0.80)] px-5 py-2 text-[12px] font-medium text-white/65 backdrop-blur transition-all hover:border-blue-400/38 hover:text-white/88 hover:shadow-[0_0_18px_rgba(59,130,246,0.14)]"
           style={{ letterSpacing: '0.04em' }}
         >
@@ -509,7 +511,7 @@ async function handleDeleteMission(id: string) {
                   type="button"
                   className="cursor-pointer rounded-full border border-blue-500/18 bg-blue-500/[0.06] px-6 py-2.5 text-[12px] font-medium text-blue-200/65 transition hover:border-blue-400/32 hover:text-blue-100/85"
                   style={{ letterSpacing: '0.06em', backdropFilter: 'blur(8px)' }}
-                  onClick={() => router.push('/agent/setup')}
+                  onClick={handleNewMissionClick}
                 >
                   Create your first mission
                 </button>
@@ -524,7 +526,7 @@ async function handleDeleteMission(id: string) {
               />
             )}
 
-            {/* ── Mission carousel — pinned to bottom ───────────────────── */}
+            {/* ── Mission stage — pinned to bottom ─────────────────────── */}
             {carouselMissions.length > 0 && (
               <div
                 style={{
@@ -534,30 +536,29 @@ async function handleDeleteMission(id: string) {
                   right: 0,
                 }}
               >
-                <p
-                  style={{
-                    textAlign: 'center',
-                    fontSize: 9.5,
-                    fontWeight: 500,
-                    letterSpacing: '0.18em',
-                    color: 'rgba(255,255,255,0.16)',
-                    textTransform: 'uppercase',
-                    marginBottom: 14,
-                  }}
-                >
-                  Active Missions
-                </p>
-  <MissionCarousel
-  missions={carouselMissions}
-  onCardClick={(id) => {
-    console.log('[agent] card clicked:', id)
-    router.push(`/agent/dashboard/${id}`)
-  }}
-  onDeleteMission={handleDeleteMission}
-  onNewMission={() => router.push('/agent/setup')}
-  highlightedMissionId={highlightedMissionId}
-/>
+                <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+                  <p
+                    style={{
+                      textAlign: 'center',
+                      fontSize: 9.5,
+                      fontWeight: 500,
+                      letterSpacing: '0.18em',
+                      color: 'rgba(255,255,255,0.16)',
+                      textTransform: 'uppercase',
+                      marginBottom: 14,
+                    }}
+                  >
+                    Mission Control Stage
+                  </p>
 
+                  <MissionStage
+                    missions={carouselMissions}
+                    onSelect={handleMissionSelect}
+                    onCreateMission={handleNewMissionClick}
+                    onDeleteMission={handleDeleteMission}
+                    highlightedMissionId={highlightedMissionId}
+                  />
+                </div>
               </div>
             )}
           </>
