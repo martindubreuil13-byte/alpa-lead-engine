@@ -20,10 +20,20 @@ export async function safeFetch(
 
     if (!res.ok) {
       const text = await res.text()
-      console.error('[FETCH ERROR]', url, res.status, text)
+      const isExpected404 =
+        res.status === 404 &&
+        text.includes('MISSION_NOT_FOUND')
+
+      if (isExpected404) {
+        console.log('[FETCH EXPECTED 404]', url, res.status, text)
+      } else {
+        console.error('[FETCH ERROR]', url, res.status, text)
+      }
+
       const error = new Error(`HTTP ${res.status}`)
-      ;(error as Error & { status?: number; body?: string }).status = res.status
-      ;(error as Error & { status?: number; body?: string }).body = text
+      ;(error as Error & { status?: number; body?: string; expected?: boolean }).status = res.status
+      ;(error as Error & { status?: number; body?: string; expected?: boolean }).body = text
+      ;(error as Error & { status?: number; body?: string; expected?: boolean }).expected = isExpected404
       throw error
     }
 
