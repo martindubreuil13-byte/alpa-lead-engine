@@ -9,6 +9,7 @@ export const runtime = 'nodejs'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM_EMAIL = 'ALPA by MINDRA <info@mindrasolutions.com>'
+const SEND_DELAY_MS = 500
 
 const requestSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(50),
@@ -21,6 +22,10 @@ function buildHtml(text: string): string {
     .replace(/>/g, '&gt;')
   const withBreaks = escaped.replace(/\n/g, '<br/>')
   return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">${withBreaks}<p style="font-size:11px;color:#888;margin-top:20px;">Sent via ALPA</p></div>`
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export async function POST(req: Request) {
@@ -65,6 +70,7 @@ export async function POST(req: Request) {
         console.log('[outreach-queue/send] SKIP (no email):', row.id)
         failedIds.push(row.id)
         failed++
+        await delay(SEND_DELAY_MS)
         continue
       }
 
@@ -73,6 +79,7 @@ export async function POST(req: Request) {
         console.log('[outreach-queue/send] SKIP (no content):', row.id)
         failedIds.push(row.id)
         failed++
+        await delay(SEND_DELAY_MS)
         continue
       }
 
@@ -86,11 +93,15 @@ export async function POST(req: Request) {
 
         sentIds.push(row.id)
         sent++
+        console.log('[EMAIL SENT]', row.contact_email)
         console.log('[outreach-queue/send] SENT:', { id: row.id, to: row.contact_email })
       } catch (err) {
+        console.error('[EMAIL ERROR]', row.contact_email, err)
         console.error('[outreach-queue/send] SEND FAILED:', { id: row.id, err })
         failedIds.push(row.id)
         failed++
+      } finally {
+        await delay(SEND_DELAY_MS)
       }
     }
 
