@@ -455,7 +455,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
           offer_context: missionDraftContext.offerContext,
           pain_solved: missionDraftContext.painSolved,
           value_outcome: missionDraftContext.valueOutcome,
-          variation_seed: index % 3,
+          variation_seed: index % 5,
         })
       } catch (error) {
         console.error('[executor] draft generation failed, using fallback', error)
@@ -478,9 +478,15 @@ async function generateDraftsForRun(admin: AdminClient, params: {
           offer_context: missionDraftContext.offerContext,
           pain_solved: missionDraftContext.painSolved,
           value_outcome: missionDraftContext.valueOutcome,
-          variation_seed: index % 3,
+          variation_seed: index % 5,
         })
       }
+
+      const draftStyle = draft.style || 'fallback'
+      console.log('[STYLE TRACKING]', {
+        company: lead.business_name || context.company_name || 'your company',
+        style: draft.style,
+      })
 
       const { error } = await fromAdminTable(admin, 'outreach_queue').insert({
         user_id: params.mission.user_id,
@@ -498,6 +504,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         body: draft.body,
         cta: draft.cta,
         full_email: draft.full_email || draft.body,
+        style: draftStyle,
         personalization_score: draft.personalization_score,
         quality_score: draft.quality_score,
         context_status: context.enriched ? 'enriched' : 'basic',

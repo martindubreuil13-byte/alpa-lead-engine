@@ -8,9 +8,12 @@ export type OutreachDraft = {
   body: string
   cta: string
   full_email: string
+  style: DraftStyle
   personalization_score: number
   quality_score: number
 }
+
+export type DraftStyle = 'provocative' | 'curious' | 'insight' | 'direct' | 'soft'
 
 type OfferContext = {
   what_you_do: string
@@ -21,6 +24,7 @@ type OfferContext = {
 
 export type GenerateParams = {
   company_name: string
+  industry?: string | null
   audience_input: string
   location_input: string | null
   mission_cta: string | null
@@ -36,31 +40,56 @@ export type GenerateParams = {
   value_outcome?: string | null
   cta_type?: 'conversation' | 'link' | 'offer' | null
   cta_link?: string | null
-  // Variation seed (0-2) — rotates tone, opener style, and sentence pattern
+  // Variation seed — rotates style and sentence pattern
   variation_seed?: number
 }
 
-// ─── Opener styles ────────────────────────────────────────────────────────────
+const STYLE_PROFILES = [
+  {
+    key: 'provocative',
+    label: 'PROVOCATIVE',
+    instruction:
+      'Start by challenging the slow or outdated way teams usually handle outreach. Create tension fast. Position ALPA as an unfair speed advantage without sounding hyped.',
+  },
+  {
+    key: 'curious',
+    label: 'CURIOUS QUESTION',
+    instruction:
+      'Open with a sharp question about how they source pipeline or new clients today. The question should expose a gap or inefficiency immediately.',
+  },
+  {
+    key: 'insight',
+    label: 'INSIGHT-DRIVEN',
+    instruction:
+      'Lead with a specific observation about the industry or market, then connect it to a hidden prospecting problem or response-time gap.',
+  },
+  {
+    key: 'direct',
+    label: 'DIRECT / BLUNT',
+    instruction:
+      'Be straight to the point. No story, no warm-up, no explanation-heavy lead-in. Short, confident sentences.',
+  },
+  {
+    key: 'soft',
+    label: 'SOFT / CONSULTATIVE',
+    instruction:
+      'Low-pressure, peer-to-peer tone. Sound helpful and observant, not pushy. Still keep the hook sharp and non-generic.',
+  },
+] as const satisfies Array<{ key: DraftStyle; label: string; instruction: string }>
 
-const OPENER_STYLES = [
-  {
-    name: 'assumption',
-    instruction: 'Start with a direct assumption about how they currently get clients (e.g. "Most [type] I talk to still rely on referrals to fill their pipeline."). Be direct, not salesy.',
-  },
-  {
-    name: 'observation',
-    instruction: 'Start with a short, specific observation about a challenge in their space (e.g. "Client acquisition is still one of the hardest parts of running a [type]."). One sentence, grounded.',
-  },
-  {
-    name: 'question',
-    instruction: 'Open with a natural, low-pressure question about how they currently bring in new clients. Not "Quick question" — be specific to their business type.',
-  },
+const CTA_OPTIONS = [
+  'Want me to show you?',
+  'Curious to see how it works?',
+  'Worth testing?',
 ]
 
-const TONE_VARIANTS = [
-  'Direct and concise. Short sentences. No fluff.',
-  'Conversational and peer-to-peer. Like a professional reaching out to a peer they respect.',
-  'Crisp and confident. Matter-of-fact. No hype.',
+const BANNED_BODY_PATTERNS = [
+  /love what you do/gi,
+  /i came across/gi,
+  /i noticed your company/gi,
+  /your website caught my attention/gi,
+  /i hope this finds you well/gi,
+  /quick question/gi,
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,14 +102,27 @@ function extractUserName(signature: string | null | undefined): string | null {
   return firstWord.length >= 2 ? firstWord : null
 }
 
+function pickRandom<T>(items: readonly T[], seed?: number): T {
+  if (items.length === 0) {
+    throw new Error('pickRandom requires at least one item')
+  }
+  if (typeof seed === 'number' && Number.isFinite(seed)) {
+    return items[Math.abs(seed) % items.length]!
+  }
+  return items[Math.floor(Math.random() * items.length)]!
+}
+
 function resolveCtaShape(params: GenerateParams): {
   type: 'conversation' | 'link' | 'offer' | 'none'
   text: string
   link: string | null
 } {
   const { mission_cta, cta_type, cta_link } = params
+  const defaultCta = CTA_OPTIONS[(params.variation_seed ?? 0) % CTA_OPTIONS.length]!
 
-  if (!mission_cta) return { type: 'none', text: '', link: null }
+  if (!mission_cta) {
+    return { type: 'conversation', text: defaultCta, link: null }
+  }
 
   const ctaText = mission_cta.trim()
   const urlMatch = ctaText.match(/https?:\/\/[^\s]+/)
@@ -101,11 +143,18 @@ function resolveCtaShape(params: GenerateParams): {
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
 function buildPrompt(params: GenerateParams): string {
-  const { company_name, audience_input, location_input, offer, offer_context, context } = params
+  const {
+    company_name,
+    industry,
+    audience_input,
+    location_input,
+    offer,
+    offer_context,
+    context,
+  } = params
 
-  const seed = (params.variation_seed ?? 0) % 3
-  const openerStyle = OPENER_STYLES[seed]!
-  const tone = TONE_VARIANTS[seed]!
+  const style = pickRandom(STYLE_PROFILES, params.variation_seed)
+  const seed = STYLE_PROFILES.findIndex((profile) => profile.key === style.key)
 
   // ── Lead context
   const websiteStr = context.website || 'Not available'
@@ -141,31 +190,32 @@ function buildPrompt(params: GenerateParams): string {
   // ── Who the lead serves (inferred — NOT audience_input itself)
   const inferredAudience = inferAudience(audience_input)
   const audienceContext = [audience_input, location_input].filter(Boolean).join(' in ')
+  const locationStr = location_input?.trim() || 'their market'
+  const industryStr = industry?.trim() || audience_input.trim() || 'their space'
 
   // ── CTA instruction
   const cta = resolveCtaShape(params)
   let ctaInstruction: string
-  if (cta.type === 'none') {
-    ctaInstruction = 'No CTA. End after the solution line.'
-  } else if (cta.type === 'conversation') {
-    ctaInstruction = `CTA type: conversation\nUse this exact text: "${cta.text}"`
+  if (cta.type === 'conversation') {
+    ctaInstruction = `Use exactly one CTA, once, on its own final line: "${cta.text}"`
   } else if (cta.type === 'link') {
     const linkDisplay = cta.link ?? ''
     const ctaDisplayText = cta.text.replace(linkDisplay, '').trim() || cta.text
-    ctaInstruction = `CTA type: link\nText: "${ctaDisplayText}"\nLink: ${linkDisplay}\nFormat: text followed by the link on the same line.`
+    ctaInstruction = `Use exactly one CTA, once, on its own final line.\nCTA text: "${ctaDisplayText}"\nLink: ${linkDisplay}\nFormat: text plus link on the same line.`
   } else {
-    ctaInstruction = `CTA type: offer\nSoft close — no link. Keep it light: "Happy to show you how it works." or similar.`
+    ctaInstruction = `Use exactly one CTA, once, on its own final line: "${cta.text || CTA_OPTIONS[seed % CTA_OPTIONS.length]}"`
   }
 
   return `You are writing a cold email on behalf of ${userName}.
 
----------------------------------------
 LEAD
 ---------------------------------------
 Company: ${company_name}
+Industry: ${industryStr}
 Type: ${audience_input}
+Location: ${locationStr}
 Website: ${websiteStr}
-Context:
+Lead context:
 ${contextStr}
 
 ---------------------------------------
@@ -190,27 +240,34 @@ when referring to who the lead sells to.
 NEVER use "${audience_input}" inside the body — it describes the lead, not their customers.
 
 ---------------------------------------
+STYLE
+---------------------------------------
+Style: ${style.label}
+${style.instruction}
+
+---------------------------------------
+HOOK REQUIREMENTS
+---------------------------------------
+- The first line must create curiosity, tension, or a sharp question
+- No generic compliments
+- No "we provide" or "we help" in the opening line
+- No long setup
+- Mention ${company_name} naturally somewhere in the email
+- Adapt wording to ${industryStr} and ${locationStr} when useful
+
+---------------------------------------
 BANNED PHRASES (instant fail)
 ---------------------------------------
 - "quick question"
 - "I came across"
 - "I noticed your company"
 - "your website caught my attention"
+- "love what you do"
+- "we provide" in the opening line
 - "[audience_input] clients"  (e.g. "marketing agencies clients")
 - "finding [audience_input]"
 - Any phrase that uses the lead category as if it were their customer type
 
----------------------------------------
-OPENER STYLE: ${openerStyle.name.toUpperCase()}
----------------------------------------
-${openerStyle.instruction}
-
----------------------------------------
-TONE
----------------------------------------
-${tone}
-
----------------------------------------
 CTA
 ---------------------------------------
 ${ctaInstruction}
@@ -218,21 +275,23 @@ ${ctaInstruction}
 ---------------------------------------
 STRUCTURE (follow exactly)
 ---------------------------------------
-1. Opener — ${openerStyle.instruction}
-2. Relevance — one sentence that shows you understand what they do (skip if no context)
-3. Problem — the real pain around getting new ${inferredAudience.split(',')[0]?.trim() ?? 'clients'} (time, inconsistency, unpredictability)
-4. Solution — one sentence using the offer above (NOT a generic description)
-5. CTA — as specified, once, at the end
+1. Hook — 1 to 2 short lines max. Must create curiosity or tension.
+2. Pain / insight — 1 to 2 short lines exposing the hidden inefficiency, delay, or missed opportunity.
+3. ALPA positioning — 1 to 2 short lines. Show the advantage clearly, without hype or long explanation.
+4. CTA — 1 line only, once, at the end.
 
 ---------------------------------------
 RULES
 ---------------------------------------
-- 80–120 words (body only, no subject)
-- Each email must read like it was written manually for this specific company
-- If two emails look similar, this one is wrong — vary the structure
-- No corporate language, no "I hope this finds you well", no passive voice
-- Only reference context details that are actually present above
-- If context is weak: go straight to problem → solution, no fake personalization
+- 80–120 words in the body
+- Subject must be under 6 words and curiosity-driven
+- Short sentences. Natural human tone. No AI voice.
+- No fluff. No long explanations. No buzzwords.
+- One clear CTA only.
+- Each email must feel distinct in rhythm and opening style.
+- Only reference context details that are actually present above.
+- If context is weak, do not fake personalization.
+- Do not over-explain ALPA. Keep it punchy.
 
 ---------------------------------------
 OUTPUT FORMAT
@@ -286,33 +345,85 @@ function cleanBody(body: string): string {
   return deduped.join('\n\n').trim()
 }
 
+function normalizeSubject(subject: string, companyName: string) {
+  const fallback = `${companyName} pipeline gap`
+  const cleaned = String(subject || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const limitedWords = cleaned.split(' ').filter(Boolean).slice(0, 6).join(' ')
+  return limitedWords || fallback.split(' ').slice(0, 6).join(' ')
+}
+
+function sanitizeBody(body: string) {
+  let next = body
+  for (const pattern of BANNED_BODY_PATTERNS) {
+    next = next.replace(pattern, '')
+  }
+  return next.replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim()
+}
+
+function countWords(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length
+}
+
+function trimToWordLimit(value: string, maxWords: number) {
+  const words = value.trim().split(/\s+/).filter(Boolean)
+  if (words.length <= maxWords) return value.trim()
+  return words.slice(0, maxWords).join(' ').trim()
+}
+
+function buildStyleHook(styleKey: DraftStyle, companyName: string, industry: string, location: string) {
+  switch (styleKey) {
+    case 'provocative':
+      return `Most ${industry} teams do not lose deals because demand is weak.\nThey lose time because the first outreach step is still too slow${location ? ` in ${location}` : ''}.`
+    case 'curious':
+      return `How is ${companyName} sourcing new conversations right now without turning prospecting into a weekly time sink?`
+    case 'insight':
+      return `Most ${industry} teams are not sitting on a lead problem.\nThey are sitting on a speed-to-contact problem.`
+    case 'direct':
+      return `${companyName} can get to qualified outreach much faster than most teams think.`
+    case 'soft':
+      return `Not sure if this is useful, but ${industry} teams often spend more time stitching lead lists together than starting real conversations.`
+    default:
+      return `${companyName} probably does not need more noise in the inbox.`
+  }
+}
+
 // ─── Fallback ─────────────────────────────────────────────────────────────────
 
 function fallbackDraft(params: GenerateParams): OutreachDraft {
-  const companyName = params.company_name || 'there'
-  const senderName =
-    params.user_name ??
-    extractUserName(params.sender_signature) ??
-    'Best'
-  const defaultCta = 'Would you be open to a quick 10-minute chat?'
-  const hook = `Hi ${companyName},`
+  const companyName = params.company_name || 'your team'
+  const style = pickRandom(STYLE_PROFILES, params.variation_seed)
+  const cta = resolveCtaShape(params).text
+  const location = params.location_input?.trim() || ''
+  const industry = params.industry?.trim() || params.audience_input.trim() || 'service'
+  const offerLine =
+    params.offer_context?.what_you_do?.trim() ||
+    params.offer.trim() ||
+    'ALPA gives teams a faster way to find verified leads and start outreach'
+  const outcomeLine =
+    params.value_outcome?.trim() ||
+    params.offer_context?.main_benefit?.trim() ||
+    'That means less list-building and more real replies.'
+  const hook = buildStyleHook(style.key, companyName, industry, location)
   const body = [
     hook,
-    'I came across your business and thought there could be an opportunity to connect.',
-    'Would you be open to a quick conversation to explore potential collaboration?',
-    senderName,
+    `${companyName} is probably not short on possible deals. The drag is how long it takes to surface the right prospects and start the first conversation. That usually means slower follow-up and more missed timing.`,
+    `${offerLine}. ${outcomeLine} It keeps the first touch fast without sounding like a generic blast.`,
+    cta,
   ].join('\n\n')
-  const full_email = body
-  const cta = params.mission_cta?.trim() || defaultCta
+  const trimmedBody = trimToWordLimit(body, 120)
+  const full_email = params.sender_signature ? `${trimmedBody}\n\n—\n${params.sender_signature}` : trimmedBody
 
   return {
-    subject: `Quick idea for ${companyName}`,
+    subject: normalizeSubject(`${companyName} pipeline gap`, companyName),
     hook,
-    body,
+    body: trimmedBody,
     cta,
     full_email,
-    personalization_score: 1,
-    quality_score: 2,
+    style: style.key,
+    personalization_score: params.context.enriched ? 3 : 2,
+    quality_score: 4,
   }
 }
 
@@ -361,7 +472,7 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const prompt = buildPrompt({
         ...params,
-        variation_seed: ((params.variation_seed ?? 0) + attempt) % 3,
+        variation_seed: ((params.variation_seed ?? 0) + attempt) % STYLE_PROFILES.length,
       })
 
       result = await callOpenAI(prompt)
@@ -375,28 +486,34 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
       return fallbackDraft(params)
     }
 
-    let body = cleanBody(result.body)
-    const subject = String(result.subject || '').trim().slice(0, 80) || fallbackDraft(params).subject
+    let body = sanitizeBody(cleanBody(result.body))
+    const subject = normalizeSubject(String(result.subject || ''), params.company_name || 'ALPA')
 
     if (!body) {
       return fallbackDraft(params)
     }
 
-    if (missionCta && !body.includes(missionCta.trim())) {
-      body = `${body}\n\n${missionCta.trim()}`
-    } else if (!missionCta && !cta.text) {
-      body = `${body}\n\nWould you be open to a quick 10-minute chat?`
+    if (!body.includes(cta.text)) {
+      body = `${body}\n\n${cta.text}`
+    }
+
+    body = trimToWordLimit(body, 120)
+
+    if (countWords(body) < 80 || isGenericTemplate(body) || isEmailContaminated(body, params.audience_input)) {
+      return fallbackDraft(params)
     }
 
     const hook = body.split('\n\n')[0]?.trim() ?? ''
+    const style = pickRandom(STYLE_PROFILES, params.variation_seed).key
 
     const full_email = senderSignature ? `${body}\n\n—\n${senderSignature}` : body
 
-    const wordCount = body.split(/\s+/).length
+    const wordCount = countWords(body)
     const hasRealContext =
-      params.context.enriched && Boolean(params.context.h1 || params.context.description)
-    const personalization_score = hasRealContext ? 4 : 2
-    const quality_score = wordCount <= 120 ? (wordCount >= 60 ? 4 : 3) : 2
+      params.context.enriched && Boolean(params.context.h1 || params.context.description || params.industry)
+    const personalization_score = hasRealContext ? 4 : 3
+    const quality_score =
+      wordCount >= 80 && wordCount <= 120 && !isGenericTemplate(body) ? 5 : 3
 
     return {
       subject,
@@ -404,6 +521,7 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
       body,
       cta: cta.text || 'Would you be open to a quick 10-minute chat?',
       full_email,
+      style,
       personalization_score,
       quality_score,
     }

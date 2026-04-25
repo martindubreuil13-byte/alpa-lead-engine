@@ -499,6 +499,7 @@ export interface Database {
           body: string | null;
           cta: string | null;
           full_email: string | null;
+          style: string | null;
           personalization_score: number | null;
           quality_score: number | null;
           context_status: string;
@@ -529,6 +530,7 @@ export interface Database {
           body?: string | null;
           cta?: string | null;
           full_email?: string | null;
+          style?: string | null;
           personalization_score?: number | null;
           quality_score?: number | null;
           context_status?: string;

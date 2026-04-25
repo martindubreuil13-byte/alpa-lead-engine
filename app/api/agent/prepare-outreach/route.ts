@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
     const queueIds: string[] = []
 
-    for (const lead of leads) {
+    for (const [index, lead] of leads.entries()) {
       if (alreadyQueued.has(lead.id)) continue
 
       let context: LeadContext = {
@@ -111,6 +111,7 @@ export async function POST(req: Request) {
       try {
         draft = await generateOutreachDraft({
           company_name: lead.company_name,
+          industry: lead.industry || null,
           audience_input: activeMission?.audience_input || '',
           location_input: activeMission?.location_input || lead.city || null,
           mission_cta: activeMission?.cta || null,
@@ -119,11 +120,13 @@ export async function POST(req: Request) {
           angles,
           offer_context: offerContext,
           context,
+          variation_seed: index % 5,
         })
       } catch (generationError) {
         console.error('[prepare-outreach] generation failed, using fallback:', generationError)
         draft = await generateOutreachDraft({
           company_name: lead.company_name,
+          industry: lead.industry || null,
           audience_input: activeMission?.audience_input || '',
           location_input: activeMission?.location_input || lead.city || null,
           mission_cta: null,
@@ -139,8 +142,15 @@ export async function POST(req: Request) {
             description: '',
             h1: '',
           },
+          variation_seed: index % 5,
         })
       }
+
+      const draftStyle = draft.style || 'fallback'
+      console.log('[STYLE TRACKING]', {
+        company: lead.company_name,
+        style: draft.style,
+      })
 
       const { data: inserted, error: insertError } = await supabase
         .from('outreach_queue')
@@ -158,6 +168,7 @@ export async function POST(req: Request) {
           body: draft.body,
           cta: draft.cta,
           full_email: draft.full_email,
+          style: draftStyle,
           personalization_score: draft.personalization_score,
           quality_score: draft.quality_score,
           context_status: context.enriched ? 'enriched' : 'basic',
