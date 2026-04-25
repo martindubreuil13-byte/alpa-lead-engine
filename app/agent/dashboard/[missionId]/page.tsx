@@ -95,6 +95,24 @@ type FeedLine = {
   ts?: number
 }
 
+type EditMissionForm = {
+  name: string
+  offer_input: string
+  audience_input: string
+  location_input: string
+  daily_target: string
+  schedule_local_time: string
+  schedule_timezone: string
+  cta: string
+  sender_signature: string
+}
+
+type ActionNotice = {
+  title: string
+  detail?: string
+  showRunNow?: boolean
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const IDLE_MESSAGES = [
@@ -189,6 +207,7 @@ export default function MissionDashboardPage() {
   const [toggling, setToggling] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<ActionNotice | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   function stopPolling() {
@@ -320,10 +339,24 @@ export default function MissionDashboardPage() {
 
   // ── Edit panel state
   const [editOpen, setEditOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState('')
-  const [editCta, setEditCta] = useState('')
-  const [editSignature, setEditSignature] = useState('')
+  const [editForm, setEditForm] = useState<EditMissionForm>({
+    name: '',
+    offer_input: '',
+    audience_input: '',
+    location_input: '',
+    daily_target: '10',
+    schedule_local_time: '',
+    schedule_timezone: 'UTC',
+    cta: '',
+    sender_signature: '',
+  })
   const [editSaving, setEditSaving] = useState(false)
+
+  useEffect(() => {
+    if (!actionNotice) return
+    const timeout = setTimeout(() => setActionNotice(null), 2600)
+    return () => clearTimeout(timeout)
+  }, [actionNotice])
 
 
   useEffect(() => {
@@ -732,9 +765,17 @@ export default function MissionDashboardPage() {
   // ── Seed edit fields when panel opens
   useEffect(() => {
     if (editOpen && status?.mission) {
-      setEditTarget(String(status.mission.daily_target ?? ''))
-      setEditCta(status.mission.cta ?? '')
-      setEditSignature(status.mission.sender_signature ?? '')
+      setEditForm({
+        name: status.mission.name ?? '',
+        offer_input: status.mission.offer_input ?? '',
+        audience_input: status.mission.audience_input ?? '',
+        location_input: status.mission.location_input ?? status.mission.location ?? '',
+        daily_target: String(status.mission.daily_target ?? 10),
+        schedule_local_time: status.mission.schedule_local_time ?? '',
+        schedule_timezone: status.mission.schedule_timezone ?? 'UTC',
+        cta: status.mission.cta ?? '',
+        sender_signature: status.mission.sender_signature ?? '',
+      })
     }
   }, [editOpen, status?.mission])
 
@@ -856,10 +897,26 @@ export default function MissionDashboardPage() {
       return
     }
     if (!status?.mission || editSaving) return
-    const target = parseInt(editTarget, 10)
-    if (isNaN(target) || target < 1) return
+    const target = parseInt(editForm.daily_target, 10)
+    const missionName = editForm.name
+    const offerInput = editForm.offer_input.trim()
+    const audienceInput = editForm.audience_input.trim()
+    const locationInput = editForm.location_input.trim()
+    const scheduleTime = editForm.schedule_local_time.trim() || status.mission.schedule_local_time || ''
+    const scheduleTimezone = editForm.schedule_timezone.trim() || status.mission.schedule_timezone || 'UTC'
+
+    if (!offerInput || !audienceInput || !locationInput) {
+      setActionError('Offer, audience, and location are required.')
+      return
+    }
+
+    if (isNaN(target) || target < 1) {
+      setActionError('Daily target must be at least 1.')
+      return
+    }
 
     setEditSaving(true)
+    setActionError(null)
     try {
       const url = '/api/agent/missions/update'
       console.log('[FETCH CALL]', { url, missionId })
@@ -868,9 +925,15 @@ export default function MissionDashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           missionId,
+          name: missionName,
+          offer_input: offerInput,
+          audience_input: audienceInput,
+          location_input: locationInput,
           daily_target: target,
-          cta: editCta.trim() || null,
-          sender_signature: editSignature.trim() || null,
+          schedule_local_time: scheduleTime,
+          schedule_timezone: scheduleTimezone,
+          cta: editForm.cta.trim() || null,
+          sender_signature: editForm.sender_signature.trim() || null,
         }),
       })
       setStatus((prev) =>
@@ -879,13 +942,24 @@ export default function MissionDashboardPage() {
               ...prev,
               mission: {
                 ...prev.mission,
+                name: missionName,
+                offer_input: offerInput,
+                audience_input: audienceInput,
+                location_input: locationInput,
                 daily_target: target,
-                cta: editCta.trim() || null,
-                sender_signature: editSignature.trim() || null,
+                schedule_local_time: scheduleTime,
+                schedule_timezone: scheduleTimezone,
+                cta: editForm.cta.trim() || null,
+                sender_signature: editForm.sender_signature.trim() || null,
               },
             }
           : prev
       )
+      setActionNotice({
+        title: 'Updated. Next run will use new targeting.',
+        detail: 'You can run it now to apply instantly.',
+        showRunNow: true,
+      })
       setEditOpen(false)
     } catch (err) {
       console.error('[agent] fetch failed', { url: '/api/agent/missions/update', missionId, err })
@@ -935,6 +1009,31 @@ export default function MissionDashboardPage() {
 
   return (
     <DashboardShell adminEmail={null}>
+      {actionNotice && (
+        <div className="fixed right-4 top-4 z-[60] max-w-[360px] rounded-xl border border-emerald-400/20 bg-emerald-500/[0.08] px-4 py-3 text-emerald-200 shadow-[0_12px_32px_rgba(16,185,129,0.12)] backdrop-blur-xl">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{actionNotice.title}</p>
+              {actionNotice.detail ? (
+                <p className="mt-1 text-xs text-emerald-200/70">{actionNotice.detail}</p>
+              ) : null}
+            </div>
+            {actionNotice.showRunNow ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActionNotice(null)
+                  void triggerMission()
+                }}
+                disabled={isRunActive || toggling || stopping}
+                className="shrink-0 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/16 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Run now
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
       <div className="relative mx-auto w-full max-w-2xl space-y-4 px-4 pb-32 pt-6 sm:pb-10">
 
         {/* Ambient glow */}
@@ -1571,80 +1670,159 @@ export default function MissionDashboardPage() {
           />
 
           {/* Panel */}
-          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-t-3xl border border-white/[0.08] bg-[#0c1120] p-6 shadow-2xl sm:rounded-3xl">
+          <div className="relative z-10 max-h-[90vh] w-full max-w-xl rounded-t-3xl border border-white/[0.08] bg-[#0c1120] shadow-2xl sm:rounded-3xl">
             {/* Header */}
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-white">Edit Mission</h2>
-              <button
-                type="button"
-                onClick={() => setEditOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-400 transition hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Daily target */}
-              <div>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                  Daily target
-                </label>
-                <input
-                  type="number"
-                  value={editTarget}
-                  onChange={(e) => setEditTarget(e.target.value)}
-                  min={1}
-                  max={10000}
-                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-blue-400/40 transition"
-                />
-              </div>
-
-              {/* CTA */}
-              <div>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                  Call to action
-                </label>
-                <input
-                  type="text"
-                  value={editCta}
-                  onChange={(e) => setEditCta(e.target.value)}
-                  placeholder="e.g. Book a call — calendly.com/..."
-                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none focus:border-blue-400/40 transition"
-                />
-              </div>
-
-              {/* Signature */}
-              <div>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                  Email signature
-                </label>
-                <input
-                  type="text"
-                  value={editSignature}
-                  onChange={(e) => setEditSignature(e.target.value)}
-                  placeholder="e.g. Martin — ALPA"
-                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none focus:border-blue-400/40 transition"
-                />
-              </div>
-
-              {/* Save */}
-              <div className="flex gap-3 pt-2">
+            <div className="flex max-h-[90vh] flex-col">
+              <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-5">
+                <h2 className="text-base font-semibold text-white">Edit Mission</h2>
                 <button
                   type="button"
-                  onClick={() => void handleSaveEdit()}
-                  disabled={editSaving}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-blue-400/25 bg-blue-500/10 px-5 py-3 text-sm font-semibold text-blue-100 shadow-[0_0_24px_rgba(59,130,246,0.14)] transition hover:bg-blue-500/18 hover:text-white disabled:opacity-40"
+                  onClick={() => setEditOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-400 transition hover:text-white"
                 >
-                  {editSaving ? 'Saving...' : 'Save changes'}
-                  {!editSaving && <ChevronRight className="h-4 w-4" />}
+                  <X className="h-4 w-4" />
                 </button>
+              </div>
+
+              <div className="overflow-y-auto px-4 py-4 sm:px-6">
+                <div className="space-y-4 pb-4 sm:pb-6">
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Mission name
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.name}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder="Optional mission name"
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Offer
+                    </label>
+                    <textarea
+                      value={editForm.offer_input}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, offer_input: e.target.value }))}
+                      rows={3}
+                      placeholder="What are you offering prospects?"
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Audience
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.audience_input}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, audience_input: e.target.value }))}
+                      placeholder="e.g. SaaS founders, local dentists"
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Location
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.location_input}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, location_input: e.target.value }))}
+                      placeholder="e.g. Bangkok, Remote, United States"
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Daily target
+                    </label>
+                    <input
+                      type="number"
+                      value={editForm.daily_target}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, daily_target: e.target.value }))}
+                      min={1}
+                      max={10000}
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Schedule time
+                      </label>
+                      <input
+                        type="time"
+                        value={editForm.schedule_local_time}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, schedule_local_time: e.target.value }))}
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition focus:border-blue-400/40"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Timezone
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.schedule_timezone}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, schedule_timezone: e.target.value }))}
+                        placeholder="e.g. Asia/Bangkok"
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Call to action
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.cta}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, cta: e.target.value }))}
+                      placeholder="e.g. Book a call — calendly.com/..."
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                      Email signature
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.sender_signature}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, sender_signature: e.target.value }))}
+                      placeholder="e.g. Martin — ALPA"
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-slate-700 outline-none transition focus:border-blue-400/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 flex justify-end gap-3 border-t border-white/[0.08] bg-[#0c1120] p-4 pb-5 sm:px-6 sm:pb-6">
                 <button
                   type="button"
                   onClick={() => setEditOpen(false)}
                   className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-5 py-3 text-sm font-medium text-slate-400 transition hover:text-white"
                 >
                   Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveEdit()}
+                  disabled={editSaving}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-blue-400/25 bg-blue-500/10 px-5 py-3 text-sm font-semibold text-blue-100 shadow-[0_0_24px_rgba(59,130,246,0.14)] transition hover:bg-blue-500/18 hover:text-white disabled:opacity-40"
+                >
+                  {editSaving ? 'Saving...' : 'Save changes'}
+                  {!editSaving && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
             </div>

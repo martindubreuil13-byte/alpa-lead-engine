@@ -25,7 +25,7 @@ const ALLOWED_FIELDS = [
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { missionId, status, ...fields } = body
+    const { missionId, status, schedule_time, timezone, ...fields } = body
 
     if (!missionId || typeof missionId !== 'string') {
       return NextResponse.json({ error: 'MISSING_MISSION_ID' }, { status: 400 })
@@ -49,7 +49,20 @@ export async function POST(req: Request) {
       updatePayload.status = status
     }
 
+    if (schedule_time !== undefined && fields.schedule_local_time === undefined) {
+      fields.schedule_local_time = schedule_time
+    }
+
+    if (timezone !== undefined && fields.schedule_timezone === undefined) {
+      fields.schedule_timezone = timezone
+    }
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'name')) {
+      updatePayload.name = body.name !== undefined ? body.name : undefined
+    }
+
     for (const key of ALLOWED_FIELDS) {
+      if (key === 'name') continue
       if (key in fields && fields[key] !== undefined) {
         updatePayload[key] =
           key === 'schedule_local_time'
@@ -61,6 +74,8 @@ export async function POST(req: Request) {
     if (Object.keys(updatePayload).length === 0) {
       return NextResponse.json({ error: 'NO_FIELDS_TO_UPDATE' }, { status: 400 })
     }
+
+    updatePayload.updated_at = new Date().toISOString()
 
     const { error: updateError } = await supabase
       .from('agent_missions')
