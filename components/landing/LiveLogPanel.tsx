@@ -1,11 +1,10 @@
 'use client'
 
 const LOGS = [
-  'Scanning Montreal roofing companies',
-  'Checking live business websites',
-  'Pulling usable contact details',
-  'Filtering weak signals out',
-  'Lead added to your list',
+  'Reading business websites',
+  'Finding usable contact details',
+  'Filtering weak signals',
+  'Preparing export-ready leads',
 ]
 
 export default function LiveLogPanel() {
@@ -16,15 +15,15 @@ export default function LiveLogPanel() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-              Live Preview
+              WHAT YOUR LEADS LOOK LIKE
             </div>
             <div className="mt-2 text-lg font-semibold tracking-[-0.02em] text-white">
-              ALPA by MINDRA
+              Example search: marketing agencies in Miami
             </div>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-            <span className="h-2 w-2 rounded-full bg-cyan-300 landing-pulse-dot" />
-            Live
+            <span className="h-2 w-2 rounded-full bg-cyan-300" />
+            Sample
           </div>
         </div>
 

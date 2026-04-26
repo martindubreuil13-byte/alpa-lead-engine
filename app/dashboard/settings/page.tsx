@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import SignaturePreview from '@/components/email/SignaturePreview'
+import CtaManager from '@/components/settings/CtaManager'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getEmailLimitFeedback } from '@/lib/email/send-limits'
 import { isIgnorableEmptyResultError } from '@/lib/supabase/errors'
@@ -571,6 +572,8 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+
+          <CtaManager userId={user?.id ?? null} />
         </div>
 
         <div className={viewMode === 'form' ? 'hidden xl:block' : 'space-y-4'}>

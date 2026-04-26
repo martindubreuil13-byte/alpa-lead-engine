@@ -18,6 +18,9 @@ type QueueItem = {
   hook: string | null
   body: string | null
   cta: string | null
+  cta_label: string | null
+  cta_type: string | null
+  cta_value: string | null
   full_email: string | null
   personalization_score: number | null
   quality_score: number | null
@@ -96,6 +99,15 @@ function sourceBadge(source: string) {
   return (
     <span className="inline-flex items-center rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-slate-500">
       Manual
+    </span>
+  )
+}
+
+function ctaBadge(label: string | null, type: string | null) {
+  if (!label) return null
+  return (
+    <span className="inline-flex items-center rounded-full border border-cyan-400/18 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
+      {type ? `${label} · ${type}` : label}
     </span>
   )
 }
@@ -705,6 +717,7 @@ export default function OutreachQueuePage() {
                     {matchBadge(item.personalization_score)}
                     {contextBadge(item.context_status)}
                     {sourceBadge(item.source)}
+                    {ctaBadge(item.cta_label, item.cta_type)}
                     {/* Single delete */}
                     <button
                       type="button"

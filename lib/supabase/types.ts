@@ -498,6 +498,9 @@ export interface Database {
           hook: string | null;
           body: string | null;
           cta: string | null;
+          cta_label: string | null;
+          cta_type: string | null;
+          cta_value: string | null;
           full_email: string | null;
           style: string | null;
           personalization_score: number | null;
@@ -529,6 +532,9 @@ export interface Database {
           hook?: string | null;
           body?: string | null;
           cta?: string | null;
+          cta_label?: string | null;
+          cta_type?: string | null;
+          cta_value?: string | null;
           full_email?: string | null;
           style?: string | null;
           personalization_score?: number | null;
@@ -546,6 +552,31 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["outreach_queue"]["Insert"]>;
+      };
+      user_ctas: {
+        Row: {
+          id: string;
+          user_id: string;
+          label: string;
+          type: string;
+          value: string | null;
+          is_active: boolean;
+          priority: number | null;
+          usage_count: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          label: string;
+          type: string;
+          value?: string | null;
+          is_active?: boolean;
+          priority?: number | null;
+          usage_count?: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_ctas"]["Insert"]>;
       };
       app_settings: {
         Row: {

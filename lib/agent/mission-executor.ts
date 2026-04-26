@@ -8,6 +8,7 @@ import {
 } from '@/lib/agent/lead-dedupe'
 import { computeNextRunAfterCompletion } from '@/lib/agent/schedule'
 import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
+import { selectCtaForEmail, type UserCtaRow } from '@/lib/agent/user-ctas'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Database } from '@/lib/supabase/types'
@@ -364,6 +365,13 @@ async function generateDraftsForRun(admin: AdminClient, params: {
 }) {
   const missionDraftContext = buildDraftMissionContext(params.mission)
   const enrichmentCache = new Map<string, LeadContext>()
+  const { data: activeCtas } = await fromAdminTable(admin, 'user_ctas')
+    .select('id, user_id, label, type, value, is_active, priority, usage_count, created_at')
+    .eq('user_id', params.mission.user_id)
+    .eq('is_active', true)
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: true })
+  const availableCtas = (activeCtas ?? []) as UserCtaRow[]
 
   const { data: queueLeads } = await fromAdminTable(admin, 'agent_lead_queue')
     .select('id, business_name, email, website, location, dedup_key')
@@ -415,6 +423,11 @@ async function generateDraftsForRun(admin: AdminClient, params: {
       queueIndex += 1
       const lead = toProcess[index]
       if (!lead || !lead.dedup_key) continue
+      const selectedCta = selectCtaForEmail(
+        availableCtas,
+        index,
+        missionDraftContext.missionCta
+      )
 
       let context: LeadContext = {
         enriched: false,
@@ -448,6 +461,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
           audience_input: missionDraftContext.audienceInput,
           location_input: missionDraftContext.locationInput || lead.location || null,
           mission_cta: missionDraftContext.missionCta,
+          selected_cta: selectedCta,
           sender_signature: missionDraftContext.senderSignature,
           offer: missionDraftContext.offerInput || 'our service',
           angles: missionDraftContext.icpAngles,
@@ -464,6 +478,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
           audience_input: missionDraftContext.audienceInput,
           location_input: missionDraftContext.locationInput || lead.location || null,
           mission_cta: null,
+          selected_cta: selectedCta,
           sender_signature: missionDraftContext.senderSignature,
           offer: missionDraftContext.offerInput || 'our service',
           angles: missionDraftContext.icpAngles,
@@ -503,6 +518,9 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         hook: draft.hook,
         body: draft.body,
         cta: draft.cta,
+        cta_label: draft.cta_label,
+        cta_type: draft.cta_type,
+        cta_value: draft.cta_value,
         full_email: draft.full_email || draft.body,
         style: draftStyle,
         personalization_score: draft.personalization_score,

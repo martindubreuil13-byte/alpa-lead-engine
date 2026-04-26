@@ -1,12 +1,21 @@
 import { openai } from '@/lib/ai/openai'
 import { inferAudience } from '@/lib/agent/infer-audience'
 import type { LeadContext } from '@/lib/agent/enrich-context'
+import {
+  buildPromptContext,
+  formatCTA,
+  sanitize,
+} from '@/lib/agent/outreach-context'
+import { legacyMissionCtaToSelectedCta, type SelectedCta } from '@/lib/agent/user-ctas'
 
 export type OutreachDraft = {
   subject: string
   hook: string
   body: string
   cta: string
+  cta_label: string | null
+  cta_type: string | null
+  cta_value: string | null
   full_email: string
   style: DraftStyle
   personalization_score: number
@@ -28,6 +37,7 @@ export type GenerateParams = {
   audience_input: string
   location_input: string | null
   mission_cta: string | null
+  selected_cta?: SelectedCta | null
   sender_signature: string | null
   offer: string
   angles: string[]
@@ -49,7 +59,7 @@ const STYLE_PROFILES = [
     key: 'provocative',
     label: 'PROVOCATIVE',
     instruction:
-      'Start by challenging the slow or outdated way teams usually handle outreach. Create tension fast. Position ALPA as an unfair speed advantage without sounding hyped.',
+      'Start by challenging the slow or outdated way teams usually handle outreach. Create tension fast. Position the sender as a faster advantage without sounding hyped.',
   },
   {
     key: 'curious',
@@ -76,12 +86,6 @@ const STYLE_PROFILES = [
       'Low-pressure, peer-to-peer tone. Sound helpful and observant, not pushy. Still keep the hook sharp and non-generic.',
   },
 ] as const satisfies Array<{ key: DraftStyle; label: string; instruction: string }>
-
-const CTA_OPTIONS = [
-  'Want me to show you?',
-  'Curious to see how it works?',
-  'Worth testing?',
-]
 
 const BANNED_BODY_PATTERNS = [
   /love what you do/gi,
@@ -112,32 +116,12 @@ function pickRandom<T>(items: readonly T[], seed?: number): T {
   return items[Math.floor(Math.random() * items.length)]!
 }
 
-function resolveCtaShape(params: GenerateParams): {
-  type: 'conversation' | 'link' | 'offer' | 'none'
-  text: string
-  link: string | null
-} {
-  const { mission_cta, cta_type, cta_link } = params
-  const defaultCta = CTA_OPTIONS[(params.variation_seed ?? 0) % CTA_OPTIONS.length]!
-
-  if (!mission_cta) {
-    return { type: 'conversation', text: defaultCta, link: null }
+function resolveSelectedCta(params: GenerateParams): SelectedCta | null {
+  if (params.selected_cta) {
+    return params.selected_cta
   }
 
-  const ctaText = mission_cta.trim()
-  const urlMatch = ctaText.match(/https?:\/\/[^\s]+/)
-
-  const type: 'conversation' | 'link' | 'offer' =
-    cta_type ??
-    (urlMatch || cta_link
-      ? 'link'
-      : /\?|worth|happy|open|curious|quick|chat|call|meet/i.test(ctaText)
-      ? 'conversation'
-      : 'offer')
-
-  const link = cta_link ?? urlMatch?.[0] ?? null
-
-  return { type, text: ctaText, link }
+  return legacyMissionCtaToSelectedCta(params.mission_cta)
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -154,7 +138,6 @@ function buildPrompt(params: GenerateParams): string {
   } = params
 
   const style = pickRandom(STYLE_PROFILES, params.variation_seed)
-  const seed = STYLE_PROFILES.findIndex((profile) => profile.key === style.key)
 
   // ── Lead context
   const websiteStr = context.website || 'Not available'
@@ -193,40 +176,36 @@ function buildPrompt(params: GenerateParams): string {
   const locationStr = location_input?.trim() || 'their market'
   const industryStr = industry?.trim() || audience_input.trim() || 'their space'
 
-  // ── CTA instruction
-  const cta = resolveCtaShape(params)
-  let ctaInstruction: string
-  if (cta.type === 'conversation') {
-    ctaInstruction = `Use exactly one CTA, once, on its own final line: "${cta.text}"`
-  } else if (cta.type === 'link') {
-    const linkDisplay = cta.link ?? ''
-    const ctaDisplayText = cta.text.replace(linkDisplay, '').trim() || cta.text
-    ctaInstruction = `Use exactly one CTA, once, on its own final line.\nCTA text: "${ctaDisplayText}"\nLink: ${linkDisplay}\nFormat: text plus link on the same line.`
-  } else {
-    ctaInstruction = `Use exactly one CTA, once, on its own final line: "${cta.text || CTA_OPTIONS[seed % CTA_OPTIONS.length]}"`
-  }
+  const selectedCta = resolveSelectedCta(params)
+  const dynamicContext = buildPromptContext(
+    {
+      name: userName,
+      company: userCompany ?? undefined,
+      website: context.website || undefined,
+      offer: offerStr || undefined,
+    },
+    {
+      companyName: company_name,
+      industry: industryStr,
+      location: locationStr,
+      description: [context.h1, context.description, context.title].filter(Boolean).join(' | ') || undefined,
+    },
+    selectedCta
+  )
 
-  return `You are writing a cold email on behalf of ${userName}.
+  return sanitize(`${dynamicContext}
 
-LEAD
 ---------------------------------------
-Company: ${company_name}
-Industry: ${industryStr}
-Type: ${audience_input}
-Location: ${locationStr}
-Website: ${websiteStr}
-Lead context:
+ADDITIONAL CONTEXT
+---------------------------------------
+Lead website: ${websiteStr}
+Lead details:
 ${contextStr}
-
----------------------------------------
-SENDER
----------------------------------------
+Sender details:
 ${userLines}
-
-Offer: ${offerStr}
 Pain addressed: ${painStr}
 Outcome delivered: ${outcomeStr}
-Target audience context: ${audienceContext}
+Audience context: ${audienceContext}
 
 ---------------------------------------
 WHO THIS LEAD SERVES
@@ -268,16 +247,12 @@ BANNED PHRASES (instant fail)
 - "finding [audience_input]"
 - Any phrase that uses the lead category as if it were their customer type
 
-CTA
----------------------------------------
-${ctaInstruction}
-
 ---------------------------------------
 STRUCTURE (follow exactly)
 ---------------------------------------
 1. Hook — 1 to 2 short lines max. Must create curiosity or tension.
 2. Pain / insight — 1 to 2 short lines exposing the hidden inefficiency, delay, or missed opportunity.
-3. ALPA positioning — 1 to 2 short lines. Show the advantage clearly, without hype or long explanation.
+3. Positioning — 1 to 2 short lines. Show the advantage clearly, without hype or long explanation.
 4. CTA — 1 line only, once, at the end.
 
 ---------------------------------------
@@ -291,7 +266,9 @@ RULES
 - Each email must feel distinct in rhythm and opening style.
 - Only reference context details that are actually present above.
 - If context is weak, do not fake personalization.
-- Do not over-explain ALPA. Keep it punchy.
+- Do not mention any product, brand, or platform unless explicitly provided above.
+- Do not invent tools or services.
+- If no CTA is provided, end naturally without any link.
 
 ---------------------------------------
 OUTPUT FORMAT
@@ -300,7 +277,7 @@ Return ONLY valid JSON, no markdown, no explanation:
 {
   "subject": "<3–6 words, natural curiosity-driven — no ALL CAPS, no clickbait>",
   "body": "<complete email body — paragraphs separated by \\n\\n — CTA on its own line at the end>"
-}`
+}`)
 }
 
 // ─── Post-process ─────────────────────────────────────────────────────────────
@@ -359,7 +336,7 @@ function sanitizeBody(body: string) {
   for (const pattern of BANNED_BODY_PATTERNS) {
     next = next.replace(pattern, '')
   }
-  return next.replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim()
+  return sanitize(next.replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim())
 }
 
 function countWords(value: string) {
@@ -394,13 +371,14 @@ function buildStyleHook(styleKey: DraftStyle, companyName: string, industry: str
 function fallbackDraft(params: GenerateParams): OutreachDraft {
   const companyName = params.company_name || 'your team'
   const style = pickRandom(STYLE_PROFILES, params.variation_seed)
-  const cta = resolveCtaShape(params).text
+  const selectedCta = resolveSelectedCta(params)
+  const cta = formatCTA(selectedCta)
   const location = params.location_input?.trim() || ''
   const industry = params.industry?.trim() || params.audience_input.trim() || 'service'
   const offerLine =
     params.offer_context?.what_you_do?.trim() ||
     params.offer.trim() ||
-    'ALPA gives teams a faster way to find verified leads and start outreach'
+    'A faster way to find verified leads and start outreach'
   const outcomeLine =
     params.value_outcome?.trim() ||
     params.offer_context?.main_benefit?.trim() ||
@@ -410,16 +388,21 @@ function fallbackDraft(params: GenerateParams): OutreachDraft {
     hook,
     `${companyName} is probably not short on possible deals. The drag is how long it takes to surface the right prospects and start the first conversation. That usually means slower follow-up and more missed timing.`,
     `${offerLine}. ${outcomeLine} It keeps the first touch fast without sounding like a generic blast.`,
-    cta,
-  ].join('\n\n')
-  const trimmedBody = trimToWordLimit(body, 120)
+    cta || null,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+  const trimmedBody = trimToWordLimit(sanitizeBody(body), 120)
   const full_email = params.sender_signature ? `${trimmedBody}\n\n—\n${params.sender_signature}` : trimmedBody
 
   return {
-    subject: normalizeSubject(`${companyName} pipeline gap`, companyName),
+    subject: sanitize(normalizeSubject(`${companyName} pipeline gap`, companyName)),
     hook,
     body: trimmedBody,
     cta,
+    cta_label: selectedCta?.label ?? null,
+    cta_type: selectedCta?.type ?? null,
+    cta_value: selectedCta?.value ?? null,
     full_email,
     style: style.key,
     personalization_score: params.context.enriched ? 3 : 2,
@@ -463,9 +446,9 @@ async function callOpenAI(prompt: string): Promise<{ subject: string; body: stri
 
 export async function generateOutreachDraft(params: GenerateParams): Promise<OutreachDraft> {
   try {
-    const missionCta = params.mission_cta ?? null
     const senderSignature = params.sender_signature ?? null
-    const cta = resolveCtaShape(params)
+    const selectedCta = resolveSelectedCta(params)
+    const ctaLine = formatCTA(selectedCta)
     const maxRetries = 2
     let result: { subject: string; body: string } | null = null
 
@@ -487,17 +470,17 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
     }
 
     let body = sanitizeBody(cleanBody(result.body))
-    const subject = normalizeSubject(String(result.subject || ''), params.company_name || 'ALPA')
+    const subject = sanitize(normalizeSubject(String(result.subject || ''), params.company_name || 'your team'))
 
     if (!body) {
       return fallbackDraft(params)
     }
 
-    if (!body.includes(cta.text)) {
-      body = `${body}\n\n${cta.text}`
+    if (ctaLine && !body.includes(ctaLine)) {
+      body = `${body}\n\n${ctaLine}`
     }
 
-    body = trimToWordLimit(body, 120)
+    body = trimToWordLimit(sanitizeBody(body), 120)
 
     if (countWords(body) < 80 || isGenericTemplate(body) || isEmailContaminated(body, params.audience_input)) {
       return fallbackDraft(params)
@@ -519,7 +502,10 @@ export async function generateOutreachDraft(params: GenerateParams): Promise<Out
       subject,
       hook,
       body,
-      cta: cta.text || 'Would you be open to a quick 10-minute chat?',
+      cta: ctaLine,
+      cta_label: selectedCta?.label ?? null,
+      cta_type: selectedCta?.type ?? null,
+      cta_value: selectedCta?.value ?? null,
       full_email,
       style,
       personalization_score,

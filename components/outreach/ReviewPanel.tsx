@@ -13,6 +13,9 @@ type QueueItem = {
   hook: string | null
   body: string | null
   cta: string | null
+  cta_label: string | null
+  cta_type: string | null
+  cta_value: string | null
   full_email: string | null
   context_title: string | null
   context_description: string | null
@@ -100,6 +103,11 @@ export default function ReviewPanel({ item, onClose, onSave, onApprove, onReject
             </div>
             {item.contact_email ? (
               <div className="mt-0.5 text-sm text-slate-400">{item.contact_email}</div>
+            ) : null}
+            {item.cta_label ? (
+              <div className="mt-2 inline-flex items-center rounded-full border border-cyan-400/18 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-300">
+                CTA · {item.cta_label}{item.cta_type ? ` (${item.cta_type})` : ''}
+              </div>
             ) : null}
           </div>
           <button

@@ -39,10 +39,10 @@ export default function FloatingLeadCard({
               : 'border-teal-300/20 bg-teal-400/12 text-teal-200'
           }`}
         >
-          {confidence}
+          {confidence === 'HIGH' ? 'STRONG' : 'READY'}
         </div>
         <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-          Website verified
+          Preview
         </div>
       </div>
 
@@ -52,14 +52,14 @@ export default function FloatingLeadCard({
       <div className="mt-2 inline-flex rounded-full border border-white/8 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         {industry}
       </div>
-      <div className="mt-2 text-sm text-slate-300">{email}</div>
-      {website ? (
-        <div className="mt-2 truncate text-xs text-slate-500">{website}</div>
-      ) : null}
+      <div className="mt-3 space-y-1.5 text-sm text-slate-300">
+        <div className="truncate">Email: {email}</div>
+        {website ? <div className="truncate text-xs text-slate-400">Website: {website}</div> : null}
+      </div>
       <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
         <span>{city}</span>
         <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-          Ready
+          Export ready
         </span>
       </div>
     </div>

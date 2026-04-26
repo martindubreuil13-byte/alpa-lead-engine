@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { enrichLeadContext, type LeadContext } from '@/lib/agent/enrich-context'
 import { generateOutreachDraft } from '@/lib/agent/generate-outreach-draft'
+import { selectCtaForEmail, type UserCtaRow } from '@/lib/agent/user-ctas'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -82,12 +83,26 @@ export async function POST(req: Request) {
       .eq('review_status', 'draft')
       .in('lead_id', leadIds)
 
+    const { data: activeCtas } = await supabase
+      .from('user_ctas')
+      .select('id, user_id, label, type, value, is_active, priority, usage_count, created_at')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('priority', { ascending: true })
+      .order('created_at', { ascending: true })
+
     const alreadyQueued = new Set((existingDrafts || []).map((d) => d.lead_id).filter(Boolean))
+    const availableCtas = (activeCtas || []) as UserCtaRow[]
 
     const queueIds: string[] = []
 
     for (const [index, lead] of leads.entries()) {
       if (alreadyQueued.has(lead.id)) continue
+      const selectedCta = selectCtaForEmail(
+        availableCtas,
+        index,
+        activeMission?.cta || null
+      )
 
       let context: LeadContext = {
         enriched: false,
@@ -115,6 +130,7 @@ export async function POST(req: Request) {
           audience_input: activeMission?.audience_input || '',
           location_input: activeMission?.location_input || lead.city || null,
           mission_cta: activeMission?.cta || null,
+          selected_cta: selectedCta,
           sender_signature: activeMission?.sender_signature || null,
           offer,
           angles,
@@ -130,6 +146,7 @@ export async function POST(req: Request) {
           audience_input: activeMission?.audience_input || '',
           location_input: activeMission?.location_input || lead.city || null,
           mission_cta: null,
+          selected_cta: selectedCta,
           sender_signature: activeMission?.sender_signature || null,
           offer,
           angles,
@@ -167,6 +184,9 @@ export async function POST(req: Request) {
           hook: draft.hook,
           body: draft.body,
           cta: draft.cta,
+          cta_label: draft.cta_label,
+          cta_type: draft.cta_type,
+          cta_value: draft.cta_value,
           full_email: draft.full_email,
           style: draftStyle,
           personalization_score: draft.personalization_score,
