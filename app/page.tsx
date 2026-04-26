@@ -294,7 +294,31 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="mt-8 overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.03] shadow-[0_24px_80px_rgba(2,8,23,0.38)] backdrop-blur-xl">
+          <div className="mt-8 md:hidden">
+            <div className="space-y-3">
+              {comparisonRows.map((row) => (
+                <div
+                  key={row.manual}
+                  className="overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.03] shadow-[0_18px_60px_rgba(2,8,23,0.3)] backdrop-blur-xl"
+                >
+                  <div className="border-b border-white/8 bg-[#08101d] px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Manual
+                    </div>
+                    <div className="mt-1 text-sm leading-6 text-slate-300">{row.manual}</div>
+                  </div>
+                  <div className="bg-[linear-gradient(180deg,rgba(34,211,238,0.1),rgba(8,20,36,0.95))] px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200">
+                      With ALPA
+                    </div>
+                    <div className="mt-1 text-sm font-medium leading-6 text-cyan-50">{row.alpa}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 hidden overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.03] shadow-[0_24px_80px_rgba(2,8,23,0.38)] backdrop-blur-xl md:block">
             <div className="grid gap-px bg-white/8 md:grid-cols-2">
               <div className="bg-[#08101d] px-5 py-4">
                 <h3 className="text-lg font-semibold text-white">Manual Prospecting</h3>
