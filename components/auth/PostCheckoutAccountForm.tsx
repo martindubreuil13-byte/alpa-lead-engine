@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { clearGuestTrial, getGuestCaptureEmail, getGuestLeads } from '@/lib/guest-session'
+import { trackEvent } from '@/lib/track'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { supabase } from '@/lib/supabase'
 
@@ -14,6 +15,7 @@ export default function PostCheckoutAccountForm() {
   const searchParams = useSearchParams()
   const { user, loading: userLoading } = useCurrentUser()
   const initializedRef = useRef(false)
+  const checkoutTrackedRef = useRef(false)
   const sessionId = searchParams.get('session_id') || ''
   const storedGuestEmail = getGuestCaptureEmail()
 
@@ -27,6 +29,16 @@ export default function PostCheckoutAccountForm() {
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const emailToUse = stripeCheckoutEmail || storedGuestEmail || email
+
+  function markCheckoutTracked(currentSessionId: string) {
+    if (typeof window === 'undefined' || !currentSessionId) return
+    window.sessionStorage.setItem(`alpa_checkout_completed_${currentSessionId}`, '1')
+  }
+
+  function hasTrackedCheckout(currentSessionId: string) {
+    if (typeof window === 'undefined' || !currentSessionId) return false
+    return window.sessionStorage.getItem(`alpa_checkout_completed_${currentSessionId}`) === '1'
+  }
 
   useEffect(() => {
     if (userLoading) return
@@ -66,6 +78,17 @@ export default function PostCheckoutAccountForm() {
       }
 
       setVerified(true)
+
+      if (!checkoutTrackedRef.current && !hasTrackedCheckout(sessionId)) {
+        checkoutTrackedRef.current = true
+        markCheckoutTracked(sessionId)
+        void trackEvent('checkout_completed', {
+          email: data.email || storedGuestEmail || user?.email || null,
+          metadata: {
+            stripe_session_id: sessionId,
+          },
+        })
+      }
 
       if (user?.id) {
         await activateStarter(sessionId, false)

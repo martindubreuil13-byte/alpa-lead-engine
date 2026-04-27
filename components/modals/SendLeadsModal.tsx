@@ -84,6 +84,10 @@ export default function SendLeadsModal({
         email: targetEmail,
         leads_count: leads.length,
       })
+      void trackEvent('email_export_sent', {
+        email: targetEmail,
+        leads_count: leads.length,
+      })
       onSent?.('Email sent. It may take a few minutes to arrive.')
       onClose()
     } catch {

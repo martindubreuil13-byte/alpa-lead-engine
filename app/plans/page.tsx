@@ -5,6 +5,7 @@ import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import BackToLeadsButton from '@/components/plans/BackToLeadsButton'
 import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
+import PlansPageTracker from '@/components/tracking/PlansPageTracker'
 
 export const metadata: Metadata = {
   title: {
@@ -86,6 +87,7 @@ const plans: PlanCardProps[] = [
 export default function PlansPage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
+      <PlansPageTracker />
       <div className="landing-grid pointer-events-none absolute inset-0 opacity-70" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_34%),radial-gradient(circle_at_86%_16%,rgba(45,212,191,0.12),transparent_24%)]" />
       <div className="pointer-events-none absolute left-[-7rem] top-[12rem] h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />

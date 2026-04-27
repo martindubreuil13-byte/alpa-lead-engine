@@ -156,6 +156,10 @@ export default function ScrapeCompletionModal({
         email: targetEmail,
         leads_count: addedLeads.length,
       })
+      void trackEvent('email_export_sent', {
+        email: targetEmail,
+        leads_count: addedLeads.length,
+      })
       setResponseMessage('')
       setSuccessMessage(nextMessage)
       onEmailSent?.(nextMessage)

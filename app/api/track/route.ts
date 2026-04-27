@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
+import { createServerClient } from '@/lib/supabase/server'
+
 export const runtime = 'nodejs'
 
 type TrackPayload = {
@@ -25,8 +27,6 @@ function normalizeLeadsCount(value: unknown) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as TrackPayload
-    console.log('🔥 TRACK API HIT')
-    console.log('BODY:', body)
 
     const headerSessionId = req.headers.get('x-session-id')
     const sessionId =
@@ -39,15 +39,20 @@ export async function POST(req: Request) {
       return Response.json({ success: true })
     }
 
+    const authClient = await createServerClient()
+    const {
+      data: { user },
+    } = await authClient.auth.getUser()
+
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    const email = normalizeOptionalText(body.email)
+    const email = normalizeOptionalText(body.email) || normalizeOptionalText(user?.email)
     const payload = {
       session_id: sessionId,
-      user_id: null,
+      user_id: normalizeOptionalText(user?.id),
       email,
       event,
       query: normalizeOptionalText(body.query),
@@ -59,27 +64,28 @@ export async function POST(req: Request) {
           : null,
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('activity_logs')
       .insert(payload)
-      .select()
-
-    console.log('INSERT RESULT:', { data, error })
 
     if (error) {
       console.error('activity tracking insert failed:', error)
       return Response.json({ success: true })
     }
 
-    if (email && sessionId) {
+    if ((email || user?.id) && sessionId) {
+      const updatePayload: { email?: string; user_id?: string } = {}
+      if (email) updatePayload.email = email
+      if (user?.id) updatePayload.user_id = user.id
+
       const { error: updateError } = await supabase
         .from('activity_logs')
-        .update({ email })
+        .update(updatePayload)
         .eq('session_id', sessionId)
-        .is('email', null)
+        .or([email ? 'email.is.null' : null, user?.id ? 'user_id.is.null' : null].filter(Boolean).join(','))
 
       if (updateError) {
-        console.error('activity tracking email backfill failed:', updateError)
+        console.error('activity tracking backfill failed:', updateError)
       }
     }
   } catch (error) {

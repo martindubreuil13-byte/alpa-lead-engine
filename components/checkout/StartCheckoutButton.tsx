@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
+import { trackEvent } from '@/lib/track'
 
 type StartCheckoutButtonProps = {
   label: string
@@ -58,6 +59,13 @@ export default function StartCheckoutButton({
       saveGuestCaptureEmail(normalizedEmail)
     }
 
+    void trackEvent('upgrade_clicked', {
+      email: normalizedEmail || null,
+      metadata: {
+        source,
+      },
+    })
+
     try {
       const res = await fetch('/api/checkout', {
         method: 'POST',
@@ -73,6 +81,13 @@ export default function StartCheckoutButton({
       if (!res.ok || !data?.url) {
         throw new Error(data?.error || 'Unable to start checkout')
       }
+
+      void trackEvent('checkout_started', {
+        email: normalizedEmail || null,
+        metadata: {
+          source,
+        },
+      })
 
       window.location.href = data.url
     } catch (error) {
