@@ -150,6 +150,28 @@ async function getAuthenticatedUsage() {
   return { userId: user.id, sent: data?.emails_sent ?? 0 }
 }
 
+async function incrementAuthenticatedUsage(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string,
+  incrementBy = 1
+) {
+  const today = getDayKey()
+
+  const { data, error } = await supabase
+    .rpc('increment_email_usage', {
+      target_user_id: userId,
+      target_date: today,
+      increment_by: incrementBy,
+    })
+
+  if (error) {
+    throw error
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+  return row?.emails_sent ?? null
+}
+
 export async function GET() {
   try {
     const { userId, sent } = await getAuthenticatedUsage()
@@ -219,6 +241,21 @@ export async function POST(req: Request) {
       authenticatedEmail.split('@')[0] ||
       'User'
 
+    const currentUsage = await getAuthenticatedUsage()
+
+    if (!isTest && currentUsage.userId && currentUsage.sent >= DAILY_EMAIL_LIMIT) {
+      return NextResponse.json(
+        {
+          success: false,
+          result: 'failed',
+          error: 'DAILY_LIMIT_REACHED',
+          message: 'Daily sending limit reached',
+          usage: buildUsageSnapshot(currentUsage.sent),
+        },
+        { status: 429 }
+      )
+    }
+
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json(
         {
@@ -257,39 +294,18 @@ export async function POST(req: Request) {
       console.log('=== RESEND SUCCESS ===')
       console.log(resendResponse)
 
-      let newCount = 1
+      let newCount = currentUsage.sent
 
       try {
-        if (userId) {
-          const today = new Date().toISOString().slice(0, 10)
-          const { data: existingUsage } = await supabase
-            .from('email_usage')
-            .select('emails_sent')
-            .eq('user_id', userId)
-            .eq('usage_date', today)
-            .maybeSingle()
+        if (!isTest && userId) {
+          const incrementedCount = await incrementAuthenticatedUsage(supabase, userId)
 
-          newCount = (existingUsage?.emails_sent || 0) + 1
-
-          const { error: usageError } = await supabase
-            .from('email_usage')
-            .upsert(
-              {
-                user_id: userId,
-                usage_date: today,
-                emails_sent: newCount,
-              },
-              {
-                onConflict: 'user_id,usage_date',
-              }
-            )
-
-          if (usageError) {
-            console.error('SUPABASE USAGE ERROR:', usageError)
+          if (typeof incrementedCount === 'number') {
+            newCount = incrementedCount
           }
         }
       } catch (dbError) {
-        console.error('SUPABASE CRASH:', dbError)
+        console.error('SUPABASE USAGE INCREMENT ERROR:', dbError)
       }
 
       return NextResponse.json({

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { CheckCircle2, ChevronRight, Loader2, Plus, Target, X, Zap } from 'lucide-react'
 
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import type { UserCtaType } from '@/lib/agent/user-ctas'
+import { isValidCtaValue, normalizeCtaValue, normalizeMissionCta } from '@/lib/agent/user-ctas'
 import { safeFetch } from '@/lib/utils/safeFetch'
 
 type OfferContext = {
@@ -18,6 +20,14 @@ type ExpandedResult = {
   offer_context: OfferContext
   icp_expanded: string[]
   search_patterns: string[]
+}
+
+type MissionCtaForm = {
+  id: string
+  label: string
+  type: UserCtaType
+  value: string
+  is_active: boolean
 }
 
 type Step = 'input' | 'thinking' | 'loading' | 'icp' | 'activating' | 'processing' | 'success'
@@ -38,6 +48,16 @@ function buildDefaultStartAtLocal() {
   return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}T${String(base.getHours()).padStart(2, '0')}:${String(base.getMinutes()).padStart(2, '0')}`
 }
 
+function createMissionCta(type: UserCtaType = 'link'): MissionCtaForm {
+  return {
+    id: crypto.randomUUID(),
+    label: '',
+    type,
+    value: '',
+    is_active: true,
+  }
+}
+
 export default function AgentSetupPage() {
   const router = useRouter()
 
@@ -47,7 +67,7 @@ export default function AgentSetupPage() {
   const [location, setLocation] = useState('')
   const [dailyTarget, setDailyTarget] = useState(25)
   const [customTarget, setCustomTarget] = useState('')
-  const [cta, setCta] = useState('')
+  const [missionCtas, setMissionCtas] = useState<MissionCtaForm[]>([])
   const [senderSignature, setSenderSignature] = useState('')
   const [startMode, setStartMode] = useState<'now' | 'later'>('now')
   const [startAtLocal, setStartAtLocal] = useState(buildDefaultStartAtLocal)
@@ -122,9 +142,47 @@ export default function AgentSetupPage() {
     if (!isNaN(n) && n > 0) setDailyTarget(n)
   }
 
+  function updateMissionCta(id: string, patch: Partial<MissionCtaForm>) {
+    setMissionCtas((prev) =>
+      prev.map((cta) => (cta.id === id ? { ...cta, ...patch } : cta))
+    )
+  }
+
+  function addMissionCta() {
+    setMissionCtas((prev) => [...prev, createMissionCta()])
+  }
+
+  function removeMissionCta(id: string) {
+    setMissionCtas((prev) => prev.filter((cta) => cta.id !== id))
+  }
+
+function serializeMissionCtas() {
+    return missionCtas
+      .map((cta) => {
+        const normalized = normalizeMissionCta({
+          id: cta.id,
+          label: cta.label.trim() || cta.value.trim() || null,
+          type: cta.type,
+          value: normalizeCtaValue(cta.type, cta.value),
+          is_active: cta.is_active,
+        })
+        return normalized
+      })
+      .filter((cta): cta is NonNullable<typeof cta> => Boolean(cta))
+      .filter((cta) => {
+        if (cta.type === 'none') {
+          return Boolean(cta.label)
+        }
+        if (cta.type === 'text') {
+          return Boolean(cta.label)
+        }
+        return Boolean(cta.label && isValidCtaValue(cta.type, cta.value))
+      })
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!offer.trim() || !audience.trim() || !location.trim() || !cta.trim()) return
+    if (!offer.trim() || !audience.trim() || !location.trim()) return
 
     setError(null)
     setStep('thinking')
@@ -187,7 +245,7 @@ export default function AgentSetupPage() {
           icp_expanded: selectedSegments,
           search_patterns: expanded.search_patterns,
           daily_target: dailyTarget,
-          cta: cta.trim(),
+          ctas: serializeMissionCtas(),
           sender_signature: senderSignature.trim() || null,
           start_mode: startMode,
           start_at_local: startMode === 'later' ? startAtLocal : null,
@@ -237,7 +295,6 @@ export default function AgentSetupPage() {
     offer.trim() &&
     audience.trim() &&
     location.trim() &&
-    cta.trim() &&
     dailyTarget > 0 &&
     (startMode === 'now' || Boolean(startAtLocal))
 
@@ -368,17 +425,112 @@ export default function AgentSetupPage() {
                 </div>
 
                 {/* CTA */}
-                <div className="border-b border-white/[0.06] p-5">
-                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
-                    Call to action
-                  </label>
-                  <input
-                    type="text"
-                    value={cta}
-                    onChange={(e) => setCta(e.target.value)}
-                    placeholder="e.g. Book a 15-min call — calendly.com/yourlink"
-                    className="w-full bg-transparent text-[15px] text-white placeholder:text-slate-700 outline-none"
-                  />
+                <div className="border-b border-white/[0.06] p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                        Call To Action
+                      </label>
+                      <p className="text-sm text-slate-500">
+                        Add one or more mission-specific CTAs. Drafts rotate active CTAs in order.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addMissionCta}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add CTA
+                    </button>
+                  </div>
+
+                  {missionCtas.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-4 text-sm text-slate-500">
+                      No CTAs yet. Drafts will end with a soft close until you add one.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {missionCtas.map((cta) => (
+                        <div
+                          key={cta.id}
+                          className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                              CTA
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => updateMissionCta(cta.id, { is_active: !cta.is_active })}
+                                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                                  cta.is_active
+                                    ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                                    : 'border-white/[0.08] bg-white/[0.03] text-slate-500 hover:text-slate-300'
+                                }`}
+                              >
+                                {cta.is_active ? 'Active' : 'Inactive'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeMissionCta(cta.id)}
+                                className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 text-slate-500 transition hover:text-slate-300"
+                                aria-label="Delete CTA"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-[1.1fr_0.8fr]">
+                            <input
+                              type="text"
+                              value={cta.label}
+                              onChange={(e) => updateMissionCta(cta.id, { label: e.target.value })}
+                              placeholder="e.g. Book a call"
+                              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none transition hover:border-white/20 focus:border-blue-400/30"
+                            />
+                            <select
+                              value={cta.type}
+                              onChange={(e) =>
+                                updateMissionCta(cta.id, {
+                                  type: e.target.value as UserCtaType,
+                                  value: e.target.value === 'none' ? '' : cta.value,
+                                })
+                              }
+                              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none transition hover:border-white/20 focus:border-blue-400/30"
+                            >
+                              <option value="link">Link</option>
+                              <option value="email">Email</option>
+                              <option value="calendly">Calendly</option>
+                              <option value="none">None</option>
+                            </select>
+                          </div>
+
+                          {cta.type !== 'none' ? (
+                            <input
+                              type="text"
+                              value={cta.value}
+                              onChange={(e) => updateMissionCta(cta.id, { value: e.target.value })}
+                              placeholder={
+                                cta.type === 'email'
+                                  ? 'you@example.com'
+                                  : cta.type === 'calendly'
+                                    ? 'https://calendly.com/your-handle'
+                                    : 'https://your-link.com'
+                              }
+                              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none transition hover:border-white/20 focus:border-blue-400/30"
+                            />
+                          ) : (
+                            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-slate-500">
+                              This CTA will use a soft closing line with no link.
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Schedule */}
@@ -649,7 +801,7 @@ export default function AgentSetupPage() {
               <div className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
                 <Target className="h-4 w-4 shrink-0 text-slate-600" />
                 <p className="text-xs text-slate-500">
-                  {dailyTarget} leads/day · {startMode === 'now' ? 'starts now' : 'starts later'} · CTA: {cta.length > 40 ? cta.slice(0, 40) + '...' : cta}
+                  {dailyTarget} leads/day · {startMode === 'now' ? 'starts now' : 'starts later'} · {serializeMissionCtas().length} active CTA{serializeMissionCtas().length === 1 ? '' : 's'}
                 </p>
               </div>
 

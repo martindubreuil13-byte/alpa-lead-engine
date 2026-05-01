@@ -8,7 +8,7 @@ import {
 } from '@/lib/agent/lead-dedupe'
 import { computeNextRunAfterCompletion } from '@/lib/agent/schedule'
 import { syncAgentLeadsToMain } from '@/lib/agent/sync-agent-leads-to-main'
-import { selectCtaForEmail, type UserCtaRow } from '@/lib/agent/user-ctas'
+import { getMissionCTA, parseMissionCtas } from '@/lib/agent/user-ctas'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Database } from '@/lib/supabase/types'
@@ -60,6 +60,7 @@ type DraftMissionContext = {
   audienceInput: string
   locationInput: string
   missionCta: string | null
+  missionCtas: ReturnType<typeof parseMissionCtas>
   senderSignature: string | null
   icpAngles: string[]
   painSolved: string | null
@@ -352,6 +353,7 @@ function buildDraftMissionContext(mission: MissionRow): DraftMissionContext {
     audienceInput: String(mission.audience_input || '').trim(),
     locationInput: String(mission.location_input || mission.location || '').trim(),
     missionCta: mission.cta ?? null,
+    missionCtas: parseMissionCtas(mission.ctas),
     senderSignature: mission.sender_signature ?? null,
     icpAngles,
     painSolved: offerContext?.angle ?? null,
@@ -365,13 +367,6 @@ async function generateDraftsForRun(admin: AdminClient, params: {
 }) {
   const missionDraftContext = buildDraftMissionContext(params.mission)
   const enrichmentCache = new Map<string, LeadContext>()
-  const { data: activeCtas } = await fromAdminTable(admin, 'user_ctas')
-    .select('id, user_id, label, type, value, is_active, priority, usage_count, created_at')
-    .eq('user_id', params.mission.user_id)
-    .eq('is_active', true)
-    .order('priority', { ascending: true })
-    .order('created_at', { ascending: true })
-  const availableCtas = (activeCtas ?? []) as UserCtaRow[]
 
   const { data: queueLeads } = await fromAdminTable(admin, 'agent_lead_queue')
     .select('id, business_name, email, website, location, dedup_key')
@@ -423,11 +418,9 @@ async function generateDraftsForRun(admin: AdminClient, params: {
       queueIndex += 1
       const lead = toProcess[index]
       if (!lead || !lead.dedup_key) continue
-      const selectedCta = selectCtaForEmail(
-        availableCtas,
-        index,
-        missionDraftContext.missionCta
-      )
+      const selectedCta =
+        getMissionCTA(missionDraftContext.missionCtas, index) ||
+        getMissionCTA({ cta: missionDraftContext.missionCta }, index)
 
       let context: LeadContext = {
         enriched: false,
@@ -498,12 +491,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
       }
 
       const draftStyle = draft.style || 'fallback'
-      console.log('[STYLE TRACKING]', {
-        company: lead.business_name || context.company_name || 'your company',
-        style: draft.style,
-      })
-
-      const { error } = await fromAdminTable(admin, 'outreach_queue').insert({
+      const outreachInsertPayload = {
         user_id: params.mission.user_id,
         mission_id: params.mission.id,
         run_id: params.run.id,
@@ -517,7 +505,7 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         subject: draft.subject,
         hook: draft.hook,
         body: draft.body,
-        cta: draft.cta,
+        cta: draft.cta || null,
         cta_label: draft.cta_label,
         cta_type: draft.cta_type,
         cta_value: draft.cta_value,
@@ -531,13 +519,17 @@ async function generateDraftsForRun(admin: AdminClient, params: {
         context_h1: context.h1 || null,
         status: 'ready',
         review_status: 'draft',
-      })
+      }
+      const { error } = await fromAdminTable(admin, 'outreach_queue').insert(outreachInsertPayload)
 
       if (!error) {
         draftsGenerated += 1
         existingKeys.add(lead.dedup_key)
       } else {
-        console.error('[executor] outreach insert failed', error)
+        console.error('[executor] outreach insert failed', {
+          error,
+          payload: outreachInsertPayload,
+        })
       }
     }
   })

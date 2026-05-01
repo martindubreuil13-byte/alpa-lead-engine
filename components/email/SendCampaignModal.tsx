@@ -222,7 +222,7 @@ export default function SendCampaignModal({
   isOpen: boolean
   onClose: () => void
   selectedIds: string[]
-  onSent: (sentIds: string[]) => void
+  onSent: (sentIds: string[]) => void | Promise<void>
 }) {
   const router = useRouter()
   const { user, loading: userLoading } = useCurrentUser()
@@ -294,6 +294,26 @@ export default function SendCampaignModal({
     emailUsage.remaining > 0 &&
     emailUsage.remaining <= DAILY_LIMIT_WARNING_THRESHOLD
 
+  function applySuccessfulSendUsage(usage: EmailUsageSnapshot | undefined, sentDelta: number) {
+    if (usage) {
+      setEmailUsage(usage)
+      return
+    }
+
+    if (sentDelta <= 0) return
+
+    setEmailUsage((current) => {
+      if (!current) return current
+
+      const nextSent = Math.min(current.sent + sentDelta, current.limit)
+      return {
+        ...current,
+        sent: nextSent,
+        remaining: Math.max(current.limit - nextSent, 0),
+      }
+    })
+  }
+
   const previewContent = useMemo(() => {
     const subject = safeTemplate.subject?.trim() || 'Test Email from ALPA'
     const replyTo = currentUserIdentity?.email || 'No reply-to email'
@@ -322,13 +342,17 @@ export default function SendCampaignModal({
   }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail, modalSelectedIds])
 
   async function fetchEmailUsage() {
-    const response = await fetch('/api/send-email', {
-      cache: 'no-store',
-    })
-    const result = await response.json().catch(() => null)
+    try {
+      const response = await fetch('/api/send-email', {
+        cache: 'no-store',
+      })
+      const result = await response.json().catch(() => null)
 
-    if (response.ok && result?.usage) {
-      setEmailUsage(result.usage as EmailUsageSnapshot)
+      if (response.ok && result?.usage) {
+        setEmailUsage(result.usage as EmailUsageSnapshot)
+      }
+    } catch (error) {
+      console.error('Email usage fetch failed:', error)
     }
   }
 
@@ -596,6 +620,12 @@ export default function SendCampaignModal({
       }
 
       for (const lead of leadsToSend) {
+        setSendStatus({
+          type: 'info',
+          title: 'Sending emails...',
+          message: `Processed ${sent + failed + skipped} of ${leadsToSend.length}. Sent ${sent}, skipped ${skipped}, failed ${failed}.`,
+        })
+
         if (!sendAsTest && !lead.email?.trim()) {
           skipped += 1
           continue
@@ -611,7 +641,9 @@ export default function SendCampaignModal({
         )
 
         if (result.ok) {
-          if (result.usage) {
+          if (!sendAsTest) {
+            applySuccessfulSendUsage(result.usage, 1)
+          } else if (result.usage) {
             setEmailUsage(result.usage)
           }
           sent += 1
@@ -637,17 +669,11 @@ export default function SendCampaignModal({
         lastError = result.message || lastError
       }
 
-      if (sentLeadIds.length > 0) {
-        onSent(sentLeadIds)
+      if (!sendAsTest && sentLeadIds.length > 0) {
+        await onSent(sentLeadIds)
       }
 
-      const usageRes = await fetch('/api/send-email', {
-        cache: 'no-store',
-      })
-      const usageData = await usageRes.json().catch(() => null)
-      if (usageData?.usage) {
-        setEmailUsage(usageData.usage as EmailUsageSnapshot)
-      }
+      await fetchEmailUsage()
 
       setSendStatus({
         type: failed > 0 ? 'error' : 'success',

@@ -12,6 +12,7 @@ const ALLOWED_FIELDS = [
   'location_input',
   'offer_input',
   'audience_input',
+  'ctas',
   'next_run_at',
   'icp_expanded',
   'search_patterns',

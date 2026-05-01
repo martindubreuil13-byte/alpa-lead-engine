@@ -14,7 +14,7 @@ import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 /**
  * Only ACTIVE pipeline stages
  */
-const PIPELINE_STATUSES = ['pipeline', 'contacted', 'followup_due'] as const
+const PIPELINE_STATUSES = ['pipeline', 'contacted', 'followup_due', 'followup_sent'] as const
 
 type LeadStatusRow = {
   status: string | null
@@ -295,8 +295,9 @@ export default function Page() {
   const pipeline = pipelineBreakdown['pipeline'] || 0
   const contacted = pipelineBreakdown['contacted'] || 0
   const followups = pipelineBreakdown['followup_due'] || 0
+  const finalAttempts = pipelineBreakdown['followup_sent'] || 0
 
-  const activePipeline = pipeline + contacted + followups
+  const activePipeline = pipeline + contacted + followups + finalAttempts
 
   const contactRate =
     activePipeline > 0
@@ -532,7 +533,7 @@ function SummaryCard({
  * PIPELINE PANEL
  */
 function PipelinePanel({ pipeline }: any) {
-  const order = ['pipeline', 'contacted', 'followup_due']
+  const order = ['pipeline', 'contacted', 'followup_due', 'followup_sent']
 
   return (
     <div className="glass p-9 rounded-2xl">

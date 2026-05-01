@@ -9,10 +9,17 @@ import { canAccessFeature, isAdmin } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
+import {
+  getLibraryLifecycleLabel,
+  getPipelineLifecycleStatus,
+  getUrgencyTone,
+  type Lead as LifecycleLead,
+  type PipelineStage,
+} from '@/lib/pipeline/lifecycle'
 import { supabase } from '@/lib/supabase'
 import { safeFetch } from '@/lib/utils/safeFetch'
 
-type Lead = {
+type Lead = LifecycleLead & {
   id: string
   user_id?: string
   company_name: string
@@ -20,11 +27,11 @@ type Lead = {
   email: string | null
   phone: string | null
   website?: string | null
-  status: string | null
+  status: string
   created_at: string
 }
 
-type FilterValue = 'all' | 'inbox' | 'pipeline' | 'contacted'
+type FilterValue = 'all' | PipelineStage
 
 function formatLocation(value: string | null) {
   return String(value || '').trim() || 'Unknown location'
@@ -64,7 +71,7 @@ export default function LeadLibraryPage() {
 
     const { data, error } = await supabase
       .from('leads')
-      .select('id, user_id, company_name, city, email, phone, website, status, created_at')
+      .select('id, user_id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
@@ -116,7 +123,8 @@ export default function LeadLibraryPage() {
     const normalizedSearch = search.trim().toLowerCase()
 
     return leads.filter((lead) => {
-      const matchesFilter = filter === 'all' ? true : lead.status === filter
+      const lifecycleStatus = getPipelineLifecycleStatus(lead)
+      const matchesFilter = filter === 'all' ? true : lifecycleStatus === filter
       if (!matchesFilter) return false
 
       if (!normalizedSearch) return true
@@ -153,9 +161,11 @@ export default function LeadLibraryPage() {
         <div className="flex flex-wrap gap-3">
           {([
             { value: 'all', label: 'All' },
-            { value: 'inbox', label: 'New' },
-            { value: 'pipeline', label: 'In pipeline' },
+            { value: 'ready', label: 'New' },
             { value: 'contacted', label: 'Contacted' },
+            { value: 'ready_followup', label: 'Ready for Follow-up' },
+            { value: 'final_attempt', label: 'Final Attempt' },
+            { value: 'closed', label: 'Closed' },
           ] as Array<{ value: FilterValue; label: string }>).map((option) => (
             <button
               key={option.value}
@@ -186,27 +196,44 @@ export default function LeadLibraryPage() {
           <div className="glass rounded-xl p-6 text-sm text-slate-400">No leads found.</div>
         ) : null}
 
-        {filteredLeads.map((lead) => (
-          <LeadCard
-            key={lead.id}
-            id={lead.id}
-            name={lead.company_name}
-            location={formatLocation(lead.city)}
-            email={lead.email}
-            phone={lead.phone}
-            inPipeline={lead.status === 'pipeline'}
-            contacted={lead.status === 'contacted'}
-            isNew={lead.status === 'inbox'}
-            context="library"
-            sourceUrl={lead.website}
-            onView={() => router.push(`/dashboard/leads/${lead.id}`)}
-            onAddToPipeline={() =>
-              void updateStatus(lead.id, lead.status === 'pipeline' ? 'inbox' : 'pipeline')
-            }
-            onPrepareOutreach={isAdminUser ? () => void prepareOutreach(lead.id) : undefined}
-          />
-        ))}
+        {filteredLeads.map((lead) => {
+          const lifecycleStatus = getPipelineLifecycleStatus(lead)
+          const tone = getLibraryTone(lead)
+
+          return (
+            <LeadCard
+              key={lead.id}
+              id={lead.id}
+              name={lead.company_name}
+              location={formatLocation(lead.city)}
+              email={lead.email}
+              phone={lead.phone}
+              inPipeline={lifecycleStatus !== 'closed' && lifecycleStatus !== 'ready'}
+              contacted={lifecycleStatus === 'contacted' || lifecycleStatus === 'ready_followup' || lifecycleStatus === 'final_attempt'}
+              isNew={lifecycleStatus === 'ready'}
+              context="library"
+              sourceUrl={lead.website}
+              lifecycleLabel={getLibraryLifecycleLabel(lead)}
+              lifecycleTone={tone}
+              onView={() => router.push(`/dashboard/leads/${lead.id}`)}
+              onAddToPipeline={() =>
+                void updateStatus(lead.id, lifecycleStatus === 'ready' ? 'pipeline' : 'inbox')
+              }
+              onPrepareOutreach={isAdminUser ? () => void prepareOutreach(lead.id) : undefined}
+            />
+          )
+        })}
       </div>
     </div>
   )
+}
+
+function getLibraryTone(lead: Lead) {
+  const tone = getUrgencyTone(lead)
+  if (tone === 'overdue') return 'ready'
+  if (tone === 'waiting') return 'waiting'
+  if (tone === 'final') return 'final'
+  if (tone === 'closed') return 'closed'
+  if (tone === 'ready') return 'ready'
+  return 'new'
 }

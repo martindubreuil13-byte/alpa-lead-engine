@@ -14,37 +14,31 @@ export type LeadContext = {
   description?: string
 }
 
-export const FORBIDDEN_TOKENS = [
-  'alpa',
-  'mindra',
-  'mindrasolutions.com',
-]
-
 export function sanitize(text: string): string {
-  let clean = text
-
-  FORBIDDEN_TOKENS.forEach((token) => {
-    const regex = new RegExp(token, 'gi')
-    clean = clean.replace(regex, '')
-  })
-
-  return clean.trim()
+  return text
+    .split('\n')
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
-export function formatCTA(cta: SelectedCta | null): string {
-  if (!cta || cta.type === 'none') {
-    return ''
-  }
+export function formatCTA(cta: SelectedCta | null): string | null {
+  if (!cta) return null
 
   switch (cta.type) {
     case 'link':
-      return cta.label && cta.value ? `${cta.label}: ${cta.value}` : cta.value || ''
-    case 'email':
-      return cta.value ? `You can reach me at ${cta.value}` : ''
+      return cta.value ? `Test it here: ${cta.value}` : null
     case 'calendly':
-      return cta.value ? `If it makes sense, here is my calendar: ${cta.value}` : ''
+      return cta.value ? `Book a time: ${cta.value}` : null
+    case 'email':
+      return cta.value ? `Reply here: ${cta.value}` : null
+    case 'text':
+      return cta.label ? cta.label.trim() : null
+    case 'none':
+      return null
     default:
-      return ''
+      return null
   }
 }
 
@@ -53,31 +47,27 @@ export function buildPromptContext(
   lead: LeadContext,
   cta: SelectedCta | null
 ): string {
-  const prompt = `
-Write a short, natural outbound email.
+  return `
+Write a short outbound email that sounds like a real person noticing something useful.
 
-Context:
-- Sender: ${user.name || 'Unknown'}
+Sender:
+- Name: ${user.name || 'Unknown'}
 - Company: ${user.company || 'Not specified'}
 - Website: ${user.website || 'Not specified'}
 - Offer: ${user.offer || 'Not specified'}
 
-Target:
+Lead:
 - Company: ${lead.companyName || 'Unknown'}
 - Industry: ${lead.industry || 'Unknown'}
 - Location: ${lead.location || 'Unknown'}
 - Description: ${lead.description || 'Unknown'}
 
-Instructions:
-- Keep it human and conversational
-- Avoid generic marketing language
-- Do NOT mention any product, brand, or platform unless explicitly provided
-- Do NOT invent tools or services
-- If no CTA is provided, end naturally without any link
-
-CTA:
+CTA context:
 ${cta ? JSON.stringify(cta) : 'none'}
-`
 
-  return sanitize(prompt)
+IMPORTANT:
+Do NOT mention any product, brand, or platform unless explicitly provided in the CTA.
+If no CTA is provided, do not insert any link or product reference.
+You are part of an automated outbound system. You must generate the final email using provided data. You are not allowed to ask for inputs or clarification.
+`
 }

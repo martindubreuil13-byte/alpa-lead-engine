@@ -1,6 +1,8 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 
+import type { SelectedCta } from '@/lib/agent/user-ctas'
+import { normalizeMissionCta } from '@/lib/agent/user-ctas'
 import { executeMissionRun } from '@/lib/agent/mission-executor'
 import { computeFirstRunAt, normalizeScheduleTime } from '@/lib/agent/schedule'
 import { requireAdmin } from '@/lib/auth/require-admin'
@@ -17,6 +19,14 @@ const offerContextSchema = z.object({
   angle: z.string(),
 })
 
+const missionCtaSchema = z.object({
+  id: z.string().optional().nullable(),
+  label: z.string().trim().min(1).max(120),
+  type: z.enum(['link', 'calendly', 'email', 'text', 'none']),
+  value: z.string().trim().max(500).optional().nullable(),
+  is_active: z.boolean().optional().default(true),
+})
+
 const requestSchema = z.object({
   offer_input: z.string().trim().min(1).max(1000),
   audience_input: z.string().trim().min(1).max(1000),
@@ -25,7 +35,8 @@ const requestSchema = z.object({
   icp_expanded: z.array(z.string()).min(1),
   search_patterns: z.array(z.string()).min(1),
   daily_target: z.number().int().min(1).max(10000).default(10),
-  cta: z.string().trim().max(300).optional(),
+  cta: z.string().trim().max(300).optional().nullable(),
+  ctas: z.array(missionCtaSchema).max(10).optional().default([]),
   send_window: z.string().optional().nullable(),
   sender_signature: z.string().trim().max(200).optional().nullable(),
   start_mode: z.enum(['now', 'later']).default('now'),
@@ -53,11 +64,19 @@ export async function POST(req: Request) {
     if (adminError) return adminError
 
     const body = await req.json().catch(() => null)
+    console.log('[CONFIRM INPUT]', JSON.stringify(body, null, 2))
+    const normalizedCtas: SelectedCta[] = Array.isArray(body?.ctas)
+      ? body.ctas
+          .map((item: unknown) => normalizeMissionCta(item))
+          .filter((item: SelectedCta | null): item is SelectedCta => item !== null)
+      : []
+
     const normalized = {
       ...body,
       send_window: body?.send_window ?? null,
       daily_target: body?.daily_target ?? 10,
-      cta: body?.cta ?? 'Reply to this message',
+      cta: body?.cta ?? null,
+      ctas: normalizedCtas,
       sender_signature: body?.sender_signature ?? null,
     }
     const parsed = requestSchema.safeParse(normalized)
@@ -75,7 +94,7 @@ export async function POST(req: Request) {
       icp_expanded,
       search_patterns,
       daily_target,
-      cta,
+      ctas,
       send_window,
       sender_signature,
       start_mode,
@@ -83,6 +102,7 @@ export async function POST(req: Request) {
       schedule_timezone,
       schedule_local_time,
     } = parsed.data
+    const safeCTAs = Array.isArray(ctas) ? ctas : []
 
     if (!offer_input || !audience_input || !location_input) {
       return NextResponse.json({ error: 'MISSING_REQUIRED_FIELDS' }, { status: 400 })
@@ -182,7 +202,7 @@ export async function POST(req: Request) {
       offer_context,
       icp_expanded,
       search_patterns,
-      cta: cta || null,
+      ctas: safeCTAs,
       send_window: send_window || null,
       sender_signature: sender_signature || null,
       schedule_timezone: resolvedScheduleTimezone,

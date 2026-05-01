@@ -132,7 +132,12 @@ export interface Database {
           date_added: string;
           first_contact_at: string | null;
           followup_due_at: string | null;
+          followup_sent_at: string | null;
+          final_attempt_sent_at: string | null;
           last_contact_at: string | null;
+          outreach_attempts: number;
+          next_action_status: string | null;
+          closed_at: string | null;
           archived_reason: string | null;
           mission_id: string | null;
           run_id: string | null;
@@ -160,7 +165,12 @@ export interface Database {
           date_added?: string;
           first_contact_at?: string | null;
           followup_due_at?: string | null;
+          followup_sent_at?: string | null;
+          final_attempt_sent_at?: string | null;
           last_contact_at?: string | null;
+          outreach_attempts?: number;
+          next_action_status?: string | null;
+          closed_at?: string | null;
           archived_reason?: string | null;
           mission_id?: string | null;
           run_id?: string | null;
@@ -210,6 +220,7 @@ export interface Database {
           offer_context: Json | null;
           icp_expanded: Json | null;
           search_patterns: Json | null;
+          ctas: Json | null;
           daily_target: number;
           cta: string | null;
           send_window: string | null;
@@ -245,6 +256,7 @@ export interface Database {
           offer_context?: Json | null;
           icp_expanded?: Json | null;
           search_patterns?: Json | null;
+          ctas?: Json | null;
           daily_target?: number;
           cta?: string | null;
           send_window?: string | null;

@@ -25,6 +25,8 @@ type LeadCardProps = {
   selected?: boolean
   onToggleSelect?: () => void
   onPrepareOutreach?: () => void
+  lifecycleLabel?: string
+  lifecycleTone?: 'new' | 'waiting' | 'ready' | 'final' | 'closed'
   expandedFooter?: ReactNode
   className?: string
 }
@@ -51,13 +53,17 @@ function getSourceHost(url: string | null | undefined) {
   }
 }
 
-function StatusPill({
-  children,
-}: {
-  children: ReactNode
-}) {
+function StatusPill({ children, tone }: { children: ReactNode; tone?: LeadCardProps['lifecycleTone'] }) {
+  const toneClass = {
+    new: 'border-blue-300/16 bg-blue-500/10 text-blue-100',
+    waiting: 'border-sky-300/14 bg-sky-500/8 text-sky-100',
+    ready: 'border-amber-300/20 bg-amber-500/10 text-amber-100',
+    final: 'border-violet-300/14 bg-violet-500/8 text-violet-100',
+    closed: 'border-emerald-300/12 bg-emerald-500/8 text-emerald-100',
+  }[tone || 'new']
+
   return (
-    <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80">
+    <span className={cn('rounded-full border px-2 py-1 text-[11px] font-medium', toneClass)}>
       {children}
     </span>
   )
@@ -136,12 +142,18 @@ export default function LeadCard({
   selected = false,
   onToggleSelect,
   onPrepareOutreach,
+  lifecycleLabel,
+  lifecycleTone,
   expandedFooter,
   className,
 }: LeadCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const statusPill = useMemo(() => {
+    if (lifecycleLabel) {
+      return { label: lifecycleLabel }
+    }
+
     if (contacted) {
       return { label: 'Contacted' }
     }
@@ -155,7 +167,7 @@ export default function LeadCard({
     }
 
     return null
-  }, [contacted, inPipeline, isNew])
+  }, [contacted, inPipeline, isNew, lifecycleLabel])
 
   const mailHref = email ? `mailto:${email}` : undefined
   const phoneHref = phone ? `tel:${phone}` : undefined
@@ -205,7 +217,7 @@ export default function LeadCard({
 
             {statusPill ? (
               <div className="flex shrink-0 justify-end">
-                <StatusPill>{statusPill.label}</StatusPill>
+                <StatusPill tone={lifecycleTone}>{statusPill.label}</StatusPill>
               </div>
             ) : null}
           </div>
