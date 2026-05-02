@@ -4,6 +4,7 @@ import { Download, Eye, Mail, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
+import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { saveGuestCaptureEmail } from '@/lib/guest-session'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { trackEvent } from '@/lib/track'
@@ -51,6 +52,10 @@ export default function ScrapeCompletionModal({
   viewerEmail,
   onDownload,
   onEmailSent,
+  query,
+  location,
+  visitorType = 'unknown',
+  sessionId,
 }: {
   isOpen: boolean
   onClose: () => void
@@ -60,6 +65,10 @@ export default function ScrapeCompletionModal({
   viewerEmail: string
   onDownload?: () => void
   onEmailSent?: (message: string) => void
+  query?: string
+  location?: string
+  visitorType?: 'anonymous' | 'logged_in' | 'paid' | 'unknown'
+  sessionId?: string | null
 }) {
   const [email, setEmail] = useState('')
   const [showEmailInput, setShowEmailInput] = useState(false)
@@ -102,11 +111,25 @@ export default function ScrapeCompletionModal({
     link.click()
     URL.revokeObjectURL(url)
     void trackEvent('csv_downloaded', { leads_count: addedLeads.length })
+    trackGaEvent('csv_downloaded', {
+      query,
+      location,
+      leads_exported: addedLeads.length,
+      visitor_type: visitorType,
+      session_id: sessionId || undefined,
+    })
     onDownload?.()
   }
 
   async function handleSendEmail() {
     if (!viewerEmail && !showEmailInput) {
+      trackGaEvent('email_export_opened', {
+        query,
+        location,
+        leads_count: addedLeads.length,
+        visitor_type: visitorType,
+        session_id: sessionId || undefined,
+      })
       setShowEmailInput(true)
       return
     }
@@ -159,6 +182,18 @@ export default function ScrapeCompletionModal({
       void trackEvent('email_export_sent', {
         email: targetEmail,
         leads_count: addedLeads.length,
+      })
+      trackGaEvent('email_captured', {
+        capture_location: 'email_export',
+        visitor_type: visitorType,
+        session_id: sessionId || undefined,
+      })
+      trackGaEvent('email_export_sent', {
+        query,
+        location,
+        leads_count: addedLeads.length,
+        visitor_type: visitorType,
+        session_id: sessionId || undefined,
       })
       setResponseMessage('')
       setSuccessMessage(nextMessage)

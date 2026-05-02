@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
+import FreeTrialPlanLink from '@/components/plans/FreeTrialPlanLink'
 import BackToLeadsButton from '@/components/plans/BackToLeadsButton'
 import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
@@ -137,12 +137,13 @@ export default function PlansPage() {
                 Start free with 25 verified leads, or unlock more when you&apos;re ready to move faster.
               </p>
               <div className="mt-8 flex w-full max-w-[34rem] flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
-                <Link
+                <FreeTrialPlanLink
                   href="/dashboard"
+                  ctaLocation="plans_page"
                   className="inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-7 text-base font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(34,211,238,0.6),0_0_55px_rgba(139,92,246,0.45),0_16px_45px_rgba(29,78,216,0.6)] active:scale-[0.97]"
                 >
                   Start Free
-                </Link>
+                </FreeTrialPlanLink>
                 <StartCheckoutButton
                   label="Start Building"
                   source="plans_footer"

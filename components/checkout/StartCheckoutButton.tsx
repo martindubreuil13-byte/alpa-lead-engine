@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 
+import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
+import { isPaid } from '@/lib/auth/access'
+import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
@@ -24,12 +27,21 @@ export default function StartCheckoutButton({
   disabledLabel = label,
 }: StartCheckoutButtonProps) {
   const { user } = useCurrentUser()
+  const { profile } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
   const [emailInput, setEmailInput] = useState(() =>
     String(email || getGuestCaptureEmail()).trim().toLowerCase()
   )
   const [showEmailInput, setShowEmailInput] = useState(false)
   const isAuthenticated = Boolean(user?.id)
+  const visitorType = isPaid(profile) ? 'paid' : isAuthenticated ? 'logged_in' : 'anonymous'
+
+  function getCtaLocation() {
+    if (source === 'scrape_completion') return 'post_trial_modal'
+    if (source === 'plans_featured' || source === 'plans_footer') return 'pricing_page'
+    if (source.includes('pricing')) return 'pricing_teaser'
+    return 'other'
+  }
 
   useEffect(() => {
     if (user?.email) {
@@ -65,6 +77,14 @@ export default function StartCheckoutButton({
         source,
       },
     })
+    trackGaEvent('upgrade_clicked', {
+      plan_name: 'starter',
+      price: 29.99,
+      billing_period: 'monthly',
+      source_page: getSourcePage(),
+      cta_location: getCtaLocation(),
+      visitor_type: visitorType,
+    })
 
     try {
       const res = await fetch('/api/checkout', {
@@ -87,6 +107,12 @@ export default function StartCheckoutButton({
         metadata: {
           source,
         },
+      })
+      trackGaEvent('checkout_started', {
+        plan_name: 'starter',
+        price: 29.99,
+        billing_period: 'monthly',
+        visitor_type: visitorType,
       })
 
       window.location.href = data.url

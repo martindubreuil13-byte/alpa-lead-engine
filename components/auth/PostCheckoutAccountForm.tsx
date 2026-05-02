@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 
+import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { clearGuestTrial, getGuestCaptureEmail, getGuestLeads } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
@@ -87,6 +88,13 @@ export default function PostCheckoutAccountForm() {
           metadata: {
             stripe_session_id: sessionId,
           },
+        })
+        trackGaEvent('subscription_started', {
+          plan_name: 'starter',
+          price: 29.99,
+          billing_period: 'monthly',
+          currency: 'USD',
+          visitor_type: user?.id ? 'logged_in' : 'anonymous',
         })
       }
 

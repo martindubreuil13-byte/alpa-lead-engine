@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import LeadCard from '@/components/leads/LeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
+import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
@@ -299,9 +300,8 @@ export default function Page() {
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [loading, setLoading] = useState(false)
-  const [viewerMode, setViewerMode] = useState<ViewerMode>(() =>
-    isGuestTrialModeForced() ? 'guest_trial' : 'resolving'
-  )
+  const [viewerMode, setViewerMode] = useState<ViewerMode>('resolving')
+  const [analyticsSessionId, setAnalyticsSessionId] = useState<string | null>(null)
   const [guestLeadCount, setGuestLeadCount] = useState(0)
   const [authenticatedLeadCount, setAuthenticatedLeadCount] = useState(0)
   const [viewerEmail, setViewerEmail] = useState('')
@@ -340,11 +340,13 @@ export default function Page() {
   const logDrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const logQueueRef = useRef<string[]>([])
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
+  const trialStartedTrackedRef = useRef(false)
   const runStartUsageRef = useRef(0)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
   const isGuest = viewerMode === 'guest_trial'
   const isAuthenticated = viewerMode === 'authenticated_free' || viewerMode === 'authenticated_paid'
+  const visitorType = isPaid(profile) ? 'paid' : isAuthenticated ? 'logged_in' : isGuest ? 'anonymous' : 'unknown'
   const plan = profile?.plan ?? null
   const resolvedPlan = plan || 'free'
   const isFree = isGuest || plan === 'free'
@@ -354,6 +356,18 @@ export default function Page() {
   const resolvedUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
   const usageState =
     !isPlanLoading ? getUsageState(resolvedUsageCount, resolvedLeadLimit) : 'normal'
+
+  useEffect(() => {
+    if (trialStartedTrackedRef.current) return
+    if (viewerMode === 'resolving') return
+
+    trialStartedTrackedRef.current = true
+    trackGaEvent('free_trial_started', {
+      source_page: getSourcePage(),
+      visitor_type: visitorType,
+      session_id: analyticsSessionId || undefined,
+    })
+  }, [analyticsSessionId, viewerMode, visitorType])
   const usageBlocked = usageState === 'blocked'
   const usageWarning = usageState === 'warning'
   const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
@@ -631,8 +645,10 @@ export default function Page() {
       }
 
       const nextGuestLeadCount = countCountableLeads(getGuestLeads())
+      const nextGuestSessionId = getOrCreateGuestSessionId()
       console.log('USAGE SOURCE: guest localStorage', { count: nextGuestLeadCount })
       setViewerMode('guest_trial')
+      setAnalyticsSessionId(nextGuestSessionId)
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
       setSessionSavedLeads(getGuestLeads())
@@ -648,6 +664,7 @@ export default function Page() {
         localStorageUsage: nextGuestLeadCount,
       })
       setViewerMode('guest_trial')
+      setAnalyticsSessionId(getOrCreateGuestSessionId())
       setViewerEmail('')
       setGuestLeadCount(nextGuestLeadCount)
       setSessionSavedLeads(getGuestLeads())
@@ -684,6 +701,7 @@ export default function Page() {
     console.log('USAGE SOURCE: localStorage(auth)', { count: cachedUsage })
 
     setViewerMode(nextViewerMode)
+    setAnalyticsSessionId(null)
     setViewerEmail(user.email || '')
     setGuestLeadCount(0)
     setSessionSavedLeads(readStoredScrapeResult()?.latestSavedLeads ?? [])
@@ -824,6 +842,13 @@ export default function Page() {
         metadata: {
           target: requestedLeadCount,
         },
+      })
+      trackGaEvent('lead_search_started', {
+        query: payload.query,
+        location: payload.defaultCity,
+        requested_leads: requestedLeadCount,
+        visitor_type: visitorType,
+        session_id: payload.guestSessionId || undefined,
       })
 
       const controller = new AbortController()
@@ -981,6 +1006,22 @@ export default function Page() {
           location: payload.defaultCity,
           leads_count: finalResult.addedCount,
         })
+        trackGaEvent('lead_search_completed', {
+          query: payload.query,
+          location: payload.defaultCity,
+          requested_leads: requestedLeadCount,
+          leads_found: finalResult.addedCount,
+          duration_seconds: elapsed || undefined,
+          visitor_type: visitorType,
+          session_id: payload.guestSessionId || undefined,
+        })
+        trackGaEvent('lead_results_viewed', {
+          query: payload.query,
+          location: payload.defaultCity,
+          leads_found: finalResult.addedCount,
+          visitor_type: visitorType,
+          session_id: payload.guestSessionId || undefined,
+        })
         const sessionLeads = isGuest
           ? mergeGuestLeads(getGuestLeads(), finalResult.addedLeads)
           : finalResult.addedLeads
@@ -1064,6 +1105,13 @@ export default function Page() {
     link.click()
     URL.revokeObjectURL(link.href)
     void trackEvent('csv_downloaded', { leads_count: previewLeads.length })
+    trackGaEvent('csv_downloaded', {
+      query: businessType.trim(),
+      location: locationTarget,
+      leads_exported: previewLeads.length,
+      visitor_type: visitorType,
+      session_id: analyticsSessionId || undefined,
+    })
   }
 
   async function addPreviewLeadToPipeline(id: string) {
@@ -1517,6 +1565,10 @@ export default function Page() {
         detailLine={completionResult?.detailLine || ''}
         addedLeads={sessionSavedLeads}
         viewerEmail={viewerEmail}
+        query={businessType.trim()}
+        location={locationTarget}
+        visitorType={visitorType}
+        sessionId={analyticsSessionId}
         onDownload={() => setToastMessage('Want a copy in your inbox?')}
         onEmailSent={(message) => setToastMessage(message)}
       />
@@ -1548,6 +1600,10 @@ export default function Page() {
         viewerEmail={viewerEmail}
         leads={sessionSavedLeads}
         summaryLine={completionResult?.summaryLine || `${sessionSavedLeads.length} leads ready from your ALPA session`}
+        query={businessType.trim()}
+        location={locationTarget}
+        visitorType={visitorType}
+        sessionId={analyticsSessionId}
         onSent={(message) => {
           setShowSendLeadsModal(false)
           setToastMessage(message)

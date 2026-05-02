@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
@@ -111,6 +112,7 @@ export default function LeadsPageClient({
   const emailLocked = isFree
   const limitedMode = isGuest || (!profileLoading && !isAdmin(profile) && !isPaid(profile))
   const isAdminUser = !profileLoading && isAdmin(profile)
+  const visitorType = isPaid(profile) ? 'paid' : user?.id ? 'logged_in' : 'anonymous'
 
   useEffect(() => {
     if (userLoading) return
@@ -294,6 +296,10 @@ export default function LeadsPageClient({
     link.click()
     URL.revokeObjectURL(url)
     void trackEvent('csv_downloaded', { leads_count: leads.length })
+    trackGaEvent('csv_downloaded', {
+      leads_exported: leads.length,
+      visitor_type: visitorType,
+    })
   }
 
   function exportCsv() {
@@ -314,6 +320,10 @@ export default function LeadsPageClient({
     link.click()
     URL.revokeObjectURL(url)
     void trackEvent('csv_downloaded', { leads_count: exportLeads.length })
+    trackGaEvent('csv_downloaded', {
+      leads_exported: exportLeads.length,
+      visitor_type: visitorType,
+    })
   }
 
   async function copySelectedLeads() {
@@ -687,6 +697,7 @@ export default function LeadsPageClient({
         viewerEmail=""
         leads={leads}
         summaryLine={`${leads.length} leads ready from your ALPA trial`}
+        visitorType={visitorType}
       />
     </>
   )

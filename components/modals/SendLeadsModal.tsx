@@ -3,6 +3,7 @@
 import { Mail, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { saveGuestCaptureEmail } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
 import type { TrialLead } from '@/lib/trial'
@@ -14,6 +15,10 @@ export default function SendLeadsModal({
   leads,
   summaryLine,
   onSent,
+  query,
+  location,
+  visitorType = 'unknown',
+  sessionId,
 }: {
   isOpen: boolean
   onClose: () => void
@@ -21,6 +26,10 @@ export default function SendLeadsModal({
   leads: TrialLead[]
   summaryLine: string
   onSent?: (message: string) => void
+  query?: string
+  location?: string
+  visitorType?: 'anonymous' | 'logged_in' | 'paid' | 'unknown'
+  sessionId?: string | null
 }) {
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
@@ -38,10 +47,18 @@ export default function SendLeadsModal({
       setEntered(true)
     }, 30)
 
+    trackGaEvent('email_export_opened', {
+      query,
+      location,
+      leads_count: leads.length,
+      visitor_type: visitorType,
+      session_id: sessionId || undefined,
+    })
+
     return () => {
       window.clearTimeout(timeout)
     }
-  }, [isOpen, viewerEmail])
+  }, [isOpen, leads.length, location, query, sessionId, viewerEmail, visitorType])
 
   async function handleSend() {
     const targetEmail = (viewerEmail || email).trim()
@@ -87,6 +104,18 @@ export default function SendLeadsModal({
       void trackEvent('email_export_sent', {
         email: targetEmail,
         leads_count: leads.length,
+      })
+      trackGaEvent('email_captured', {
+        capture_location: 'email_export',
+        visitor_type: visitorType,
+        session_id: sessionId || undefined,
+      })
+      trackGaEvent('email_export_sent', {
+        query,
+        location,
+        leads_count: leads.length,
+        visitor_type: visitorType,
+        session_id: sessionId || undefined,
       })
       onSent?.('Email sent. It may take a few minutes to arrive.')
       onClose()
