@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Archive, CheckCircle2, RotateCcw, Send } from 'lucide-react'
+import { Archive, CheckCircle2, Search, RotateCcw, Send, X } from 'lucide-react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
@@ -15,21 +15,39 @@ import { getGuestLeads } from '@/lib/guest-session'
 import {
   ACTIVE_PIPELINE_STAGES,
   addDaysIso,
+  canSendFollowup,
   getLegacyStatusForPipelineStage,
   getPipelineLifecycleStatus,
+  isReadyForFollowup,
   type Lead,
   type PipelineStage,
   type SendMode,
 } from '@/lib/pipeline/lifecycle'
+import {
+  filterPipelineLeads,
+  sortPipelineLeads,
+  type PipelineSortMode,
+} from '@/lib/pipeline/retrieval'
 import { supabase } from '@/lib/supabase'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 import { cn } from '@/lib/utils'
 
 type CloseReason = 'no_answer' | 'not_interested' | 'wrong_contact' | 'bounce' | 'other'
 const FOLLOWUP_WAIT_DAYS = 5
+const PIPELINE_SORT_OPTIONS: Array<{ value: PipelineSortMode; label: string }> = [
+  { value: 'recent_activity', label: 'Recent Activity' },
+  { value: 'recently_added', label: 'Recently added' },
+  { value: 'needs_attention', label: 'Needs attention' },
+  { value: 'oldest_waiting', label: 'Oldest waiting' },
+  { value: 'az', label: 'A-Z' },
+]
 
 const PIPELINE_ACTIVE_STATUS_FILTER =
-  'status.in.(pipeline,contacted,followup_due,followup_sent,interested),pipeline_stage.in.(ready,contacted,followup,final_attempt)'
+  'status.in.(pipeline,contacted,followup_due,followup_sent,interested),pipeline_stage.in.(ready,contacted,followup,ready_followup,final_attempt)'
+const PIPELINE_LEAD_SELECT =
+  'id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at, date_added, status_updated_at, last_activity_at'
+const LEGACY_PIPELINE_LEAD_SELECT =
+  'id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at, date_added'
 
 const CLOSE_REASON_OPTIONS: Array<{ value: CloseReason; label: string }> = [
   { value: 'no_answer', label: 'No Answer' },
@@ -56,6 +74,8 @@ export default function PipelinePage() {
   const [closing, setClosing] = useState(false)
   const [bulkClosing, setBulkClosing] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortMode, setSortMode] = useState<PipelineSortMode>('recent_activity')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
 
   useEffect(() => {
@@ -67,6 +87,7 @@ export default function PipelinePage() {
         ...lead,
         status: 'pipeline',
         pipeline_stage: 'ready',
+        last_activity_at: lead.last_activity_at || lead.status_updated_at || lead.created_at,
       }))
       setLeads(guestLeads as Lead[])
       setLoading(false)
@@ -81,16 +102,19 @@ export default function PipelinePage() {
     setSelected((prev) => prev.filter((id) => visibleIds.has(id)))
   }, [leads])
 
+  const visibleLeads = useMemo(() => {
+    return sortPipelineLeads(filterPipelineLeads(leads, searchQuery), sortMode)
+  }, [leads, searchQuery, sortMode])
   const activeStages = ACTIVE_PIPELINE_STAGES
   const stageMap = useMemo(() => {
     return activeStages.reduce<Record<PipelineStage, Lead[]>>(
       (accumulator, stage) => {
-        accumulator[stage.key] = leads.filter((lead) => getPipelineLifecycleStatus(lead) === stage.key)
+        accumulator[stage.key] = visibleLeads.filter((lead) => getPipelineLifecycleStatus(lead) === stage.key)
         return accumulator
       },
       { ready: [], contacted: [], ready_followup: [], final_attempt: [], closed: [] }
     )
-  }, [activeStages, leads])
+  }, [activeStages, visibleLeads])
 
   const leadsById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads])
   const selectedIdSet = useMemo(() => new Set(selected), [selected])
@@ -100,11 +124,12 @@ export default function PipelinePage() {
     [selected, leadsById]
   )
   const initialSendable = selectedLeads.filter((lead) => getPipelineLifecycleStatus(lead) === 'ready' && Boolean(lead.email))
-  const followupSendable = selectedLeads.filter((lead) => getPipelineLifecycleStatus(lead) === 'ready_followup' && Boolean(lead.email))
+  const followupSendable = selectedLeads.filter((lead) => canSendFollowup(lead) && Boolean(lead.email))
+  const earlyFollowupSelectedCount = followupSendable.filter((lead) => !isReadyForFollowup(lead)).length
   const closableSelected = selectedLeads.filter((lead) => getPipelineLifecycleStatus(lead) !== 'closed')
 
   const summary = {
-    total: leads.length,
+    total: visibleLeads.length,
     ready: stageMap.ready.length,
     waiting: stageMap.contacted.length,
     readyFollowup: stageMap.ready_followup.length,
@@ -130,6 +155,7 @@ export default function PipelinePage() {
           ...lead,
           status: 'pipeline',
           pipeline_stage: 'ready',
+          last_activity_at: lead.last_activity_at || lead.status_updated_at || lead.created_at,
         })) as Lead[]
       )
       setLoading(false)
@@ -138,16 +164,33 @@ export default function PipelinePage() {
 
     setIsGuest(false)
 
-    const { data, error } = await supabase
+    const query = supabase
       .from('leads')
-      .select(
-        'id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at'
-      )
+      .select(PIPELINE_LEAD_SELECT)
       .eq('user_id', user.id)
       .or(PIPELINE_ACTIVE_STATUS_FILTER)
+      .order('last_activity_at', { ascending: false, nullsFirst: false })
+      .order('date_added', { ascending: false, nullsFirst: false })
+
+    const result = await query
+    let data = result.data as Lead[] | null
+    let error = result.error
+
+    if (error && isMissingColumnError(error)) {
+      console.warn('Retrying pipeline fetch without optional lifecycle activity fields:', formatSupabaseError(error))
+      const fallback = await supabase
+        .from('leads')
+        .select(LEGACY_PIPELINE_LEAD_SELECT)
+        .eq('user_id', user.id)
+        .or(PIPELINE_ACTIVE_STATUS_FILTER)
+        .order('date_added', { ascending: false, nullsFirst: false })
+
+      data = fallback.data as Lead[] | null
+      error = fallback.error
+    }
 
     if (error) {
-      console.error('Error fetching leads:', error)
+      console.error('Error fetching leads:', formatSupabaseError(error))
       setStatusMessage('Could not load lifecycle fields. Check that the latest Supabase migration has run.')
       setLoading(false)
       return
@@ -155,6 +198,21 @@ export default function PipelinePage() {
 
     setLeads(((data || []) as Lead[]).filter((lead) => getPipelineLifecycleStatus(lead) !== 'closed'))
     setLoading(false)
+  }
+
+  function formatSupabaseError(error: any) {
+    return {
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      code: error?.code,
+      raw: error,
+    }
+  }
+
+  function isMissingColumnError(error: any) {
+    const message = String(error?.message || '').toLowerCase()
+    return error?.code === '42703' || message.includes('last_activity_at') || message.includes('status_updated_at')
   }
 
   const toggleSelect = useCallback((id: string) => {
@@ -224,6 +282,7 @@ export default function PipelinePage() {
               outreach_attempts: (lead.outreach_attempts || 0) + 1,
               next_action_status: 'waiting_followup',
               status_updated_at: now,
+              last_activity_at: now,
             }
           : {
               status: getLegacyStatusForPipelineStage('final_attempt'),
@@ -234,9 +293,10 @@ export default function PipelinePage() {
               outreach_attempts: (lead.outreach_attempts || 0) + 1,
               next_action_status: 'final_attempt_sent',
               status_updated_at: now,
+              last_activity_at: now,
             }
 
-      const { error } = await supabase.from('leads').update(payload).eq('id', lead.id).eq('user_id', user.id)
+      const { error } = await updateLeadLifecycle(lead.id, payload)
       if (error) throw error
       return { id: lead.id, payload }
     })
@@ -271,14 +331,34 @@ export default function PipelinePage() {
       closed_at: now,
       next_action_status: 'closed',
       status_updated_at: now,
+      last_activity_at: now,
     }
 
-    const { error } = await supabase.from('leads').update(payload).in('id', ids).eq('user_id', user.id)
+    const { error } = await updateLeadLifecycle(ids, payload)
     if (error) throw error
 
     setLeads((prev) => prev.filter((lead) => !ids.includes(lead.id)))
     setSelected((prev) => prev.filter((id) => !ids.includes(id)))
     setSelectedLeadId((prev) => (prev && ids.includes(prev) ? null : prev))
+  }
+
+  async function updateLeadLifecycle(ids: string | string[], payload: Record<string, unknown>) {
+    if (!user?.id) return { error: new Error('Missing authenticated user') }
+
+    const applyUpdate = (nextPayload: Record<string, unknown>) => {
+      const query = supabase.from('leads').update(nextPayload)
+      const scopedQuery = Array.isArray(ids) ? query.in('id', ids) : query.eq('id', ids)
+      return scopedQuery.eq('user_id', user.id)
+    }
+
+    const result = await applyUpdate(payload)
+    if (!result.error || !isMissingColumnError(result.error)) return result
+
+    const fallbackPayload = { ...payload }
+    delete fallbackPayload.last_activity_at
+    delete fallbackPayload.status_updated_at
+    console.warn('Retrying lifecycle update without optional activity fields:', formatSupabaseError(result.error))
+    return applyUpdate(fallbackPayload)
   }
 
   async function closeSelectedLeads() {
@@ -391,13 +471,61 @@ export default function PipelinePage() {
           </div>
         </section>
 
+        <section className="rounded-2xl border border-white/[0.07] bg-white/[0.028] p-2.5 shadow-[0_16px_42px_rgba(2,8,23,0.18)] backdrop-blur-xl">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="group relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition group-focus-within:text-blue-200" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search leads..."
+                className="h-11 w-full rounded-xl border border-white/[0.08] bg-slate-950/46 pl-9 pr-10 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-300/24 focus:bg-slate-950/62 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.08)]"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/[0.06] hover:text-slate-200"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="relative sm:w-[190px]">
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as PipelineSortMode)}
+                className="h-11 w-full appearance-none rounded-xl border border-white/[0.08] bg-slate-950/46 px-3 pr-9 text-sm font-medium text-slate-100 outline-none transition focus:border-blue-300/24 focus:bg-slate-950/62 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.08)]"
+                aria-label="Sort pipeline"
+              >
+                {PIPELINE_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                ▼
+              </span>
+            </div>
+          </div>
+        </section>
+
         <section className="glass sticky top-3 z-20 p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="text-sm font-medium text-white">{selected.length} selected</div>
               <div className="mt-1 text-xs text-slate-400">
-                {initialSendable.length} initial-ready · {followupSendable.length} follow-up-ready · {closableSelected.length} closable
+                {initialSendable.length} initial-ready · {followupSendable.length} follow-up eligible · {closableSelected.length} closable
               </div>
+              {earlyFollowupSelectedCount > 0 ? (
+                <div className="mt-1 text-xs text-slate-500">
+                  {earlyFollowupSelectedCount} selected earlier than recommended cadence.
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-4 lg:flex">

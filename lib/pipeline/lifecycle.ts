@@ -18,6 +18,11 @@ export type Lead = {
   outreach_attempts?: number | null
   next_action_status?: string | null
   closed_at?: string | null
+  created_at?: string | null
+  date_added?: string | null
+  updated_at?: string | null
+  status_updated_at?: string | null
+  last_activity_at?: string | null
 }
 
 export type PipelineStage = 'ready' | 'contacted' | 'ready_followup' | 'final_attempt' | 'closed'
@@ -65,7 +70,14 @@ export function normalizeBaseStage(lead: Lead): Exclude<PipelineStage, 'ready_fo
   if (lead.pipeline_stage === 'final_attempt' || lead.status === 'followup_sent' || lead.followup_sent_at || lead.next_action_status === 'final_attempt_sent') {
     return 'final_attempt'
   }
-  if (lead.pipeline_stage === 'contacted' || lead.pipeline_stage === 'followup' || lead.first_contact_at || lead.status === 'contacted' || lead.status === 'followup_due') {
+  if (
+    lead.pipeline_stage === 'contacted' ||
+    lead.pipeline_stage === 'followup' ||
+    lead.pipeline_stage === 'ready_followup' ||
+    lead.first_contact_at ||
+    lead.status === 'contacted' ||
+    lead.status === 'followup_due'
+  ) {
     return 'contacted'
   }
   return 'ready'
@@ -76,8 +88,19 @@ export function isReadyForFollowup(lead: Lead) {
     return false
   }
 
+  const dueAt = lead.followup_due_at ? new Date(lead.followup_due_at).getTime() : Number.NaN
+
+  if (!Number.isNaN(dueAt)) {
+    return dueAt <= Date.now()
+  }
+
   const days = getDaysSince(lead.first_contact_at)
   return days !== null && days >= FOLLOWUP_WAIT_DAYS
+}
+
+export function canSendFollowup(lead: Lead) {
+  const baseStage = normalizeBaseStage(lead)
+  return baseStage === 'contacted' || baseStage === 'final_attempt'
 }
 
 export function getPipelineLifecycleStatus(lead: Lead): PipelineStage {

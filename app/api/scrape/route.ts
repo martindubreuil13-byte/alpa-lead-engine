@@ -142,6 +142,7 @@ type LeadInsertPayload = {
   email_source: string | null
   is_generic_email: boolean
   cost_estimate: number
+  last_activity_at?: string
 }
 
 function roundCostEstimate(value: number) {
@@ -561,6 +562,7 @@ function buildLeadInsertPayload(lead: DiscoveryLead, userId: string): LeadInsert
     email_source: lead.email_source || lead.website || 'scraper',
     is_generic_email: lead.is_generic_email ?? false,
     cost_estimate: lead.cost_estimate ?? 0,
+    last_activity_at: new Date().toISOString(),
   }
 
   if (!payload.source) payload.source = 'serper'
@@ -867,15 +869,25 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
     email_confidence: basePayload.email_confidence || 'low',
     is_generic_email: basePayload.is_generic_email ?? false,
     cost_estimate: basePayload.cost_estimate ?? 0,
+    last_activity_at: basePayload.last_activity_at,
   }
 
   console.log('INSERT PAYLOAD:', payload)
   console.log('FINAL CLEAN PAYLOAD:', JSON.stringify(payload, null, 2))
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('leads')
     .insert(payload)
     .select()
+
+  if (error && isMissingOptionalActivityColumn(error)) {
+    const legacyPayload = { ...payload }
+    delete legacyPayload.last_activity_at
+    ;({ data, error } = await supabase
+      .from('leads')
+      .insert(legacyPayload)
+      .select())
+  }
 
   if (error) {
     console.error('DB ERROR:', JSON.stringify(error, null, 2))
@@ -907,6 +919,11 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
   console.log('DB INSERT OK:', data[0]?.id || payload.company_name)
 
   return { ok: true, reason: 'saved', id: data[0].id } satisfies SaveLeadResult
+}
+
+function isMissingOptionalActivityColumn(error: any) {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.code === '42703' || message.includes('last_activity_at')
 }
 
 async function enrichLeadQueue(

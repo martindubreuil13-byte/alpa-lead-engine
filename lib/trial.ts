@@ -21,4 +21,8 @@ export type TrialLead = {
   source: string | null
   cost_estimate: number | null
   created_at: string
+  date_added?: string | null
+  updated_at?: string | null
+  status_updated_at?: string | null
+  last_activity_at?: string | null
 }

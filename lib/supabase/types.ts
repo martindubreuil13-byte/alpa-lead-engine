@@ -138,6 +138,8 @@ export interface Database {
           outreach_attempts: number;
           next_action_status: string | null;
           closed_at: string | null;
+          last_activity_at: string | null;
+          status_updated_at: string | null;
           archived_reason: string | null;
           mission_id: string | null;
           run_id: string | null;
@@ -171,6 +173,8 @@ export interface Database {
           outreach_attempts?: number;
           next_action_status?: string | null;
           closed_at?: string | null;
+          last_activity_at?: string | null;
+          status_updated_at?: string | null;
           archived_reason?: string | null;
           mission_id?: string | null;
           run_id?: string | null;

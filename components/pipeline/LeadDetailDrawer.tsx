@@ -4,11 +4,13 @@ import { useEffect } from 'react'
 import { Archive, ExternalLink, Mail, Phone, RotateCcw, Send, X } from 'lucide-react'
 
 import {
+  canSendFollowup as canSendFollowupForLead,
   formatDate,
   getDaysSince,
   getDrawerNextActionLabel,
   getPipelineLifecycleStatus,
   getUrgencyTone,
+  isReadyForFollowup,
   normalizeBaseStage,
   normalizeUrl,
   type Lead,
@@ -50,7 +52,9 @@ export default function LeadDetailDrawer({
   const website = normalizeUrl(lead.website)
   const days = getDaysSince(lead.first_contact_at)
   const canSendInitial = stage === 'ready' && Boolean(lead.email)
-  const canSendFollowup = stage === 'ready_followup' && Boolean(lead.email)
+  const canSendFollowup = canSendFollowupForLead(lead) && Boolean(lead.email)
+  const followupRecommended = isReadyForFollowup(lead)
+  const followupHelper = getFollowupHelper(lead, followupRecommended)
   const canClose = stage !== 'closed'
 
   return (
@@ -165,8 +169,13 @@ export default function LeadDetailDrawer({
               className={actionClass(!canSendFollowup, 'secondary')}
             >
               <RotateCcw className="h-4 w-4" />
-              Send follow-up
+              {followupRecommended ? 'Send follow-up' : 'Follow up early'}
             </button>
+            {followupHelper ? (
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-500">
+                {followupHelper}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => onMoveClosed(lead)}
@@ -205,6 +214,19 @@ function actionClass(disabled: boolean, variant: 'primary' | 'secondary' | 'quie
           ? 'border-amber-300/18 bg-amber-500/10 text-amber-100 hover:bg-amber-500/14'
           : 'border-white/10 bg-white/[0.045] text-slate-200 hover:bg-white/[0.08]'
   )
+}
+
+function getFollowupHelper(lead: Lead, recommended: boolean) {
+  if (!canSendFollowupForLead(lead)) return null
+  const stage = getPipelineLifecycleStatus(lead)
+  if (stage === 'final_attempt') return 'Manual retry is available if this lead still deserves another touch.'
+  if (recommended) return 'System-recommended follow-up is ready.'
+
+  const dueAt = lead.followup_due_at ? new Date(lead.followup_due_at).getTime() : Number.NaN
+  if (Number.isNaN(dueAt)) return 'You can follow up manually when the timing makes sense.'
+
+  const remainingDays = Math.max(1, Math.ceil((dueAt - Date.now()) / 86_400_000))
+  return `Recommended follow-up in ${remainingDays} day${remainingDays === 1 ? '' : 's'}. You can follow up early manually.`
 }
 
 function SectionTitle({ children }: { children: string }) {

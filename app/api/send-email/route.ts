@@ -302,6 +302,17 @@ export async function POST(req: Request) {
 
           if (typeof incrementedCount === 'number') {
             newCount = incrementedCount
+          } else {
+            newCount = currentUsage.sent + 1
+          }
+
+          if (process.env.NODE_ENV === 'development') {
+            console.debug('[email-usage] incremented after successful send', {
+              userId,
+              previousSent: currentUsage.sent,
+              nextSent: newCount,
+              remaining: buildUsageSnapshot(newCount).remaining,
+            })
           }
         }
       } catch (dbError) {

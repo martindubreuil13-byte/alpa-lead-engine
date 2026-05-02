@@ -213,6 +213,34 @@ ${signature}
   `
 }
 
+function getUsageTone(usage: EmailUsageSnapshot | null) {
+  if (!usage) {
+    return {
+      cardClass: 'border-white/10 bg-white/[0.04]',
+      primaryTextClass: 'text-white',
+    }
+  }
+
+  if (usage.remaining <= 5) {
+    return {
+      cardClass: 'border-red-300/18 bg-red-500/[0.045]',
+      primaryTextClass: 'text-red-50',
+    }
+  }
+
+  if (usage.remaining <= DAILY_LIMIT_WARNING_THRESHOLD) {
+    return {
+      cardClass: 'border-amber-300/18 bg-amber-500/[0.045]',
+      primaryTextClass: 'text-amber-50',
+    }
+  }
+
+  return {
+    cardClass: 'border-blue-300/12 bg-blue-500/[0.035]',
+    primaryTextClass: 'text-blue-50',
+  }
+}
+
 export default function SendCampaignModal({
   isOpen,
   onClose,
@@ -293,24 +321,34 @@ export default function SendCampaignModal({
     emailUsage !== null &&
     emailUsage.remaining > 0 &&
     emailUsage.remaining <= DAILY_LIMIT_WARNING_THRESHOLD
+  const dailyLimitReached = Boolean(emailUsage && emailUsage.remaining <= 0)
+  const usageTone = getUsageTone(emailUsage)
 
   function applySuccessfulSendUsage(usage: EmailUsageSnapshot | undefined, sentDelta: number) {
-    if (usage) {
-      setEmailUsage(usage)
-      return
-    }
-
     if (sentDelta <= 0) return
 
     setEmailUsage((current) => {
-      if (!current) return current
+      if (!current) return usage ?? current
 
-      const nextSent = Math.min(current.sent + sentDelta, current.limit)
-      return {
-        ...current,
+      const limit = usage?.limit ?? current.limit
+      const locallyExpectedSent = current.sent + sentDelta
+      const nextSent = Math.min(Math.max(usage?.sent ?? 0, locallyExpectedSent), limit)
+      const nextSnapshot = {
+        limit,
         sent: nextSent,
-        remaining: Math.max(current.limit - nextSent, 0),
+        remaining: Math.max(limit - nextSent, 0),
       }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[email-usage] successful send usage update', {
+          sentDelta,
+          serverUsage: usage,
+          previousUsage: current,
+          nextUsage: nextSnapshot,
+        })
+      }
+
+      return nextSnapshot
     })
   }
 
@@ -341,7 +379,7 @@ export default function SendCampaignModal({
     }
   }, [currentUserIdentity, previewLead, safeTemplate, senderProfile, senderSettings, testEmail, modalSelectedIds])
 
-  async function fetchEmailUsage() {
+  async function fetchEmailUsage(options: { preserveOptimistic?: boolean } = {}) {
     try {
       const response = await fetch('/api/send-email', {
         cache: 'no-store',
@@ -349,7 +387,15 @@ export default function SendCampaignModal({
       const result = await response.json().catch(() => null)
 
       if (response.ok && result?.usage) {
-        setEmailUsage(result.usage as EmailUsageSnapshot)
+        const nextUsage = result.usage as EmailUsageSnapshot
+        if (!options.preserveOptimistic) {
+          setEmailUsage(nextUsage)
+        } else {
+          setEmailUsage((current) => {
+            if (!current) return nextUsage
+            return nextUsage.sent >= current.sent ? nextUsage : current
+          })
+        }
       }
     } catch (error) {
       console.error('Email usage fetch failed:', error)
@@ -549,6 +595,15 @@ export default function SendCampaignModal({
   }
 
   async function sendCampaign() {
+    if (!sendAsTest && dailyLimitReached) {
+      setSendStatus({
+        type: 'error',
+        title: 'Daily outreach limit reached',
+        message: 'You can keep reviewing leads and planning outreach. Real sends resume tomorrow.',
+      })
+      return
+    }
+
     if (!sendAsTest && selectedIds.length === 0) {
       setSendStatus({
         type: 'error',
@@ -589,6 +644,7 @@ export default function SendCampaignModal({
       skipped = 0,
       lastError = ''
     const sentLeadIds: string[] = []
+    let remainingBudget = sendAsTest ? Number.POSITIVE_INFINITY : emailUsage?.remaining ?? Number.POSITIVE_INFINITY
 
     try {
       console.log('MODAL IDS:', modalSelectedIds)
@@ -620,10 +676,15 @@ export default function SendCampaignModal({
       }
 
       for (const lead of leadsToSend) {
+        if (!sendAsTest && remainingBudget <= 0) {
+          lastError = 'Daily outreach limit reached'
+          break
+        }
+
         setSendStatus({
           type: 'info',
           title: 'Sending emails...',
-          message: `Processed ${sent + failed + skipped} of ${leadsToSend.length}. Sent ${sent}, skipped ${skipped}, failed ${failed}.`,
+          message: `Processed ${sent + failed + skipped} of ${leadsToSend.length}. Sent ${sent}, skipped ${skipped}, failed ${failed}.${Number.isFinite(remainingBudget) ? ` ${remainingBudget} left today.` : ''}`,
         })
 
         if (!sendAsTest && !lead.email?.trim()) {
@@ -643,6 +704,10 @@ export default function SendCampaignModal({
         if (result.ok) {
           if (!sendAsTest) {
             applySuccessfulSendUsage(result.usage, 1)
+            remainingBudget = Math.max(
+              (result.usage?.remaining ?? remainingBudget - 1),
+              0
+            )
           } else if (result.usage) {
             setEmailUsage(result.usage)
           }
@@ -658,6 +723,14 @@ export default function SendCampaignModal({
 
         if (result.usage) {
           setEmailUsage(result.usage)
+          if (!sendAsTest) {
+            remainingBudget = result.usage.remaining
+          }
+        }
+
+        if (result.error === 'DAILY_LIMIT_REACHED') {
+          lastError = 'Daily outreach limit reached'
+          break
         }
 
         console.error('Campaign email failed:', result.error, {
@@ -673,12 +746,12 @@ export default function SendCampaignModal({
         await onSent(sentLeadIds)
       }
 
-      await fetchEmailUsage()
+      await fetchEmailUsage({ preserveOptimistic: true })
 
       setSendStatus({
         type: failed > 0 ? 'error' : 'success',
-        title: 'Campaign Complete',
-        message: `Sent ${sent} email(s). Skipped ${skipped}. Failed ${failed}.${failed > 0 ? ' You can retry failed leads.' : ''}${failed > 0 && lastError ? ` Last error: ${lastError}` : ''}`,
+        title: remainingBudget <= 0 && !sendAsTest ? 'Daily outreach limit reached' : 'Campaign Complete',
+        message: `Sent ${sent} email(s). Skipped ${skipped}. Failed ${failed}.${remainingBudget <= 0 && !sendAsTest ? ' Daily outreach limit reached.' : ''}${failed > 0 ? ' You can retry failed leads.' : ''}${failed > 0 && lastError ? ` Last error: ${lastError}` : ''}`,
       })
     } catch (error) {
       console.error('Campaign email failed:', error)
@@ -847,21 +920,30 @@ export default function SendCampaignModal({
           ) : currentUserIdentity ? (
             <div className="space-y-4">
               {emailUsage ? (
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                <div className={`rounded-[24px] border p-4 ${usageTone.cardClass}`}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                         Daily sending
                       </div>
-                      <div className="mt-2 text-base font-medium text-white">
-                        {emailUsage.sent} / {emailUsage.limit} emails sent today
+                      <div className={`mt-2 text-lg font-semibold ${usageTone.primaryTextClass}`}>
+                        {emailUsage.remaining} email{emailUsage.remaining === 1 ? '' : 's'} left today
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {emailUsage.sent} sent today
                       </div>
                     </div>
 
                     <div className="text-sm text-slate-400">
-                      {emailUsage.remaining} remaining today
+                      {emailUsage.limit} daily limit
                     </div>
                   </div>
+
+                  {dailyLimitReached ? (
+                    <div className="mt-3 rounded-2xl border border-red-300/18 bg-red-500/8 px-3 py-3 text-sm text-red-100">
+                      Daily outreach limit reached
+                    </div>
+                  ) : null}
 
                   {isNearDailyLimit ? (
                     <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm text-amber-50">
@@ -1043,7 +1125,8 @@ export default function SendCampaignModal({
               const canSend =
                 !!currentUserIdentity?.email &&
                 !!selectedTemplateId &&
-                (sendAsTest || modalSelectedIds.length > 0)
+                (sendAsTest || modalSelectedIds.length > 0) &&
+                (sendAsTest || !dailyLimitReached)
 
               return (
                 <button
@@ -1056,7 +1139,7 @@ export default function SendCampaignModal({
                       : 'btn-primary'
                   }`}
                 >
-                  {loading ? 'Sending emails...' : 'Send emails'}
+                  {loading ? 'Sending emails...' : dailyLimitReached && !sendAsTest ? 'Daily limit reached' : 'Send emails'}
                 </button>
               )
             })()}
