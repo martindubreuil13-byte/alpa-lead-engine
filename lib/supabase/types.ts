@@ -56,14 +56,14 @@ export interface Database {
       email_usage: {
         Row: {
           user_id: string;
-          usage_date: string;
+          date: string;
           emails_sent: number;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           user_id: string;
-          usage_date: string;
+          date: string;
           emails_sent?: number;
           created_at?: string;
           updated_at?: string;
@@ -635,7 +635,7 @@ export interface Database {
         };
         Returns: {
           user_id: string;
-          usage_date: string;
+          date: string;
           emails_sent: number;
           created_at: string;
           updated_at: string;

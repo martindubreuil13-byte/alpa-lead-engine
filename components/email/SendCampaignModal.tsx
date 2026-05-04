@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
 import {
+  DAILY_EMAIL_LIMIT,
   DAILY_LIMIT_WARNING_THRESHOLD,
   getEmailLimitFeedback,
   type EmailUsageSnapshot,
@@ -13,6 +14,7 @@ import { canAccessFeature } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { supabase } from '@/lib/supabase'
+import { getBrowserTimeZone } from '@/lib/timezone'
 
 type Template = {
   id: string
@@ -241,6 +243,35 @@ function getUsageTone(usage: EmailUsageSnapshot | null) {
   }
 }
 
+function getClientUsageDate(timeZone = getBrowserTimeZone(), now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  return `${year}-${month}-${day}`
+}
+
+function normalizeUsageSnapshot(usage: EmailUsageSnapshot): EmailUsageSnapshot {
+  const limit = Number.isFinite(usage.limit) ? usage.limit : DAILY_EMAIL_LIMIT
+  const sent = Math.min(Math.max(Number.isFinite(usage.sent) ? usage.sent : 0, 0), limit)
+  const timeZone = usage.timeZone || getBrowserTimeZone()
+  const date = usage.date || getClientUsageDate(timeZone)
+
+  return {
+    sent,
+    limit,
+    remaining: Math.max(limit - sent, 0),
+    date,
+    timeZone,
+  }
+}
+
 export default function SendCampaignModal({
   isOpen,
   onClose,
@@ -274,6 +305,7 @@ export default function SendCampaignModal({
   const [sendStatus, setSendStatus] = useState<SendStatus | null>(null)
   const [emailUsage, setEmailUsage] = useState<EmailUsageSnapshot | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('details')
+  const usageAuthorityRef = useRef<EmailUsageSnapshot | null>(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -324,32 +356,66 @@ export default function SendCampaignModal({
   const dailyLimitReached = Boolean(emailUsage && emailUsage.remaining <= 0)
   const usageTone = getUsageTone(emailUsage)
 
-  function applySuccessfulSendUsage(usage: EmailUsageSnapshot | undefined, sentDelta: number) {
-    if (sentDelta <= 0) return
+  function commitEmailUsage(usage: EmailUsageSnapshot, source: string) {
+    const incoming = normalizeUsageSnapshot(usage)
+    const authoritative = usageAuthorityRef.current
+    let reconciled = incoming
 
-    setEmailUsage((current) => {
-      if (!current) return usage ?? current
+    if (authoritative && authoritative.date === incoming.date) {
+      const limit = incoming.limit || authoritative.limit
+      const sent = Math.min(Math.max(authoritative.sent, incoming.sent), limit)
 
-      const limit = usage?.limit ?? current.limit
-      const locallyExpectedSent = current.sent + sentDelta
-      const nextSent = Math.min(Math.max(usage?.sent ?? 0, locallyExpectedSent), limit)
-      const nextSnapshot = {
+      reconciled = {
+        sent,
         limit,
+        remaining: Math.max(limit - sent, 0),
+        date: incoming.date,
+        timeZone: incoming.timeZone,
+      }
+    }
+
+    usageAuthorityRef.current = reconciled
+    setEmailUsage(reconciled)
+
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[email-usage] reconciled usage snapshot', {
+        source,
+        timeZone: reconciled.timeZone,
+        date: reconciled.date,
+        fetchedSent: incoming.sent,
+        localOptimisticSent: authoritative?.sent ?? null,
+        reconciledSent: reconciled.sent,
+        remaining: reconciled.remaining,
+      })
+    }
+
+    return reconciled
+  }
+
+  function applySuccessfulSendUsage(usage: EmailUsageSnapshot | undefined, sentDelta: number) {
+    if (sentDelta <= 0) return usageAuthorityRef.current ?? emailUsage
+
+    const baseUsage = usageAuthorityRef.current ?? emailUsage ?? usage
+    const normalizedBase = baseUsage ? normalizeUsageSnapshot(baseUsage) : null
+    const normalizedServer = usage ? normalizeUsageSnapshot(usage) : null
+    const limit = normalizedServer?.limit ?? normalizedBase?.limit ?? DAILY_EMAIL_LIMIT
+    const timeZone = normalizedServer?.timeZone ?? normalizedBase?.timeZone ?? getBrowserTimeZone()
+    const date =
+      normalizedServer?.date ?? normalizedBase?.date ?? getClientUsageDate(timeZone)
+    const previousSent = normalizedBase?.sent ?? 0
+    const serverSent = normalizedServer?.sent ?? 0
+    const nextSent = Math.min(Math.max(serverSent, previousSent + sentDelta), limit)
+
+    return commitEmailUsage(
+      {
         sent: nextSent,
+        limit,
         remaining: Math.max(limit - nextSent, 0),
-      }
-
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[email-usage] successful send usage update', {
-          sentDelta,
-          serverUsage: usage,
-          previousUsage: current,
-          nextUsage: nextSnapshot,
-        })
-      }
-
-      return nextSnapshot
-    })
+        date,
+        timeZone,
+      },
+      'successful-send'
+    )
   }
 
   const previewContent = useMemo(() => {
@@ -381,21 +447,18 @@ export default function SendCampaignModal({
 
   async function fetchEmailUsage(options: { preserveOptimistic?: boolean } = {}) {
     try {
-      const response = await fetch('/api/send-email', {
+      const timeZone = getBrowserTimeZone()
+      const response = await fetch(`/api/send-email?timeZone=${encodeURIComponent(timeZone)}`, {
         cache: 'no-store',
+        headers: {
+          'x-alpa-time-zone': timeZone,
+        },
       })
       const result = await response.json().catch(() => null)
 
       if (response.ok && result?.usage) {
         const nextUsage = result.usage as EmailUsageSnapshot
-        if (!options.preserveOptimistic) {
-          setEmailUsage(nextUsage)
-        } else {
-          setEmailUsage((current) => {
-            if (!current) return nextUsage
-            return nextUsage.sent >= current.sent ? nextUsage : current
-          })
-        }
+        commitEmailUsage(nextUsage, options.preserveOptimistic ? 'fetch-preserve' : 'fetch')
       }
     } catch (error) {
       console.error('Email usage fetch failed:', error)
@@ -421,7 +484,7 @@ export default function SendCampaignModal({
       email: user.email?.trim().toLowerCase() || '',
       name: getCurrentUserName(user),
     })
-    await fetchEmailUsage()
+    await fetchEmailUsage({ preserveOptimistic: true })
 
     const templateRequest = supabase
       .from('templates')
@@ -568,6 +631,7 @@ export default function SendCampaignModal({
         userName: currentUser.name,
         senderProfile,
         isTest: isTestSend,
+        timeZone: getBrowserTimeZone(),
       }),
     })
 
@@ -703,13 +767,13 @@ export default function SendCampaignModal({
 
         if (result.ok) {
           if (!sendAsTest) {
-            applySuccessfulSendUsage(result.usage, 1)
+            const committedUsage = applySuccessfulSendUsage(result.usage, 1)
             remainingBudget = Math.max(
-              (result.usage?.remaining ?? remainingBudget - 1),
+              committedUsage?.remaining ?? remainingBudget - 1,
               0
             )
           } else if (result.usage) {
-            setEmailUsage(result.usage)
+            commitEmailUsage(result.usage, 'test-send')
           }
           sent += 1
           sentLeadIds.push(lead.id)
@@ -722,7 +786,7 @@ export default function SendCampaignModal({
         }
 
         if (result.usage) {
-          setEmailUsage(result.usage)
+          commitEmailUsage(result.usage, 'send-error')
           if (!sendAsTest) {
             remainingBudget = result.usage.remaining
           }
@@ -801,7 +865,7 @@ export default function SendCampaignModal({
       if (!result.ok && !result.skipped) {
         console.error('Test email failed:', result.error)
         if (result.usage) {
-          setEmailUsage(result.usage)
+          commitEmailUsage(result.usage, 'test-error')
         }
         if (result.error === 'DAILY_LIMIT_REACHED') {
           const feedback = getEmailLimitFeedback(result.error)
@@ -818,7 +882,7 @@ export default function SendCampaignModal({
       }
 
       if (result.ok && result.usage) {
-        setEmailUsage(result.usage)
+        commitEmailUsage(result.usage, 'test-success')
       }
       setTestStatusMessage('Test email sent')
     } catch (error) {

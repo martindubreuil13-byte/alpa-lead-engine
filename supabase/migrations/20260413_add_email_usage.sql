@@ -1,14 +1,14 @@
 create table if not exists public.email_usage (
   user_id uuid not null references auth.users (id) on delete cascade,
-  usage_date date not null,
+  date date not null,
   emails_sent integer not null default 0 check (emails_sent >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  primary key (user_id, usage_date)
+  primary key (user_id, date)
 );
 
-create index if not exists email_usage_user_id_usage_date_idx
-  on public.email_usage (user_id, usage_date desc);
+create index if not exists email_usage_user_id_date_idx
+  on public.email_usage (user_id, date desc);
 
 alter table public.email_usage enable row level security;
 
@@ -68,7 +68,7 @@ create or replace function public.increment_email_usage(
 )
 returns table (
   user_id uuid,
-  usage_date date,
+  date date,
   emails_sent integer,
   created_at timestamptz,
   updated_at timestamptz
@@ -87,15 +87,15 @@ begin
   end if;
 
   return query
-  insert into public.email_usage (user_id, usage_date, emails_sent)
+  insert into public.email_usage (user_id, date, emails_sent)
   values (target_user_id, target_date, increment_by)
-  on conflict (user_id, usage_date)
+  on conflict (user_id, date)
   do update
     set emails_sent = public.email_usage.emails_sent + excluded.emails_sent,
         updated_at = now()
   returning
     public.email_usage.user_id,
-    public.email_usage.usage_date,
+    public.email_usage.date,
     public.email_usage.emails_sent,
     public.email_usage.created_at,
     public.email_usage.updated_at;

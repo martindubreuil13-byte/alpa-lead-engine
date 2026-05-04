@@ -3,6 +3,7 @@ import { Resend } from 'resend'
 import { z } from 'zod'
 
 import { DAILY_EMAIL_LIMIT, type EmailUsageSnapshot } from '@/lib/email/send-limits'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -31,19 +32,50 @@ const sendEmailSchema = z.object({
   userName: z.string().trim().max(120).optional().catch(''),
   senderProfile: senderProfileSchema,
   isTest: z.boolean().optional(),
+  timeZone: z.string().trim().min(1).max(80).optional(),
 })
 
 type SenderProfile = z.infer<NonNullable<typeof senderProfileSchema>>
 
-function getDayKey(now = new Date()) {
-  return now.toISOString().slice(0, 10)
+function isValidTimeZone(timeZone: string) {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone }).format(new Date())
+    return true
+  } catch {
+    return false
+  }
 }
 
-function buildUsageSnapshot(sent: number): EmailUsageSnapshot {
+function getSafeTimeZone(timeZone: string | null | undefined) {
+  const candidate = timeZone?.trim()
+  return candidate && isValidTimeZone(candidate) ? candidate : 'UTC'
+}
+
+function getUsageDateForTimeZone(timeZone: string, now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  return `${year}-${month}-${day}`
+}
+
+function buildUsageSnapshot(
+  sent: number,
+  date: string,
+  timeZone: string
+): EmailUsageSnapshot {
   return {
     sent,
     limit: DAILY_EMAIL_LIMIT,
     remaining: Math.max(DAILY_EMAIL_LIMIT - sent, 0),
+    date,
+    timeZone,
   }
 }
 
@@ -124,43 +156,61 @@ function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) 
   `
 }
 
-async function getAuthenticatedUsage() {
+function getRequestTimeZone(req: Request, bodyTimeZone?: string) {
+  const url = new URL(req.url)
+  return getSafeTimeZone(
+    bodyTimeZone ||
+      req.headers.get('x-alpa-time-zone') ||
+      url.searchParams.get('timeZone')
+  )
+}
+
+async function getAuthenticatedUsage(timeZone: string) {
   const supabase = await createServerClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const date = getUsageDateForTimeZone(timeZone)
 
   if (!user?.id) {
-    return { userId: null, sent: 0 }
+    return { userId: null, sent: 0, date, timeZone }
   }
 
-  const today = getDayKey()
   const { data, error } = await supabase
     .from('email_usage')
     .select('emails_sent')
     .eq('user_id', user.id)
-    .eq('usage_date', today)
+    .eq('date', date)
     .maybeSingle()
 
   if (error) {
     console.error('EMAIL USAGE GET ERROR:', error)
-    return { userId: user.id, sent: 0 }
+    throw error
   }
 
-  return { userId: user.id, sent: data?.emails_sent ?? 0 }
+  if (process.env.NODE_ENV === 'development') {
+    console.debug('[email-usage] fetched usage', {
+      timeZone,
+      date,
+      sent: data?.emails_sent ?? 0,
+    })
+  }
+
+  return { userId: user.id, sent: data?.emails_sent ?? 0, date, timeZone }
 }
 
 async function incrementAuthenticatedUsage(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   userId: string,
+  timeZone: string,
   incrementBy = 1
 ) {
-  const today = getDayKey()
+  const date = getUsageDateForTimeZone(timeZone)
 
   const { data, error } = await supabase
     .rpc('increment_email_usage', {
       target_user_id: userId,
-      target_date: today,
+      target_date: date,
       increment_by: incrementBy,
     })
 
@@ -169,12 +219,69 @@ async function incrementAuthenticatedUsage(
   }
 
   const row = Array.isArray(data) ? data[0] : data
-  return row?.emails_sent ?? null
+  return {
+    sent: typeof row?.emails_sent === 'number' ? row.emails_sent : null,
+    date,
+    timeZone,
+  }
 }
 
-export async function GET() {
+async function incrementUsageWithAdminFallback(
+  userId: string,
+  date: string,
+  timeZone: string,
+  currentSent: number,
+  incrementBy = 1
+) {
+  const supabaseAdmin = createAdminClient() as any
+  const nextSent = currentSent + incrementBy
+
+  const { data: existingUsage, error: readError } = await supabaseAdmin
+    .from('email_usage')
+    .select('emails_sent')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .maybeSingle()
+
+  if (readError) {
+    throw readError
+  }
+
+  const existingSent =
+    typeof (existingUsage as any)?.emails_sent === 'number'
+      ? (existingUsage as any).emails_sent
+      : currentSent
+  const sent = existingSent + incrementBy
+
+  const { data, error } = await supabaseAdmin
+    .from('email_usage')
+    .upsert(
+      {
+        user_id: userId,
+        date: date,
+        emails_sent: Math.max(sent, nextSent),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,date' }
+    )
+    .select('emails_sent')
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return {
+    sent: (data as any)?.emails_sent ?? Math.max(sent, nextSent),
+    date,
+    timeZone,
+  }
+}
+
+export async function GET(req: Request) {
   try {
-    const { userId, sent } = await getAuthenticatedUsage()
+    const timeZone = getRequestTimeZone(req)
+    const { userId, sent, date } = await getAuthenticatedUsage(timeZone)
 
     if (!userId) {
       return NextResponse.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401 })
@@ -183,7 +290,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: true,
-        usage: buildUsageSnapshot(sent),
+        usage: buildUsageSnapshot(sent, date, timeZone),
       },
       { status: 200 }
     )
@@ -241,7 +348,8 @@ export async function POST(req: Request) {
       authenticatedEmail.split('@')[0] ||
       'User'
 
-    const currentUsage = await getAuthenticatedUsage()
+    const timeZone = getRequestTimeZone(req, parsed.data.timeZone)
+    const currentUsage = await getAuthenticatedUsage(timeZone)
 
     if (!isTest && currentUsage.userId && currentUsage.sent >= DAILY_EMAIL_LIMIT) {
       return NextResponse.json(
@@ -250,7 +358,7 @@ export async function POST(req: Request) {
           result: 'failed',
           error: 'DAILY_LIMIT_REACHED',
           message: 'Daily sending limit reached',
-          usage: buildUsageSnapshot(currentUsage.sent),
+          usage: buildUsageSnapshot(currentUsage.sent, currentUsage.date, timeZone),
         },
         { status: 429 }
       )
@@ -295,34 +403,61 @@ export async function POST(req: Request) {
       console.log(resendResponse)
 
       let newCount = currentUsage.sent
+      let date = currentUsage.date
 
       try {
         if (!isTest && userId) {
-          const incrementedCount = await incrementAuthenticatedUsage(supabase, userId)
+          let incrementedUsage
 
-          if (typeof incrementedCount === 'number') {
-            newCount = incrementedCount
-          } else {
-            newCount = currentUsage.sent + 1
+          try {
+            incrementedUsage = await incrementAuthenticatedUsage(supabase, userId, timeZone)
+          } catch (rpcError) {
+            console.error('SUPABASE USAGE RPC ERROR:', rpcError)
+            incrementedUsage = await incrementUsageWithAdminFallback(
+              userId,
+              currentUsage.date,
+              timeZone,
+              currentUsage.sent
+            )
           }
+
+          if (typeof incrementedUsage.sent === 'number') {
+            newCount = incrementedUsage.sent
+          } else {
+            throw new Error('Email usage increment did not return a persisted count')
+          }
+
+          date = incrementedUsage.date
 
           if (process.env.NODE_ENV === 'development') {
             console.debug('[email-usage] incremented after successful send', {
               userId,
+              timeZone,
+              date: incrementedUsage.date,
               previousSent: currentUsage.sent,
               nextSent: newCount,
-              remaining: buildUsageSnapshot(newCount).remaining,
+              remaining: buildUsageSnapshot(newCount, incrementedUsage.date, timeZone).remaining,
             })
           }
         }
       } catch (dbError) {
         console.error('SUPABASE USAGE INCREMENT ERROR:', dbError)
+        return NextResponse.json(
+          {
+            success: false,
+            result: 'failed',
+            error: 'USAGE_TRACKING_FAILED',
+            message: 'Email sent, but ALPA could not persist daily sending usage. Please refresh before sending more.',
+            usage: buildUsageSnapshot(currentUsage.sent, currentUsage.date, timeZone),
+          },
+          { status: 500 }
+        )
       }
 
       return NextResponse.json({
         success: true,
         result: 'sent',
-        usage: buildUsageSnapshot(newCount),
+        usage: buildUsageSnapshot(newCount, date, timeZone),
       })
     } catch (error: any) {
       console.error('=== FULL ERROR OBJECT ===')

@@ -7,6 +7,8 @@ export type EmailUsageSnapshot = {
   sent: number
   limit: number
   remaining: number
+  date: string
+  timeZone: string
 }
 
 export function getEmailLimitFeedback(errorCode: string) {
