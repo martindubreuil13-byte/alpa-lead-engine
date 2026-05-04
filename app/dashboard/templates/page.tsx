@@ -344,7 +344,7 @@ export default function TemplatesPage() {
             )}
           </section>
 
-          <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:bottom-6">
+          <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 xl:bottom-6">
             <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-white">

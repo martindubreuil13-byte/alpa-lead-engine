@@ -623,7 +623,7 @@ export default function Page() {
               </div>
             ) : null}
 
-            <div className="mt-6 sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 xl:hidden">
+            <div className="mt-6 sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] z-10 xl:hidden">
               <div className="glass flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-1 text-sm text-slate-300">
                   <div>Ready to send this template to {lead.company_name}.</div>

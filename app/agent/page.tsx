@@ -424,7 +424,7 @@ async function handleDeleteMission(id: string) {
 
   if (profileLoading) {
     return (
-      <DashboardShell adminEmail={null} hideBottomNav>
+      <DashboardShell adminEmail={null}>
         <div className="flex min-h-[60vh] items-center justify-center">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
         </div>
@@ -433,7 +433,7 @@ async function handleDeleteMission(id: string) {
   }
 
   return (
-    <DashboardShell adminEmail={null} hideBottomNav>
+    <DashboardShell adminEmail={null}>
       <div
         className="-mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-8"
         style={{

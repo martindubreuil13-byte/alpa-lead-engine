@@ -422,7 +422,7 @@ export default function PipelinePage() {
 
   return (
     <>
-      <div className="space-y-6 pb-24 lg:pb-6">
+      <div className={cn('space-y-6 lg:pb-6', selected.length > 0 ? 'pb-24' : 'pb-8')}>
         <header className="glass overflow-hidden p-5 sm:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">

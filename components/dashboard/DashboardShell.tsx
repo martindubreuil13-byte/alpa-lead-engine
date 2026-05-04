@@ -42,15 +42,14 @@ type NavItem = {
   lockedOnFree?: boolean
   description?: string
   benefit?: string
-  mobilePrimary?: boolean
   adminOnly?: boolean
   badge?: string
   accent?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Home, mobilePrimary: true },
-  { href: '/dashboard/leads', label: 'Leads Inbox', icon: Inbox, mobilePrimary: true },
+  { href: '/dashboard', label: 'Dashboard', icon: Home },
+  { href: '/dashboard/leads', label: 'Leads Inbox', icon: Inbox },
   {
     href: '/dashboard/kanban',
     label: 'Pipeline',
@@ -58,9 +57,8 @@ const NAV_ITEMS: NavItem[] = [
     feature: 'pipeline',
     description: 'Track every lead through outreach stages, follow-ups, and outcomes.',
     benefit: 'Pipeline turns lead generation into a repeatable sales system instead of a list that goes stale.',
-    mobilePrimary: true,
   },
-  { href: '/dashboard/scraper', label: 'Prospector', icon: Rocket, mobilePrimary: true },
+  { href: '/dashboard/scraper', label: 'Prospector', icon: Rocket },
   {
     href: '/dashboard/library',
     label: 'Lead Library',
@@ -84,7 +82,6 @@ const NAV_ITEMS: NavItem[] = [
     adminOnly: true,
     description: 'Review and approve personalized drafts before they go out.',
     benefit: 'The Outreach Queue keeps you in control of every message with one-click approve or reject.',
-    mobilePrimary: true,
   },
   { href: '/dashboard/billing', label: 'Plan & Billing', icon: CreditCard },
   {
@@ -120,12 +117,9 @@ const HOME_BACK_ROUTES = new Set([
 export default function DashboardShell({
   children,
   adminEmail = null,
-  hideBottomNav = false,
 }: {
   children: ReactNode
   adminEmail?: string | null
-  /** When true, hides the mobile bottom tab bar and removes the space reserved for it. */
-  hideBottomNav?: boolean
 }) {
   const pathname = usePathname()
   const [forcedGuestTrial, setForcedGuestTrial] = useState(() => isGuestTrialModeForced())
@@ -187,11 +181,6 @@ export default function DashboardShell({
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin(profile)),
     [profile]
-  )
-
-  const mobilePrimaryItems = useMemo(
-    () => visibleNavItems.filter((item) => item.mobilePrimary),
-    [visibleNavItems]
   )
 
   const activeItem = useMemo(() => {
@@ -395,7 +384,7 @@ export default function DashboardShell({
           </div>
         </aside>
 
-        <main className={`flex min-h-screen min-w-0 flex-1 flex-col px-4 pt-4 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10 lg:pt-8 ${hideBottomNav ? 'pb-0' : 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]'}`}>
+        <main className="flex min-h-screen min-w-0 flex-1 flex-col px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pb-8 sm:pt-6 lg:px-10 lg:pb-10 lg:pt-8">
           <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-white/6 bg-[#020617]/88 px-4 pb-4 pt-1 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -449,55 +438,6 @@ export default function DashboardShell({
             . We typically reply within 24 hours.
           </footer>
         </main>
-      </div>
-
-      <div className={`fixed inset-x-0 bottom-0 z-30 border-t border-white/8 bg-[#050b17]/92 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden ${hideBottomNav ? 'hidden' : ''}`}>
-        <div className="mx-auto grid max-w-3xl grid-cols-5 gap-2">
-          {mobilePrimaryItems.map((item) => {
-            const locked = isLocked(item)
-            const href = getItemHref(item, viewerMode)
-            const active = !locked && isActivePath(pathname, href)
-            const Icon = item.icon
-
-            if (locked) {
-              return (
-                <button
-                  key={item.href}
-                  type="button"
-                  onClick={() => openLockedItem(item)}
-                  className="flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl border border-white/8 bg-white/[0.03] px-2 text-[11px] font-medium text-slate-300"
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="truncate">Locked</span>
-                </button>
-              )
-            }
-
-            return (
-              <Link
-                key={item.href}
-                href={href}
-                className={`flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl px-2 text-[11px] font-medium transition ${
-                  active
-                    ? 'border border-blue-400/20 bg-blue-500/10 text-white'
-                    : 'border border-transparent bg-white/[0.03] text-slate-300'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="truncate">{shortMobileLabel(item.label)}</span>
-              </Link>
-            )
-          })}
-
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            className="flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-2xl bg-white/[0.03] px-2 text-[11px] font-medium text-slate-300"
-          >
-            <Menu className="h-4 w-4" />
-            <span>More</span>
-          </button>
-        </div>
       </div>
 
       {mobileMenuOpen ? (
@@ -691,17 +631,6 @@ function getItemHref(item: NavItem, viewerMode: ViewerMode) {
   }
 
   return item.href
-}
-
-function shortMobileLabel(label: string) {
-  switch (label) {
-    case 'Leads Inbox':
-      return 'Leads'
-    case 'Plan & Billing':
-      return 'Billing'
-    default:
-      return label
-  }
 }
 
 function NavItemLabel({ item }: { item: NavItem }) {
