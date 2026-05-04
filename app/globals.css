@@ -156,52 +156,6 @@ body {
   mask-image: radial-gradient(circle at center, black 45%, transparent 92%);
 }
 
-@keyframes landing-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(0, -10px, 0);
-  }
-}
-
-@keyframes landing-orbit {
-  0%,
-  100% {
-    transform: scale(1) translate3d(0, 0, 0);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1.08) translate3d(0, -8px, 0);
-    opacity: 0.9;
-  }
-}
-
-@keyframes landing-log-glow {
-  0%,
-  100% {
-    transform: translateX(0);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-  50% {
-    transform: translateX(3px);
-    border-color: rgba(34, 211, 238, 0.18);
-  }
-}
-
-@keyframes landing-pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
-  }
-  50% {
-    opacity: 0.55;
-    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0);
-  }
-}
-
 @keyframes agentBreath {
   0% {
     transform: scale(1) translate3d(-10px, 5px, 0);
@@ -290,22 +244,6 @@ body {
     transform: translate3d(0, 0, 0);
     opacity: 0.08;
   }
-}
-
-.landing-float {
-  animation: landing-float 6.8s ease-in-out infinite;
-}
-
-.landing-orbit {
-  animation: landing-orbit 7.2s ease-in-out infinite;
-}
-
-.landing-log-row {
-  animation: landing-log-glow 5.5s ease-in-out infinite;
-}
-
-.landing-pulse-dot {
-  animation: landing-pulse-dot 2.2s ease-in-out infinite;
 }
 
 .agent-breath {

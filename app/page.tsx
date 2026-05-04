@@ -1,9 +1,8 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
-import FloatingLeadShowcase from '@/components/landing/FloatingLeadShowcase'
 import FreshStartCta from '@/components/landing/FreshStartCta'
-import LiveLogPanel from '@/components/landing/LiveLogPanel'
+import OperationalLeadPreview from '@/components/landing/OperationalLeadPreview'
 import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
 import LandingPageTracker from '@/components/tracking/LandingPageTracker'
@@ -200,18 +199,7 @@ export default function HomePage() {
           </div>
 
           <div className="order-2 relative mx-auto w-full max-w-[34rem]">
-            <div className="landing-orbit absolute left-[8%] top-[4%] h-24 w-24 rounded-full border border-cyan-400/20 bg-cyan-400/5 blur-[2px]" />
-            <div className="landing-orbit absolute bottom-[16%] right-[6%] h-20 w-20 rounded-full border border-teal-300/20 bg-teal-300/5 blur-[2px]" />
-
-            <div className="relative rounded-[34px] border border-white/10 bg-white/[0.03] p-4 shadow-[0_30px_120px_rgba(2,8,23,0.7)] backdrop-blur-2xl sm:p-5">
-              <div className="absolute inset-0 rounded-[34px] bg-[linear-gradient(180deg,rgba(34,211,238,0.08),transparent_20%,transparent_78%,rgba(45,212,191,0.08))]" />
-              <div className="relative min-h-[31rem] overflow-hidden rounded-[28px] border border-white/8 bg-[#06101f] p-4 sm:min-h-[38rem] sm:p-5">
-                <div className="max-w-[21rem] sm:max-w-[22rem]">
-                  <LiveLogPanel />
-                </div>
-                <FloatingLeadShowcase />
-              </div>
-            </div>
+            <OperationalLeadPreview />
           </div>
         </div>
       </section>
