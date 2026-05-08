@@ -208,9 +208,6 @@ function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) 
     ${contentHtml}
     <br/>
 ${signature}
-    <p style="font-size:11px;color:#888;margin-top:15px;">
-      Sent via ALPA
-    </p>
   </div>
   `
 }

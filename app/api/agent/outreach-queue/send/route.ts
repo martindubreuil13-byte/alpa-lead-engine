@@ -21,7 +21,7 @@ function buildHtml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
   const withBreaks = escaped.replace(/\n/g, '<br/>')
-  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">${withBreaks}<p style="font-size:11px;color:#888;margin-top:20px;">Sent via ALPA</p></div>`
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:20px;max-width:520px;">${withBreaks}</div>`
 }
 
 function delay(ms: number) {

@@ -106,6 +106,11 @@ function getSafeText(value: string | undefined) {
   return trimmed ? escapeHtml(trimmed) : ''
 }
 
+function getValidEmail(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined
+}
+
 function formatTemplateContent(content: string) {
   const trimmed = content.trim()
 
@@ -149,9 +154,6 @@ function buildFinalHtml(html: string, senderProfile: SenderProfile | undefined) 
     ${contentHtml}
     <br/>
     ${signature}
-    <p style="font-size:11px;color:#888;margin-top:15px;">
-      Sent via ALPA
-    </p>
   </div>
   `
 }
@@ -382,6 +384,10 @@ export async function POST(req: Request) {
     const testEmail = process.env.TEST_EMAIL?.trim().toLowerCase() || ''
     const finalRecipient = isTestMode && isTest ? testEmail : to
     const from = FROM_EMAIL
+    const replyToEmail =
+      getValidEmail(senderProfile?.email) ||
+      getValidEmail(authenticatedEmail) ||
+      undefined
     const html = buildFinalHtml(parsed.data.html, {
       ...senderProfile,
       name: senderProfile?.name?.trim() || safeUserName,
@@ -389,14 +395,19 @@ export async function POST(req: Request) {
     })
 
     try {
-      console.log('=== BEFORE SEND ===')
-      console.log({ from, to: [finalRecipient], subject })
+      console.log("=== FINAL EMAIL PAYLOAD ===", {
+        from,
+        to: [finalRecipient],
+        subject,
+        replyTo: replyToEmail,
+      })
 
       const resendResponse = await resend.emails.send({
         from,
         to: [finalRecipient],
         subject,
         html,
+        replyTo: replyToEmail,
       })
 
       console.log('=== RESEND SUCCESS ===')

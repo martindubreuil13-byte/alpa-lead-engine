@@ -412,13 +412,16 @@ export default function SettingsPage() {
                   </label>
 
                   <label className="space-y-2">
-                    <span className="text-sm text-slate-300">Sender email</span>
+                    <span className="text-sm text-slate-300">Reply-to email</span>
                     <input
                       value={senderEmail}
                       onChange={(event) => setSenderEmail(event.target.value)}
                       placeholder="martin@alpa.ai"
                       className="input"
                     />
+                    <span className="block text-xs text-slate-500">
+                      Replies from prospects will be routed to this email.
+                    </span>
                   </label>
 
                   <label className="space-y-2">
