@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
+import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { cn } from '@/lib/utils'
 
 type PublicHeaderProps = {
@@ -39,8 +40,8 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
     <>
       <header className="relative z-20 px-4 pt-5 sm:px-6 lg:px-10">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
-          <Link href="/" className="text-sm font-semibold tracking-[0.24em] text-white sm:text-[15px]">
-            ALPA
+          <Link href="/" className="inline-flex items-center opacity-90 transition hover:opacity-100">
+            <AlpaLogo className="h-7 w-auto object-contain sm:h-8" priority />
           </Link>
 
           <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">
@@ -92,10 +93,10 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
           <div className="flex items-center justify-between">
             <Link
               href="/"
-              className="text-sm font-semibold tracking-[0.24em] text-white"
+              className="inline-flex items-center opacity-90 transition hover:opacity-100"
               onClick={() => setIsMenuOpen(false)}
             >
-              ALPA
+              <AlpaLogo className="h-7 w-auto object-contain" />
             </Link>
 
             <button

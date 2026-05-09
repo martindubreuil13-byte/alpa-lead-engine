@@ -22,6 +22,7 @@ import {
   Zap,
 } from 'lucide-react'
 
+import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import HomeBackButton from '@/components/dashboard/HomeBackButton'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
@@ -245,20 +246,14 @@ export default function DashboardShell({
   return (
     <div className="min-h-screen bg-transparent text-white">
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
-        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-white/6 bg-[#060c18]/90 px-6 py-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:flex lg:flex-col">
+        <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-white/6 bg-[#060c18]/90 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-12 backdrop-blur-xl lg:flex lg:flex-col">
           <Link href="/" className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[linear-gradient(135deg,#1d4ed8,#3b82f6)] text-xl font-bold text-white shadow-[0_18px_40px_rgba(59,130,246,0.24)]">
-              A
-            </div>
-            <div>
-              <div className="text-lg font-semibold tracking-tight text-white">ALPA</div>
-              <div className="text-xs uppercase tracking-[0.28em] text-slate-500">
-                Autonomous Lead Engine
-              </div>
+            <div className="min-w-0">
+              <AlpaLogo className="h-8 w-auto object-contain" priority />
             </div>
           </Link>
 
-          <div className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.04] p-4">
+          <div className="mt-12 rounded-[28px] border border-white/10 bg-white/[0.04] p-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60">
               Workspace
             </div>
@@ -390,9 +385,9 @@ export default function DashboardShell({
               <div className="min-w-0">
                 <Link
                   href="/"
-                  className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60 transition hover:text-white"
+                  className="inline-flex items-center opacity-80 transition hover:opacity-100"
                 >
-                  ALPA
+                  <AlpaLogo className="h-6 w-auto object-contain" />
                 </Link>
                 <div className="truncate text-lg font-semibold text-white">
                   {activeItem?.label || 'Dashboard'}

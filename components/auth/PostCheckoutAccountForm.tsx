@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 
+import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { clearGuestTrial, getGuestCaptureEmail, getGuestLeads } from '@/lib/guest-session'
@@ -188,8 +189,8 @@ export default function PostCheckoutAccountForm() {
 
   return (
     <div className="w-full max-w-[460px] overflow-hidden rounded-[28px] border border-white/[0.12] bg-[linear-gradient(180deg,rgba(15,23,42,0.88),rgba(8,15,30,0.92))] p-6 shadow-[0_30px_90px_rgba(2,8,23,0.68)] backdrop-blur-2xl sm:p-8">
-      <div className="mx-auto mb-8 flex w-fit items-center rounded-full border border-white/[0.10] bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-200">
-        ALPA
+      <div className="mx-auto mb-10 flex w-fit items-center">
+        <AlpaLogo className="h-8 w-auto object-contain" priority />
       </div>
 
       <div className="space-y-3 text-center">

@@ -3,6 +3,8 @@
 import { Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+
+import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
@@ -197,8 +199,8 @@ export default function LoginPage() {
       <div className="relative flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
         <div className="w-full max-w-[420px]">
           <div className="overflow-hidden rounded-[28px] border border-white/[0.12] bg-[linear-gradient(180deg,rgba(15,23,42,0.88),rgba(8,15,30,0.92))] p-6 shadow-[0_30px_90px_rgba(2,8,23,0.68)] backdrop-blur-2xl sm:p-8">
-            <div className="mx-auto mb-8 flex w-fit items-center rounded-full border border-white/[0.10] bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-200">
-              ALPA
+            <div className="mx-auto mb-10 flex w-fit items-center">
+              <AlpaLogo className="h-8 w-auto object-contain" priority />
             </div>
 
             <div className="space-y-2 text-center">

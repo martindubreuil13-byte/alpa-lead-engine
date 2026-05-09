@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
+import InboxVisibilityGuide from '@/components/email/InboxVisibilityGuide'
 import { canAccessFeature } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
@@ -316,6 +317,8 @@ export default function TemplatesPage() {
                     className="input min-h-[340px] resize-y leading-7"
                   />
                 </label>
+
+                <InboxVisibilityGuide />
               </div>
             ) : (
               <div className="mt-6 space-y-4">
