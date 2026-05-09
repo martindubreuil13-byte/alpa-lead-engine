@@ -223,7 +223,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         className={`flex min-h-[48px] items-center gap-3 rounded-2xl border bg-[#07111f]/92 px-4 transition ${
           invalid
             ? 'border-amber-300/55 focus-within:border-amber-200/70 focus-within:ring-2 focus-within:ring-amber-300/15'
-            : 'border-white/10 focus-within:border-cyan-300/35 focus-within:ring-2 focus-within:ring-cyan-300/10'
+            : 'border-white/15 focus-within:border-cyan-300/45 focus-within:ring-2 focus-within:ring-cyan-300/12 sm:border-white/10 sm:focus-within:border-cyan-300/35 sm:focus-within:ring-cyan-300/10'
         }`}
       >
         {icon ? <div className="shrink-0 text-cyan-200/55">{icon}</div> : null}
@@ -233,13 +233,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-white placeholder:text-slate-500 outline-none disabled:opacity-60"
+          className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-white placeholder:text-slate-600 outline-none disabled:opacity-60 sm:placeholder:text-slate-500"
         />
       </div>
       {invalid && errorText ? (
         <div className="text-xs text-amber-200">{errorText}</div>
       ) : helperText ? (
-        <div className="text-xs leading-5 text-slate-500">{helperText}</div>
+        <div className="hidden text-xs leading-5 text-slate-500 sm:block">{helperText}</div>
       ) : null}
     </div>
   )
@@ -282,6 +282,7 @@ export default function Page() {
 
   const [elapsed, setElapsed] = useState(0)
   const [finalElapsed, setFinalElapsed] = useState<number | null>(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
 
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -305,6 +306,20 @@ export default function Page() {
   const resolvedUsageCount = isGuest ? guestLeadCount : authenticatedLeadCount
   const usageState =
     !isPlanLoading ? getUsageState(resolvedUsageCount, resolvedLeadLimit) : 'normal'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(max-width: 639px)')
+    const syncMobileViewport = () => setIsMobileViewport(mediaQuery.matches)
+
+    syncMobileViewport()
+    mediaQuery.addEventListener('change', syncMobileViewport)
+
+    return () => {
+      mediaQuery.removeEventListener('change', syncMobileViewport)
+    }
+  }, [])
 
   useEffect(() => {
     if (trialStartedTrackedRef.current) return
@@ -1229,7 +1244,10 @@ export default function Page() {
                 <h1 className="mt-2 text-[2rem] font-semibold leading-[1.04] tracking-[-0.04em] text-white sm:text-[2.6rem]">
                   Find contact-ready businesses
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:text-[15px] sm:leading-7">
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:hidden">
+                  Choose who to target, where to search, and how many leads you want.
+                </p>
+                <p className="mt-2 hidden max-w-2xl text-[15px] leading-7 text-slate-400 sm:block">
                   Choose a business type, location, and lead count. ALPA will prepare a focused
                   list with available contact details.
                 </p>
@@ -1255,7 +1273,9 @@ export default function Page() {
                         clearValidation()
                       }
                     }}
-                    placeholder="dentists, law firms, architects"
+                    placeholder={
+                      isMobileViewport ? 'e.g. dentists, law firms' : 'dentists, law firms, architects'
+                    }
                     helperText="Use 1–3 simple keywords."
                     disabled={loading}
                     invalid={showValidation && missingBusinessType}
@@ -1275,7 +1295,9 @@ export default function Page() {
                         clearValidation()
                       }
                     }}
-                    placeholder="Miami, California, United Kingdom"
+                    placeholder={
+                      isMobileViewport ? 'e.g. Miami or California' : 'Miami, California, United Kingdom'
+                    }
                     helperText="City, state, province, or country"
                     disabled={loading}
                     invalid={showValidation && missingLocation}
@@ -1308,7 +1330,7 @@ export default function Page() {
                       )
                     })}
                   </div>
-                  <div className="text-xs leading-5 text-slate-500">Default: 25</div>
+                  <div className="hidden text-xs leading-5 text-slate-500 sm:block">Default: 25</div>
                 </div>
               </div>
             </div>
@@ -1316,7 +1338,7 @@ export default function Page() {
             {validationMessage ? <div className="text-sm text-amber-200">{validationMessage}</div> : null}
 
             <div className="flex flex-col gap-4 border-t border-white/8 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm leading-6 text-slate-400">
+              <div className={`text-sm leading-6 text-slate-400 ${hasSearchCriteria ? '' : 'hidden sm:block'}`}>
                 {searchHelperLine}
               </div>
 
