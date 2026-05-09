@@ -1,8 +1,9 @@
 'use client'
 
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Building2, MapPin } from 'lucide-react'
 import LeadCard from '@/components/leads/LeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
@@ -12,7 +13,6 @@ import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import PartialCompletionModal from '@/components/modals/PartialCompletionModal'
 import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import SendLeadsModal from '@/components/modals/SendLeadsModal'
-import FirstRunOverlay from '@/components/scraper/FirstRunOverlay'
 import {
   getGuestLeads,
   getOrCreateGuestSessionId,
@@ -45,21 +45,6 @@ import {
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { trackEvent } from '@/lib/track'
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
-
-const COUNTRY_OPTIONS = [
-  'Canada',
-  'United States',
-  'United Kingdom',
-  'France',
-  'Australia',
-  'Germany',
-  'United Arab Emirates',
-  'Singapore',
-  'India',
-  'Mexico',
-  'Brazil',
-  'Other',
-]
 
 const LEAD_OPTIONS = ['10', '25', '50']
 const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
@@ -213,6 +198,8 @@ type InputProps = {
   disabled?: boolean
   invalid?: boolean
   errorText?: string | null
+  helperText?: string
+  icon?: ReactNode
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
@@ -224,76 +211,39 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     disabled = false,
     invalid = false,
     errorText = null,
+    helperText,
+    icon,
   },
   ref
 ) {
   return (
     <div className="space-y-2">
-      <label className="text-sm text-slate-400">{label}</label>
-      <input
-        ref={ref}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={`w-full rounded-xl border bg-[#0b1220] px-4 py-2 text-white placeholder:text-slate-500 disabled:opacity-60 ${
-          invalid ? 'border-red-500/70 focus:ring-2 focus:ring-red-500/20' : 'border-white/10'
+      <label className="text-sm font-medium text-slate-200">{label}</label>
+      <div
+        className={`flex min-h-[48px] items-center gap-3 rounded-2xl border bg-[#07111f]/92 px-4 transition ${
+          invalid
+            ? 'border-amber-300/55 focus-within:border-amber-200/70 focus-within:ring-2 focus-within:ring-amber-300/15'
+            : 'border-white/10 focus-within:border-cyan-300/35 focus-within:ring-2 focus-within:ring-cyan-300/10'
         }`}
-      />
+      >
+        {icon ? <div className="shrink-0 text-cyan-200/55">{icon}</div> : null}
+        <input
+          ref={ref}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-white placeholder:text-slate-500 outline-none disabled:opacity-60"
+        />
+      </div>
       {invalid && errorText ? (
-        <div className="text-xs text-red-400">{errorText}</div>
+        <div className="text-xs text-amber-200">{errorText}</div>
+      ) : helperText ? (
+        <div className="text-xs leading-5 text-slate-500">{helperText}</div>
       ) : null}
     </div>
   )
 })
-
-type SelectProps = {
-  label: string
-  options: string[]
-  value: string
-  onChange: (v: string) => void
-  disabled?: boolean
-  invalid?: boolean
-  errorText?: string | null
-  placeholder?: string
-}
-
-function Select({
-  label,
-  options,
-  value,
-  onChange,
-  disabled = false,
-  invalid = false,
-  errorText = null,
-  placeholder,
-}: SelectProps) {
-  return (
-    <div className="space-y-2">
-      <label className="text-sm text-slate-400">{label}</label>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded-xl border bg-[#0b1220] px-4 py-3 text-white disabled:opacity-60 ${
-          invalid ? 'border-red-500/70 focus:ring-2 focus:ring-red-500/20' : 'border-white/10'
-        }`}
-      >
-        {placeholder ? (
-          <option value="" disabled>
-            {placeholder}
-          </option>
-        ) : null}
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-      {invalid && errorText ? <div className="text-xs text-red-400">{errorText}</div> : null}
-    </div>
-  )
-}
 
 export default function Page() {
   const router = useRouter()
@@ -311,7 +261,6 @@ export default function Page() {
   const [region, setRegion] = useState('')
   const [city, setCity] = useState('')
   const [maxLeads, setMaxLeads] = useState('25')
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
 
   const [logs, setLogs] = useState<string[]>([])
   const [displayedLogs, setDisplayedLogs] = useState<string[]>([])
@@ -390,7 +339,6 @@ export default function Page() {
   const skippedInvalidCount = guestClaimResult?.skipped_invalid ?? 0
   const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
   const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
-  const stepLabel = `Step ${currentStep} of 3`
   const liveLogLines = displayedLogs
     .map((entry) => formatReadableLog(entry))
     .filter((entry): entry is string => Boolean(entry))
@@ -437,6 +385,10 @@ export default function Page() {
       progress: validatingProgressPercent,
     },
   ]
+  const hasSearchCriteria = Boolean(businessType.trim() || city.trim())
+  const searchHelperLine = hasSearchCriteria
+    ? 'Searching businesses with publicly available contact information.'
+    : 'ALPA will prepare a focused list based on your search criteria.'
 
   useEffect(() => {
     if (loading) {
@@ -790,10 +742,8 @@ export default function Page() {
         setActivity('Missing required fields.')
         if (missingBusinessType) {
           businessTypeRef.current?.focus()
-          setCurrentStep(1)
         } else {
           cityRef.current?.focus()
-          setCurrentStep(2)
         }
         return
       }
@@ -1158,38 +1108,6 @@ export default function Page() {
     setValidationMessage('')
   }
 
-  function goToNextStep() {
-    if (currentStep === 1) {
-      if (missingBusinessType) {
-        setShowValidation(true)
-        setValidationMessage('Please enter business type')
-        businessTypeRef.current?.focus()
-        return
-      }
-
-      clearValidation()
-      setCurrentStep(2)
-      return
-    }
-
-    if (currentStep === 2) {
-      if (missingLocation) {
-        setShowValidation(true)
-        setValidationMessage('Please add a city, province/state, or country')
-        cityRef.current?.focus()
-        return
-      }
-
-      clearValidation()
-      setCurrentStep(3)
-    }
-  }
-
-  function goToPreviousStep() {
-    clearValidation()
-    setCurrentStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3) : current))
-  }
-
   function resetSearchFlow() {
     resetProspectorUiState()
     setBusinessType('')
@@ -1197,7 +1115,6 @@ export default function Page() {
     setRegion('')
     setCity('')
     setMaxLeads('25')
-    setCurrentStep(1)
     setSessionSavedLeads([])
   }
 
@@ -1289,42 +1206,48 @@ export default function Page() {
 
   return (
     <>
-      <FirstRunOverlay />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:gap-10">
-        <div>
-          <h1 className="text-[2.15rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white sm:text-[2.8rem]">
-            Find your first leads
-          </h1>
-          <p className="mt-3 text-base leading-7 text-slate-300">
-            Start with 25 free leads. No setup needed.
-          </p>
-          {(isPlanLoading || usageLoading) && (
-            <div className="mt-3 text-sm text-slate-500">Preparing your workspace...</div>
-          )}
-        </div>
-
         {freeUsageWarning ? (
           <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
             {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
           </div>
         ) : null}
 
-        <section className="w-full space-y-8 rounded-[32px] border border-white/8 bg-white/[0.03] p-5 shadow-[0_20px_60px_rgba(2,8,23,0.28)] sm:p-6 lg:space-y-10 lg:p-8">
-          <div className="mx-auto w-full max-w-3xl space-y-5">
-            <div className="text-sm font-medium text-slate-400">{stepLabel}</div>
+        <section className="w-full overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_32%),linear-gradient(180deg,rgba(11,20,38,0.96),rgba(7,13,26,0.98))] p-5 shadow-[0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void runScrape()
+            }}
+          >
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-2xl">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">
+                  PROSPECTOR
+                </div>
+                <h1 className="mt-2 text-[2rem] font-semibold leading-[1.04] tracking-[-0.04em] text-white sm:text-[2.6rem]">
+                  Find contact-ready businesses
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:text-[15px] sm:leading-7">
+                  Choose a business type, location, and lead count. ALPA will prepare a focused
+                  list with available contact details.
+                </p>
+              </div>
 
-            <div className="space-y-4 transition-all duration-300">
-              {currentStep === 1 ? (
-                <>
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
-                      What are you looking for?
-                    </h2>
-                  </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
+                {isPlanLoading || usageLoading
+                  ? 'Preparing your workspace...'
+                  : `Usage: ${resolvedUsageCount} / ${formatLeadLimit(resolvedLeadLimit)} leads this month`}
+              </div>
+            </div>
 
+            <div className="rounded-[26px] border border-white/10 bg-white/[0.035] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.05fr)_minmax(220px,0.7fr)] lg:gap-0">
+                <div className="lg:pr-3">
                   <Input
                     ref={businessTypeRef}
-                    label="Type of business"
+                    label="Business type"
                     value={businessType}
                     onChange={(value) => {
                       setBusinessType(value)
@@ -1332,50 +1255,19 @@ export default function Page() {
                         clearValidation()
                       }
                     }}
-                    placeholder="e.g. restaurants, gyms"
+                    placeholder="dentists, law firms, architects"
+                    helperText="Use 1–3 simple keywords."
                     disabled={loading}
                     invalid={showValidation && missingBusinessType}
-                    errorText="Required field"
+                    errorText="Add a business type."
+                    icon={<Building2 className="h-4 w-4" aria-hidden="true" />}
                   />
-                </>
-              ) : null}
+                </div>
 
-              {currentStep === 2 ? (
-                <>
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">Where?</h2>
-                  </div>
-
-                  <Select
-                    label="Country"
-                    options={COUNTRY_OPTIONS}
-                    value={country}
-                    onChange={(value) => {
-                      setCountry(value)
-                      if (showValidation && (city.trim() || region.trim() || value.trim())) {
-                        clearValidation()
-                      }
-                    }}
-                    disabled={loading}
-                    placeholder="Required"
-                  />
-
-                  <Input
-                    label="Province / State"
-                    value={region}
-                    onChange={(value) => {
-                      setRegion(value)
-                      if (showValidation && (city.trim() || value.trim() || country.trim())) {
-                        clearValidation()
-                      }
-                    }}
-                    placeholder="Optional"
-                    disabled={loading}
-                  />
-
+                <div className="border-white/8 lg:border-l lg:px-3">
                   <Input
                     ref={cityRef}
-                    label="City"
+                    label="Location"
                     value={city}
                     onChange={(value) => {
                       setCity(value)
@@ -1383,86 +1275,72 @@ export default function Page() {
                         clearValidation()
                       }
                     }}
-                    placeholder="Optional (more precise results)"
+                    placeholder="Miami, California, United Kingdom"
+                    helperText="City, state, province, or country"
                     disabled={loading}
+                    invalid={showValidation && missingLocation}
+                    errorText="Add a location."
+                    icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
                   />
-                </>
-              ) : null}
-
-              {currentStep === 3 ? (
-                <>
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
-                      How many leads?
-                    </h2>
-                  </div>
-
-                  <Select
-                    label="Number of leads"
-                    options={LEAD_OPTIONS}
-                    value={maxLeads}
-                    onChange={setMaxLeads}
-                    disabled={loading}
-                  />
-
-                  <div className="rounded-2xl border border-white/8 bg-[#0b1220] px-4 py-4 text-sm text-slate-300">
-                    {isPlanLoading || usageLoading
-                      ? 'Loading usage...'
-                      : `Usage: ${resolvedUsageCount} / ${formatLeadLimit(resolvedLeadLimit)} leads this month`}
-                  </div>
-                </>
-              ) : null}
-            </div>
-
-            {validationMessage ? <div className="text-sm text-red-400">{validationMessage}</div> : null}
-
-            <div className="flex flex-col gap-3">
-              {currentStep > 1 ? (
-                <button
-                  type="button"
-                  onClick={goToPreviousStep}
-                  disabled={loading}
-                  className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:opacity-60"
-                >
-                  Back
-                </button>
-              ) : null}
-
-              {currentStep < 3 ? (
-                <button
-                  type="button"
-                  onClick={goToNextStep}
-                  disabled={loading}
-                  className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold disabled:opacity-60"
-                >
-                  Next
-                </button>
-              ) : (
-                <button
-                  onClick={runScrape}
-                  disabled={loading || hasMissingRequiredFields}
-                  className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? 'Generating leads...' : 'Generate Leads'}
-                </button>
-              )}
-
-              {currentStep === 3 ? (
-                <div className="text-center text-sm text-slate-400">
-                  No signup required • Results in seconds
                 </div>
-              ) : null}
 
-              {loading ? (
-                <button
-                  onClick={abortMission}
-                  className="btn-ghost w-full rounded-2xl px-5 py-3 text-sm font-medium"
-                >
-                  Stop search
-                </button>
-              ) : null}
+                <div className="space-y-2 border-white/8 lg:border-l lg:pl-3">
+                  <label className="text-sm font-medium text-slate-200">Lead count</label>
+                  <div className="grid grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-[#07111f]/92 p-1.5 sm:max-w-xs lg:max-w-none">
+                    {LEAD_OPTIONS.map((option) => {
+                      const selected = maxLeads === option
+
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          disabled={loading}
+                          onClick={() => setMaxLeads(option)}
+                          className={`min-h-[48px] rounded-xl px-3 text-sm font-semibold transition disabled:opacity-60 ${
+                            selected
+                              ? 'border border-cyan-200/20 bg-white/[0.08] text-cyan-50 shadow-[0_8px_22px_rgba(8,145,178,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]'
+                              : 'border border-transparent text-slate-400 hover:bg-white/[0.045] hover:text-white'
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          {option}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="text-xs leading-5 text-slate-500">Default: 25</div>
+                </div>
+              </div>
             </div>
-          </div>
+
+            {validationMessage ? <div className="text-sm text-amber-200">{validationMessage}</div> : null}
+
+            <div className="flex flex-col gap-4 border-t border-white/8 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm leading-6 text-slate-400">
+                {searchHelperLine}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:min-w-[210px]">
+                <button
+                  type="submit"
+                  disabled={loading || hasMissingRequiredFields}
+                  className="min-h-[48px] rounded-2xl border border-cyan-200/20 bg-[linear-gradient(180deg,rgba(34,211,238,0.22),rgba(59,130,246,0.18))] px-6 text-sm font-semibold text-white shadow-[0_12px_34px_rgba(14,165,233,0.16),inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:border-cyan-100/30 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-none disabled:bg-white/[0.04] disabled:text-slate-500 disabled:shadow-none"
+                >
+                  {loading ? 'Finding leads...' : 'Find leads'}
+                </button>
+
+                {loading ? (
+                  <button
+                    type="button"
+                    onClick={abortMission}
+                    className="btn-ghost rounded-2xl px-5 py-3 text-sm font-medium"
+                  >
+                    Stop search
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </form>
         </section>
 
         <div className="w-full">{liveLogPanel}</div>
