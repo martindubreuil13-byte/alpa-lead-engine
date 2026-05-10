@@ -4,14 +4,27 @@ import Link from 'next/link'
 import FreshStartCta from '@/components/landing/FreshStartCta'
 import PublicHeader from '@/components/site/PublicHeader'
 
+const pageTitle = 'About ALPA by MINDRA | ALPA'
+const pageDescription =
+  'Learn what ALPA is, why MINDRA Solutions built it, and how it helps freelancers and agencies make lead generation more consistent with less wasted time.'
+
 export const metadata: Metadata = {
   title: {
-    absolute: 'About ALPA by MINDRA | ALPA',
+    absolute: pageTitle,
   },
-  description:
-    'Learn what ALPA is, why MINDRA built it, and how it helps businesses make lead generation more consistent with less wasted time.',
+  description: pageDescription,
   alternates: {
     canonical: '/about',
+  },
+  openGraph: {
+    title: pageTitle,
+    description: pageDescription,
+    url: 'https://alpa.mindrasolutions.com/about',
+    type: 'website',
+  },
+  twitter: {
+    title: pageTitle,
+    description: pageDescription,
   },
 }
 

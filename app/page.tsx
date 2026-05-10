@@ -7,14 +7,27 @@ import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
 import LandingPageTracker from '@/components/tracking/LandingPageTracker'
 
+const pageTitle = 'Lead Generation Tool for Freelancers & Agencies | ALPA'
+const pageDescription =
+  'Find ready-to-contact business leads enriched with website, email, and phone. No signup, no credit card, and 25 free leads instantly.'
+
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lead Generation Tool for Freelancers & Agencies | ALPA',
+    absolute: pageTitle,
   },
-  description:
-    'Find ready-to-contact business leads enriched with website, email, and phone. No signup, no credit card, and 25 free leads instantly.',
+  description: pageDescription,
   alternates: {
     canonical: '/',
+  },
+  openGraph: {
+    title: pageTitle,
+    description: pageDescription,
+    url: 'https://alpa.mindrasolutions.com',
+    type: 'website',
+  },
+  twitter: {
+    title: pageTitle,
+    description: pageDescription,
   },
 }
 
@@ -130,11 +143,42 @@ export default function HomePage() {
             '@context': 'https://schema.org',
             '@type': 'SoftwareApplication',
             name: 'ALPA',
+            alternateName: 'ALPA by MINDRA',
             applicationCategory: 'BusinessApplication',
-            description: 'Lead generation tool for freelancers, agencies, and small teams.',
+            applicationSubCategory: 'Lead Generation Software',
+            operatingSystem: 'Web',
+            url: 'https://alpa.mindrasolutions.com',
+            description:
+              'ALPA helps freelancers, consultants, coaches, agencies, and professional service providers find verified business leads with website, email, and phone enrichment.',
+            featureList: [
+              'Generates verified business leads',
+              'Finds company websites',
+              'Finds business emails',
+              'Finds phone numbers when available',
+              'Exports leads to CSV',
+              'Supports fast prospecting for freelancers and agencies',
+            ],
+            offers: [
+              {
+                '@type': 'Offer',
+                name: 'Free Trial',
+                price: '0',
+                priceCurrency: 'USD',
+                description: '25 free leads',
+              },
+              {
+                '@type': 'Offer',
+                name: 'Starter',
+                price: '29.99',
+                priceCurrency: 'USD',
+                description: '300 leads per month',
+              },
+            ],
             creator: {
               '@type': 'Organization',
-              name: 'MINDRA',
+              name: 'MINDRA Solutions',
+              legalName: 'MINDRA (AI) Solutions OÜ Ltd',
+              url: 'https://mindrasolutions.com',
             },
           }),
         }}

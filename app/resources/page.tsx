@@ -5,14 +5,27 @@ import FreshStartCta from '@/components/landing/FreshStartCta'
 import PublicHeader from '@/components/site/PublicHeader'
 import { resources } from '@/lib/resources'
 
+const pageTitle = 'Lead Generation Resources | ALPA'
+const pageDescription =
+  'Explore ALPA lead generation resources covering prospecting, qualification, outreach, tools, and building a more consistent pipeline.'
+
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lead Generation Resources | ALPA',
+    absolute: pageTitle,
   },
-  description:
-    'Explore ALPA lead generation resources covering prospecting, qualification, outreach, tools, and building a more consistent pipeline.',
+  description: pageDescription,
   alternates: {
     canonical: '/resources',
+  },
+  openGraph: {
+    title: pageTitle,
+    description: pageDescription,
+    url: 'https://alpa.mindrasolutions.com/resources',
+    type: 'website',
+  },
+  twitter: {
+    title: pageTitle,
+    description: pageDescription,
   },
 }
 

@@ -7,14 +7,27 @@ import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
 import PublicHeader from '@/components/site/PublicHeader'
 import PlansPageTracker from '@/components/tracking/PlansPageTracker'
 
+const pageTitle = 'Pricing & Plans for Lead Generation | ALPA'
+const pageDescription =
+  'ALPA plans start free — get 25 verified leads instantly, no signup required. Starter plan: 300 leads/month for $29.99. Find business contacts with website, email, and phone included.'
+
 export const metadata: Metadata = {
   title: {
-    absolute: 'Pricing & Plans for Lead Generation | ALPA',
+    absolute: pageTitle,
   },
-  description:
-    'Explore ALPA pricing and plans to start finding and contacting business leads efficiently.',
+  description: pageDescription,
   alternates: {
     canonical: '/plans',
+  },
+  openGraph: {
+    title: pageTitle,
+    description: pageDescription,
+    url: 'https://alpa.mindrasolutions.com/plans',
+    type: 'website',
+  },
+  twitter: {
+    title: pageTitle,
+    description: pageDescription,
   },
 }
 
