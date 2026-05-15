@@ -11,7 +11,6 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import PartialCompletionModal from '@/components/modals/PartialCompletionModal'
-import ScrapeCompletionModal from '@/components/modals/ScrapeCompletionModal'
 import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import {
   getGuestLeads,
@@ -45,6 +44,8 @@ import {
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { trackEvent } from '@/lib/track'
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
+import ProspectorOnboardingOverlay from '@/components/scraper/ProspectorOnboardingOverlay'
+import TrialLimitModal from '@/components/scraper/TrialLimitModal'
 
 const LEAD_OPTIONS = ['10', '25', '50']
 const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
@@ -273,8 +274,8 @@ export default function Page() {
   const [guestClaimResult, setGuestClaimResult] = useState<StoredGuestClaimResult | null>(null)
   const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
   const [showPartialCompletionModal, setShowPartialCompletionModal] = useState(false)
-  const [showCompletionModal, setShowCompletionModal] = useState(false)
   const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
+  const [showTrialLimitModal, setShowTrialLimitModal] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [showValidation, setShowValidation] = useState(false)
@@ -291,6 +292,7 @@ export default function Page() {
   const logQueueRef = useRef<string[]>([])
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
   const trialStartedTrackedRef = useRef(false)
+  const trialLimitModalShownRef = useRef(false)
   const runStartUsageRef = useRef(0)
   const businessTypeRef = useRef<HTMLInputElement | null>(null)
   const cityRef = useRef<HTMLInputElement | null>(null)
@@ -334,6 +336,13 @@ export default function Page() {
   }, [analyticsSessionId, viewerMode, visitorType])
   const usageBlocked = usageState === 'blocked'
   const usageWarning = usageState === 'warning'
+
+  useEffect(() => {
+    if (usageBlocked && isFree && !trialLimitModalShownRef.current) {
+      trialLimitModalShownRef.current = true
+      setShowTrialLimitModal(true)
+    }
+  }, [usageBlocked, isFree])
   const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
@@ -586,7 +595,6 @@ export default function Page() {
     setCompletionResult(null)
     setGuestClaimResult(null)
     setShowPartialCompletionModal(false)
-    setShowCompletionModal(false)
     setShowSendLeadsModal(false)
     setToastMessage('')
     setActivity('Idle')
@@ -785,7 +793,6 @@ export default function Page() {
       setCompletionResult(null)
       setShowFirstSuccessModal(false)
       setShowPartialCompletionModal(false)
-      setShowCompletionModal(false)
       setShowSendLeadsModal(false)
       setToastMessage('')
       setActivity('Finding businesses...')
@@ -1018,13 +1025,9 @@ export default function Page() {
           setShowFirstSuccessModal(true)
         }
 
-        if ((isFree && shouldShowLimitModal) || shouldShowPartialCompletionModal) {
+        if (shouldShowPartialCompletionModal) {
           completionModalTimeoutRef.current = setTimeout(() => {
-            if (isFree && shouldShowLimitModal) {
-              setShowCompletionModal(true)
-            } else if (shouldShowPartialCompletionModal) {
-              setShowPartialCompletionModal(true)
-            }
+            setShowPartialCompletionModal(true)
             completionModalTimeoutRef.current = null
           }, 4800)
         }
@@ -1222,6 +1225,7 @@ export default function Page() {
   return (
     <>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:gap-10">
+        {isFree ? <ProspectorOnboardingOverlay /> : null}
         {freeUsageWarning ? (
           <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
             {getUsageWarningMessage(resolvedUsageCount, resolvedLeadLimit)}
@@ -1415,7 +1419,13 @@ export default function Page() {
 
             <button
               type="button"
-              onClick={downloadPreviewLeads}
+              onClick={() => {
+                if (!viewerEmail) {
+                  setShowSendLeadsModal(true)
+                } else {
+                  downloadPreviewLeads()
+                }
+              }}
               className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-semibold"
             >
               Download leads
@@ -1454,25 +1464,6 @@ export default function Page() {
         ) : null}
       </div>
 
-      <ScrapeCompletionModal
-        isOpen={isFree && showCompletionModal && Boolean(completionResult)}
-        onClose={() => {
-          requestInboxFocus()
-          setShowCompletionModal(false)
-          router.push('/dashboard/leads')
-        }}
-        summaryLine={completionResult?.summaryLine || ''}
-        detailLine={completionResult?.detailLine || ''}
-        addedLeads={sessionSavedLeads}
-        viewerEmail={viewerEmail}
-        query={businessType.trim()}
-        location={locationTarget}
-        visitorType={visitorType}
-        sessionId={analyticsSessionId}
-        onDownload={() => setToastMessage('Want a copy in your inbox?')}
-        onEmailSent={(message) => setToastMessage(message)}
-      />
-
       <PartialCompletionModal
         isOpen={showPartialCompletionModal && Boolean(completionResult)}
         count={completionResult?.addedCount || 0}
@@ -1487,10 +1478,9 @@ export default function Page() {
       <FirstSuccessModal
         isOpen={showFirstSuccessModal}
         onClose={() => setShowFirstSuccessModal(false)}
-        onViewLeads={() => {
-          requestInboxFocus()
+        onEmailLeads={() => {
           setShowFirstSuccessModal(false)
-          router.push('/dashboard/leads')
+          setShowSendLeadsModal(true)
         }}
       />
 
@@ -1508,6 +1498,12 @@ export default function Page() {
           setShowSendLeadsModal(false)
           setToastMessage(message)
         }}
+      />
+
+      <TrialLimitModal
+        isOpen={showTrialLimitModal}
+        onClose={() => setShowTrialLimitModal(false)}
+        onEmailLeads={() => setShowSendLeadsModal(true)}
       />
 
       {toastMessage ? (

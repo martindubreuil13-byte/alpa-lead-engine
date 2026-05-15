@@ -2,6 +2,19 @@ import Stripe from 'stripe'
 
 export const STRIPE_API_VERSION = '2026-02-25.clover'
 
+// Maps known Stripe price IDs to internal plan keys.
+// Add new plans here; unknown price IDs fall back to 'starter'.
+export function getPlanFromPriceId(priceId: string | null | undefined): 'prospector' | 'starter' {
+  if (!priceId) return 'starter'
+  if (priceId === process.env.STRIPE_PROSPECTOR_PRICE_ID) return 'prospector'
+  return 'starter'
+}
+
+export function getPlanFromSubscription(subscription: Stripe.Subscription): 'prospector' | 'starter' {
+  const priceId = subscription.items.data[0]?.price?.id ?? null
+  return getPlanFromPriceId(priceId)
+}
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
 })
@@ -16,19 +29,33 @@ function getStarterPriceId() {
   return priceId
 }
 
-export async function createStarterCheckoutSession({
-  origin,
-  customerId,
-  userId,
-  userEmail,
-  source,
-}: {
+function getProspectorPriceId() {
+  const priceId = process.env.STRIPE_PROSPECTOR_PRICE_ID
+
+  if (!priceId) {
+    throw new Error('STRIPE_PROSPECTOR_PRICE_ID is not configured')
+  }
+
+  return priceId
+}
+
+type CheckoutSessionParams = {
   origin: string
   customerId: string
+  priceId: string
   userId?: string | null
   userEmail?: string | null
   source?: string | null
-}) {
+}
+
+async function createSubscriptionCheckoutSession({
+  origin,
+  customerId,
+  priceId,
+  userId,
+  userEmail,
+  source,
+}: CheckoutSessionParams) {
   const normalizedUserId = userId?.trim() ?? null
   const normalizedEmail = String(userEmail || '').trim().toLowerCase()
   const normalizedSource = String(source || '').trim()
@@ -37,12 +64,7 @@ export async function createStarterCheckoutSession({
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
-    line_items: [
-      {
-        price: getStarterPriceId(),
-        quantity: 1,
-      },
-    ],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${baseUrl}/post-checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/plans`,
     allow_promotion_codes: true,
@@ -59,6 +81,16 @@ export async function createStarterCheckoutSession({
   }
 
   return session
+}
+
+type PublicCheckoutParams = Omit<CheckoutSessionParams, 'priceId'>
+
+export async function createStarterCheckoutSession(params: PublicCheckoutParams) {
+  return createSubscriptionCheckoutSession({ ...params, priceId: getStarterPriceId() })
+}
+
+export async function createProspectorCheckoutSession(params: PublicCheckoutParams) {
+  return createSubscriptionCheckoutSession({ ...params, priceId: getProspectorPriceId() })
 }
 
 export async function createStripeCustomer({

@@ -1,7 +1,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type UserRole = 'admin' | 'user';
-export type UserPlan = 'free' | 'starter' | 'pro' | 'admin';
+export type UserPlan = 'free' | 'prospector' | 'starter' | 'pro' | 'admin';
 
 export type UserProfile = {
   id: string;

@@ -5,7 +5,7 @@ export function isAdminPlan(plan: string | null | undefined) {
 }
 
 export function isPaidPlan(plan: string | null | undefined) {
-  return plan === 'starter' || plan === 'pro'
+  return plan === 'prospector' || plan === 'starter' || plan === 'pro'
 }
 
 export function isAdmin(user: UserProfile | null) {
@@ -29,6 +29,8 @@ export function canAccessFeature(feature: string, user: UserProfile | null) {
 
   if (isAdmin(user) || isPaid(user)) {
     if (feature === 'leads' || feature === 'csv') return true
+    // Prospector plan: search and export only — no pipeline, templates, or email outreach
+    if (user.plan === 'prospector') return false
     if (feature === 'pipeline' || feature === 'templates' || feature === 'email') return true
   }
 

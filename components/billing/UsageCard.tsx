@@ -10,6 +10,7 @@ type UsageCardProps = {
 }
 
 function formatPlanLabel(plan: string | null | undefined) {
+  if (plan === 'prospector') return 'Prospector'
   if (plan === 'starter') return 'Starter'
   if (plan === 'pro') return 'Pro'
   if (plan === 'admin') return 'Admin'
@@ -18,6 +19,7 @@ function formatPlanLabel(plan: string | null | undefined) {
 
 function getPlanLeadLimit(plan: string) {
   if (plan === 'admin') return 1000
+  if (plan === 'prospector') return 120
   if (plan === 'starter') return 300
   return 25
 }

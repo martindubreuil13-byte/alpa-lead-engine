@@ -12,6 +12,7 @@ export const STARTER_LOCK_MESSAGE = 'Available on Starter plan'
 
 export function getLeadLimit(plan: string) {
   if (isAdminPlan(plan)) return 10000
+  if (plan === 'prospector') return 120
   if (isPaidPlan(plan)) return 300
   return 25
 }

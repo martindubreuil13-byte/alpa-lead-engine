@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { headers } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
+import { getPlanFromSubscription } from '@/lib/stripe'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16' as Stripe.LatestApiVersion,
@@ -102,7 +103,7 @@ async function updateSubscriptionRecords(
   userId: string,
   customerId: string | null | undefined,
   updates: {
-    plan: 'free' | 'starter'
+    plan: 'free' | 'prospector' | 'starter'
     subscription_status: string
     current_period_end: string | null
   }
@@ -136,7 +137,7 @@ async function updateSubscriptionRecords(
 async function updateProfileByStripeCustomerId(
   customerId: string | null | undefined,
   updates: {
-    plan?: 'free' | 'starter'
+    plan?: 'free' | 'prospector' | 'starter'
     subscription_status?: string
     current_period_end?: string | null
   }
@@ -217,7 +218,7 @@ export async function POST(req: Request) {
         )
 
         await updateSubscriptionRecords(profile.id, customerId, {
-          plan: 'starter',
+          plan: subscription ? getPlanFromSubscription(subscription) : 'starter',
           subscription_status: subscription?.status || 'active',
           current_period_end: subscription ? getCurrentPeriodEnd(subscription) : null,
         })
@@ -254,7 +255,7 @@ export async function POST(req: Request) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
         await updateProfileByStripeCustomerId(customerId, {
-          plan: 'starter',
+          plan: getPlanFromSubscription(subscription),
           subscription_status: subscription.status,
           current_period_end: getCurrentPeriodEnd(subscription),
         })

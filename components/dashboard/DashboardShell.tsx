@@ -28,7 +28,6 @@ import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getOrCreateGuestSessionId } from '@/lib/guest-session'
-import { getSessionId } from '@/lib/session'
 import { supabase } from '@/lib/supabase'
 import { isGuestTrialModeForced } from '@/lib/session/guest-trial-mode'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
@@ -206,17 +205,6 @@ export default function DashboardShell({
     window.location.href = '/login'
   }
 
-  async function handleManualTrackTest() {
-    await fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: 'manual_test_click',
-        session_id: getSessionId(),
-      }),
-    })
-  }
-
   function isLocked(item: NavItem) {
     if (viewerMode === 'resolving') {
       return Boolean(item.feature || item.lockedOnFree)
@@ -358,16 +346,6 @@ export default function DashboardShell({
                 Unlock full access
               </Link>
             )}
-
-            {process.env.NODE_ENV !== 'production' ? (
-              <button
-                type="button"
-                onClick={() => void handleManualTrackTest()}
-                className="flex min-h-[44px] w-full items-center justify-center rounded-2xl border border-emerald-400/18 bg-emerald-500/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/14"
-              >
-                TEST TRACK
-              </button>
-            ) : null}
 
             <div className="px-1 text-xs text-slate-500">
               Need help fast? Reach us at{' '}

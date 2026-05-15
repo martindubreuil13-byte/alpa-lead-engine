@@ -1,16 +1,15 @@
 'use client'
 
-import Link from 'next/link'
 import { Sparkles, X } from 'lucide-react'
 
 export default function FirstSuccessModal({
   isOpen,
   onClose,
-  onViewLeads,
+  onEmailLeads,
 }: {
   isOpen: boolean
   onClose: () => void
-  onViewLeads: () => void
+  onEmailLeads: () => void
 }) {
   if (!isOpen) return null
 
@@ -33,28 +32,27 @@ export default function FirstSuccessModal({
         </div>
 
         <h2 className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-white">
-          Nice — your first leads are in
+          Nice. ALPA found verified businesses in seconds.
         </h2>
 
-        <div className="mt-5 space-y-3 text-base leading-7 text-slate-300">
-          <p>You just found your first leads in seconds.</p>
-          <p>Run another search or explore them in your inbox.</p>
-        </div>
+        <p className="mt-5 text-base leading-7 text-slate-300">
+          You can continue prospecting, or save your leads before leaving.
+        </p>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
-            onClick={onViewLeads}
+            onClick={onClose}
             className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-6 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
           >
-            View my leads
+            Continue Prospecting
           </button>
           <button
             type="button"
-            onClick={onClose}
-            className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-base font-semibold text-slate-200"
+            onClick={onEmailLeads}
+            className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-base font-semibold text-slate-200 transition hover:border-white/18 hover:bg-white/[0.08]"
           >
-            Keep searching
+            Email Me My Leads
           </button>
         </div>
       </div>

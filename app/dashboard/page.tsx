@@ -75,6 +75,7 @@ type ActivityItem = {
 
 function getPlanLeadLimit(plan: string) {
   if (plan === 'admin') return 10000
+  if (plan === 'prospector') return 120
   if (plan === 'starter') return 300
   return 25
 }

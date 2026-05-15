@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
+import { getPlanFromSubscription } from '@/lib/stripe'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16' as Stripe.LatestApiVersion,
@@ -169,6 +170,7 @@ export async function POST(req: Request) {
       ? await stripe.subscriptions.retrieve(subscriptionId)
       : null
     const currentPeriodEnd = subscription ? getCurrentPeriodEnd(subscription) : null
+    const activatedPlan = subscription ? getPlanFromSubscription(subscription) : 'starter'
 
     if (body?.cleanWorkspace) {
       const { error: leadsDeleteError } = await admin.from('leads').delete().eq('user_id', user.id)
@@ -192,7 +194,7 @@ export async function POST(req: Request) {
 
     const { error: userPlanError } = await admin
       .from('users')
-      .update({ plan: 'starter' })
+      .update({ plan: activatedPlan })
       .eq('id', user.id)
 
     if (userPlanError) {
@@ -205,7 +207,7 @@ export async function POST(req: Request) {
         {
           id: user.id,
           stripe_customer_id: customerId || null,
-          plan: 'starter',
+          plan: activatedPlan,
           subscription_status: subscription?.status || 'active',
           current_period_end: currentPeriodEnd,
         },

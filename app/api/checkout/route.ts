@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-import { createStripeCustomer, createStarterCheckoutSession } from '@/lib/stripe'
+import { createStripeCustomer, createStarterCheckoutSession, createProspectorCheckoutSession } from '@/lib/stripe'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 const admin = createClient(
@@ -12,6 +12,7 @@ const admin = createClient(
 type CheckoutRequestBody = {
   email?: string | null
   source?: string | null
+  plan?: string | null
 }
 
 function normalizeEmail(email: string | null | undefined) {
@@ -94,20 +95,27 @@ export async function POST(req: Request) {
       }
     }
 
+    const requestedPlan = String(body?.plan || '').trim()
+
     console.log('CHECKOUT SESSION PARAMS', {
       hasCustomer: Boolean(customer?.id),
       hasCustomerEmail: false,
       userEmail,
       userId,
+      plan: requestedPlan || 'starter',
     })
 
-    const session = await createStarterCheckoutSession({
+    const checkoutParams = {
       origin,
       customerId: customer.id,
       userId: userId ?? null,
       userEmail,
       source: body?.source || null,
-    })
+    }
+
+    const session = requestedPlan === 'prospector'
+      ? await createProspectorCheckoutSession(checkoutParams)
+      : await createStarterCheckoutSession(checkoutParams)
 
     return NextResponse.json({ url: session.url })
   } catch (error) {

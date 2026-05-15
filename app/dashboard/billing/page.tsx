@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic'
 
 function getPlanLeadLimit(plan: string) {
   if (plan === 'admin') return 1000
+  if (plan === 'prospector') return 120
   if (plan === 'starter') return 300
   return 25
 }
@@ -55,7 +56,7 @@ export default async function BillingPage() {
   ])
 
   const usagePlan = profileData?.plan ?? user.plan
-  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'starter'
+  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter'
   const usageStatus = usagePlan === 'free' ? 'free' : 'active'
   const usageStarted = isPaidUsagePlan ? usageData?.period_start ?? null : null
   const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
@@ -74,23 +75,29 @@ export default async function BillingPage() {
     ? 'Admin Access'
     : user.plan === 'pro'
       ? 'Pro Plan'
-      : userIsPaid
-        ? 'Starter Plan'
-        : 'Free Plan'
+      : user.plan === 'prospector'
+        ? 'Prospector Plan'
+        : userIsPaid
+          ? 'Starter Plan'
+          : 'Free Plan'
   const currentPlanDescription = userIsAdmin
     ? 'Unlimited access across all ALPA features.'
     : user.plan === 'pro'
       ? 'Paid access across prospecting, outreach, and workflow tools.'
-      : userIsPaid
-        ? 'Up to 300 verified leads per month'
-        : 'Access to 25 verified leads'
+      : user.plan === 'prospector'
+        ? '120 verified business leads per month with website and contact details.'
+        : userIsPaid
+          ? 'Up to 300 verified leads per month'
+          : 'Access to 25 verified leads'
   const currentPlanBadge = userIsAdmin
     ? 'Admin access'
     : user.plan === 'pro'
       ? 'Pro access'
-      : userIsPaid
-        ? 'Starter access'
-        : 'Free access'
+      : user.plan === 'prospector'
+        ? 'Prospector access'
+        : userIsPaid
+          ? 'Starter access'
+          : 'Free access'
 
   return (
     <div className="space-y-10">

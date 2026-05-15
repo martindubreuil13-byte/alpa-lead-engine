@@ -39,8 +39,8 @@ export default function PartialCompletionModal({
 
         <div className="mt-5 space-y-3 text-base leading-7 text-slate-300">
           <p>
-            That&apos;s what&apos;s available right now for this search. You can refine your search or
-            start working with these leads immediately.
+            These businesses are ready to contact right now. You can refine your search or
+            start working with them immediately.
           </p>
         </div>
 

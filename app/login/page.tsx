@@ -131,7 +131,7 @@ export default function LoginPage() {
             console.warn('Guest claim skipped:', err)
           })
           clearGuestTrialMode()
-          router.push('/dashboard')
+          router.push('/dashboard/scraper')
           return
         }
 
@@ -154,18 +154,30 @@ export default function LoginPage() {
           console.warn('Guest claim skipped:', err)
         })
         clearGuestTrialMode()
-        router.push('/dashboard')
+        router.push('/dashboard/scraper')
         return
       }
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
 
       await claimGuestTrialIfNeeded().catch((err) => {
         console.warn('Guest claim skipped:', err)
       })
       clearGuestTrialMode()
-      router.push('/dashboard')
+
+      const userId = signInData?.user?.id
+      if (userId) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('plan')
+          .eq('id', userId)
+          .single()
+        const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(String(profile?.plan ?? ''))
+        router.push(hasPaidPlan ? '/dashboard' : '/dashboard/scraper')
+      } else {
+        router.push('/dashboard/scraper')
+      }
     } catch (err) {
       console.error('Login failed:', err)
 

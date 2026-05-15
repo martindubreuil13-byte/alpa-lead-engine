@@ -9,11 +9,19 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
 
+type CheckoutPlan = 'starter' | 'prospector'
+
+const PLAN_META: Record<CheckoutPlan, { price: number; leadLimit: number }> = {
+  starter:    { price: 29.99, leadLimit: 300 },
+  prospector: { price: 9.99,  leadLimit: 120 },
+}
+
 type StartCheckoutButtonProps = {
   label: string
   className?: string
   email?: string | null
   source?: string
+  plan?: CheckoutPlan
   disabled?: boolean
   disabledLabel?: string
 }
@@ -23,6 +31,7 @@ export default function StartCheckoutButton({
   className,
   email,
   source = 'upgrade',
+  plan = 'starter',
   disabled = false,
   disabledLabel = label,
 }: StartCheckoutButtonProps) {
@@ -71,15 +80,19 @@ export default function StartCheckoutButton({
       saveGuestCaptureEmail(normalizedEmail)
     }
 
+    const { price: planPrice, leadLimit: planLeadLimit } = PLAN_META[plan]
+
     void trackEvent('upgrade_clicked', {
       email: normalizedEmail || null,
       metadata: {
         source,
+        plan,
       },
     })
     trackGaEvent('upgrade_clicked', {
-      plan_name: 'starter',
-      price: 29.99,
+      plan_name: plan,
+      price: planPrice,
+      lead_limit: planLeadLimit,
       billing_period: 'monthly',
       source_page: getSourcePage(),
       cta_location: getCtaLocation(),
@@ -93,6 +106,7 @@ export default function StartCheckoutButton({
         body: JSON.stringify({
           email: normalizedEmail || null,
           source,
+          plan,
         }),
       })
 
@@ -106,11 +120,13 @@ export default function StartCheckoutButton({
         email: normalizedEmail || null,
         metadata: {
           source,
+          plan,
         },
       })
       trackGaEvent('checkout_started', {
-        plan_name: 'starter',
-        price: 29.99,
+        plan_name: plan,
+        price: planPrice,
+        lead_limit: planLeadLimit,
         billing_period: 'monthly',
         visitor_type: visitorType,
       })
