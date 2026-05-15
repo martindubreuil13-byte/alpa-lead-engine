@@ -19,6 +19,7 @@ const PLAN_META: Record<CheckoutPlan, { price: number; leadLimit: number }> = {
 type StartCheckoutButtonProps = {
   label: string
   className?: string
+  wrapperClassName?: string
   email?: string | null
   source?: string
   plan?: CheckoutPlan
@@ -29,6 +30,7 @@ type StartCheckoutButtonProps = {
 export default function StartCheckoutButton({
   label,
   className,
+  wrapperClassName,
   email,
   source = 'upgrade',
   plan = 'starter',
@@ -139,7 +141,7 @@ export default function StartCheckoutButton({
   }
 
   return (
-    <div className="space-y-3">
+    <div className={['space-y-3', wrapperClassName].filter(Boolean).join(' ')}>
       {showEmailInput && !isAuthenticated ? (
         <div className="space-y-2">
           <label className="text-sm text-gray-400">Email address</label>
