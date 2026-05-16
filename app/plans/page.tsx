@@ -9,7 +9,7 @@ import PlansPageTracker from '@/components/tracking/PlansPageTracker'
 
 const pageTitle = 'Pricing & Plans for Lead Generation | ALPA'
 const pageDescription =
-  'ALPA plans start free — get 25 verified leads instantly. Prospector: 120 leads/month for $9.99. Starter: 300 leads/month with outreach tools for $29.99. Find real business contacts with website, email, and phone.'
+  'ALPA plans start free — get 25 verified leads instantly. Prospector: 120 leads/month for $9.99. Starter: 500 leads/month with outreach tools for $29.99. Find real business contacts with website, email, and phone.'
 
 export const metadata: Metadata = {
   title: {
@@ -67,10 +67,10 @@ const plans: PlanCardProps[] = [
     name: 'Starter',
     price: '$29.99',
     priceSuffix: '/ month',
-    pricePerLead: '$0.10 per verified lead',
+    pricePerLead: '$0.06 per verified lead',
     description: 'Move from lead discovery to real outreach workflows.',
     features: [
-      '300 verified leads / month',
+      '500 verified leads / month',
       'CSV export',
       'Pipeline access',
       '1 outreach template',

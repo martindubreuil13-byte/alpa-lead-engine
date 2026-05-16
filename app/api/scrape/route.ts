@@ -1206,7 +1206,7 @@ export async function POST(req: Request) {
     if (authenticatedPlan === 'admin') {
       leadsLimit = 10000
     } else if (authenticatedPlan === 'starter') {
-      leadsLimit = 300
+      leadsLimit = 500
     } else {
       leadsLimit = 25
     }

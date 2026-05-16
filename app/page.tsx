@@ -171,7 +171,7 @@ export default function HomePage() {
                 name: 'Starter',
                 price: '29.99',
                 priceCurrency: 'USD',
-                description: '300 leads per month',
+                description: '500 leads per month',
               },
             ],
             creator: {
@@ -423,7 +423,7 @@ export default function HomePage() {
               Start free. Upgrade when you need more.
             </h2>
             <p className="mt-4 text-base leading-7 text-slate-300 sm:text-lg">
-              Test ALPA without friction. If the first 25 leads help, unlock 300 leads/month for
+              Test ALPA without friction. If the first 25 leads help, unlock 500 leads/month for
               consistent prospecting.
             </p>
           </div>
@@ -460,7 +460,7 @@ export default function HomePage() {
                 <div className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-white">
                   $29.99/month
                 </div>
-                <div className="mt-2 text-sm text-cyan-100">300 leads/month</div>
+                <div className="mt-2 text-sm text-cyan-100">500 leads/month</div>
                 <ul className="mt-6 flex-1 space-y-3 text-sm text-slate-300">
                   {starterBullets.map((item) => (
                     <li key={item} className="flex items-start gap-3 leading-6">
@@ -471,7 +471,7 @@ export default function HomePage() {
                 </ul>
                 <div className="mt-7">
                   <Link href="/plans" className={secondaryCtaClass}>
-                    Unlock 300 Leads
+                    Unlock 500 Leads
                   </Link>
                 </div>
               </div>

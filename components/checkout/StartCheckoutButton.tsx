@@ -12,7 +12,7 @@ import { trackEvent } from '@/lib/track'
 type CheckoutPlan = 'starter' | 'prospector'
 
 const PLAN_META: Record<CheckoutPlan, { price: number; leadLimit: number }> = {
-  starter:    { price: 29.99, leadLimit: 300 },
+  starter:    { price: 29.99, leadLimit: 500 },
   prospector: { price: 9.99,  leadLimit: 120 },
 }
 

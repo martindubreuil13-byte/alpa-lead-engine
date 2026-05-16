@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 function getPlanLeadLimit(plan: string) {
   if (plan === 'admin') return 1000
   if (plan === 'prospector') return 120
-  if (plan === 'starter') return 300
+  if (plan === 'starter') return 500
   return 25
 }
 
@@ -87,7 +87,7 @@ export default async function BillingPage() {
       : user.plan === 'prospector'
         ? '120 verified business leads per month with website and contact details.'
         : userIsPaid
-          ? 'Up to 300 verified leads per month'
+          ? 'Up to 500 verified leads per month'
           : 'Access to 25 verified leads'
   const currentPlanBadge = userIsAdmin
     ? 'Admin access'
