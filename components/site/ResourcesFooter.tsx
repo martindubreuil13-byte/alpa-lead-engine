@@ -2,7 +2,22 @@ import Link from 'next/link'
 
 import { resources } from '@/lib/resources'
 
-export default function ResourcesFooter() {
+export default function ResourcesFooter({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <section className="relative px-4 pb-10 pt-2 sm:px-6 sm:pb-12 lg:px-10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 border-t border-white/8 pt-6 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/resources" className="font-medium text-slate-300 transition hover:text-white">
+            Resources
+          </Link>
+          <Link href="/resources" className="transition hover:text-white">
+            Get more lead generation guides →
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="relative px-4 pb-14 pt-4 sm:px-6 sm:pb-16 lg:px-10 lg:pb-20">
       <div className="mx-auto max-w-6xl border-t border-white/8 pt-8">

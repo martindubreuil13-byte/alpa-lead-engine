@@ -36,7 +36,11 @@ const leads = [
   },
 ]
 
-export default function OperationalLeadPreview() {
+export default function OperationalLeadPreview({ variant = 'list' }: { variant?: 'list' | 'export' }) {
+  if (variant === 'export') {
+    return <ExportLeadPreview />
+  }
+
   return (
     <div
       data-hero-leads-preview
@@ -65,6 +69,68 @@ export default function OperationalLeadPreview() {
         <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-3 py-2.5">
           <div className="min-w-0 text-xs text-slate-400">
             <span className="font-medium text-slate-200">25 contact-ready leads</span>
+          </div>
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_22px_rgba(59,130,246,0.2)]">
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExportLeadPreview() {
+  const lead = leads[0]
+
+  return (
+    <div
+      data-export-leads-preview
+      className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,15,29,0.96),rgba(5,12,24,0.94))] p-3 shadow-[0_22px_70px_rgba(2,8,23,0.5)] backdrop-blur-2xl sm:p-4"
+    >
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(96,165,250,0.45),transparent)]" />
+      <div className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-blue-500/[0.06] blur-3xl" />
+
+      <div className="relative rounded-[24px] border border-white/[0.07] bg-slate-950/42 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100/80">
+              <Download className="h-3.5 w-3.5" />
+              Export preview
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-200">Contact data ready</div>
+          </div>
+          <div className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            Ready
+          </div>
+        </div>
+
+        <article className="mt-3 rounded-2xl border border-blue-300/14 bg-[linear-gradient(180deg,rgba(12,24,44,0.92),rgba(8,14,28,0.94))] p-3 shadow-[0_12px_32px_rgba(2,8,23,0.24)]">
+          <LeadHeader lead={lead} />
+          <div className="mt-3 grid gap-2 text-xs text-slate-300">
+            <ContactLine icon={Mail} label="Email" value={lead.email} />
+            <ContactLine icon={Phone} label="Phone" value={lead.phone} />
+            <ContactLine icon={Globe} label="Website" value={lead.website} />
+          </div>
+        </article>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {['Website', 'Email', 'Phone'].map((item) => (
+            <div
+              key={item}
+              className="rounded-2xl border border-white/[0.07] bg-white/[0.035] px-3 py-3"
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {item}
+              </div>
+              <div className="mt-1 text-sm font-medium text-slate-200">Included</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-3 py-2.5">
+          <div className="min-w-0 text-xs text-slate-400">
+            <span className="font-medium text-slate-200">Download your list</span>
           </div>
           <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_22px_rgba(59,130,246,0.2)]">
             <Download className="h-3.5 w-3.5" />
