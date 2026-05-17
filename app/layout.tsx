@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { GoogleAnalytics } from '@next/third-parties/google'
 
+import KaiaWidget from '@/components/kaia/kaia-widget'
+
 const siteUrl = 'https://alpa.mindrasolutions.com'
 const defaultTitle = 'ALPA by MINDRA | Lead Generation & Prospecting Platform'
 const defaultDescription =
@@ -69,6 +71,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
         />
         {children}
+        <KaiaWidget />
       </body>
 
       {process.env.NEXT_PUBLIC_GA_ID ? (

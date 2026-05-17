@@ -34,6 +34,17 @@ body {
   overscroll-behavior-y: none;
 }
 
+elevenlabs-convai {
+  z-index: 60;
+}
+
+@media (max-width: 640px) {
+  elevenlabs-convai {
+    bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    right: 1rem !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-white/10;
