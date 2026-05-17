@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
-import AskKaiaCta from '@/components/kaia/ask-kaia-cta'
 import FreshStartCta from '@/components/landing/FreshStartCta'
 import OperationalLeadPreview from '@/components/landing/OperationalLeadPreview'
 import PublicHeader from '@/components/site/PublicHeader'
@@ -139,8 +138,6 @@ export default function HomePage() {
                   </li>
                 ))}
               </ul>
-
-              <AskKaiaCta />
             </div>
           </div>
 
