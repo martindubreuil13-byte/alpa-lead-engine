@@ -56,7 +56,11 @@ export default function OperationalLeadPreview({ variant = 'list' }: { variant?:
               <Search className="h-3.5 w-3.5" />
               Marketing agencies · Miami
             </div>
-            <div className="mt-2 text-sm font-medium text-slate-200">25 leads found</div>
+            <div className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-200">
+              25 leads found
+              {/* Desktop-only: live activity indicator */}
+              <span className="lead-status-blink hidden h-1.5 w-1.5 rounded-full bg-blue-400 lg:inline-block" />
+            </div>
           </div>
         </div>
 
@@ -100,7 +104,8 @@ function ExportLeadPreview() {
             </div>
             <div className="mt-2 text-sm font-medium text-slate-200">Contact data ready</div>
           </div>
-          <div className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+          <div className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            <span className="lead-status-blink hidden h-1.5 w-1.5 rounded-full bg-emerald-400 lg:inline-block" />
             Ready
           </div>
         </div>
@@ -152,7 +157,7 @@ function LeadPreviewRow({
   if (lead.expanded) {
     return (
       <article
-        className={`rounded-2xl border border-blue-300/14 bg-[linear-gradient(180deg,rgba(12,24,44,0.92),rgba(8,14,28,0.94))] p-3 shadow-[0_12px_32px_rgba(2,8,23,0.24)] ${className}`}
+        className={`rounded-2xl border border-blue-300/14 bg-[linear-gradient(180deg,rgba(12,24,44,0.92),rgba(8,14,28,0.94))] p-3 shadow-[0_12px_32px_rgba(2,8,23,0.24)] transition-all duration-300 lg:hover:border-blue-300/22 lg:hover:shadow-[0_16px_40px_rgba(2,8,23,0.32)] ${className}`}
       >
         <LeadHeader lead={lead} />
         <div className="mt-3 grid gap-2 text-xs text-slate-300">
@@ -165,7 +170,7 @@ function LeadPreviewRow({
   }
 
   return (
-    <article className={`rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3 ${className}`}>
+    <article className={`rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3 transition-all duration-300 lg:hover:border-white/[0.14] lg:hover:bg-white/[0.05] ${className}`}>
       <LeadHeader lead={lead} />
     </article>
   )

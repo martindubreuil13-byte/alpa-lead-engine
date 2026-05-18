@@ -346,3 +346,107 @@ select:-webkit-autofill:focus {
   -webkit-text-fill-color: white !important;
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* ── Desktop Cinematic Landing System ───────────────────────────────────────── */
+
+@keyframes heroOrbFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(24px, -16px) scale(1.04); }
+  66%       { transform: translate(-14px, 11px) scale(0.97); }
+}
+
+@keyframes heroOrbAlt {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40%       { transform: translate(-20px, 14px) scale(1.05); }
+  70%       { transform: translate(15px, -9px) scale(0.97); }
+}
+
+@keyframes previewSweep {
+  0%   { transform: translateX(-200%) skewX(-10deg); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 0.5; }
+  100% { transform: translateX(500%) skewX(-10deg); opacity: 0; }
+}
+
+@keyframes ctaGlowBreath {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%       { opacity: 0.88; transform: scale(1.06); }
+}
+
+@keyframes leadStatusBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+@keyframes sectionGlowDrift {
+  0%, 100% { transform: translate(0, 0) scale(1);     opacity: 0.6; }
+  50%       { transform: translate(18px, -12px) scale(1.05); opacity: 0.9; }
+}
+
+/* Classes — applied only to hidden lg:block elements, so safe on mobile */
+
+.hero-orb-float {
+  animation: heroOrbFloat 14s ease-in-out infinite;
+  will-change: transform;
+}
+
+.hero-orb-alt {
+  animation: heroOrbAlt 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.hero-orb-slow {
+  animation: heroOrbFloat 22s ease-in-out infinite 4s;
+  will-change: transform;
+}
+
+.preview-sweep {
+  animation: previewSweep 9s cubic-bezier(0.25, 0, 0.75, 1) infinite 1.5s;
+  will-change: transform, opacity;
+}
+
+.cta-glow-breath {
+  animation: ctaGlowBreath 5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.lead-status-blink {
+  animation: leadStatusBlink 2.5s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.section-glow-drift {
+  animation: sectionGlowDrift 12s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* ── Directional glow — operational section (top-left → bottom-right drift) */
+
+@keyframes directedGlowFlow {
+  0%, 100% { transform: translate(0, 0) scale(1);       opacity: 0.5; }
+  50%       { transform: translate(18px, 22px) scale(1.05); opacity: 0.82; }
+}
+
+.directed-glow-flow {
+  animation: directedGlowFlow 11s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* ── Cinematic scroll reveal — desktop progressive enhancement ───────────── */
+/*    Uses CSS scroll-driven animations (view-timeline). Gracefully falls     */
+/*    back to static content in unsupporting browsers via @supports.          */
+
+@keyframes cinematicReveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@supports (animation-timeline: view()) {
+  @media (min-width: 1024px) {
+    .cinematic-reveal {
+      animation: cinematicReveal 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 22%;
+    }
+  }
+}
