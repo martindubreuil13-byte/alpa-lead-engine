@@ -129,10 +129,10 @@ export default function HomePage() {
               Contact-ready leads
             </div>
 
-            <h1 className="mt-5 max-w-5xl text-[2.75rem] font-semibold leading-[0.96] tracking-[-0.06em] text-white sm:mt-7 sm:text-[4.5rem] lg:mt-8 lg:max-w-none lg:text-[6.25rem] lg:leading-[0.91]">
-              Business leads
+            <h1 className="mt-5 max-w-5xl text-[2.4rem] font-semibold leading-[1.1] tracking-tight text-white sm:mt-7 sm:text-[4.5rem] sm:leading-[1.02] sm:tracking-[-0.04em] lg:mt-8 lg:max-w-none lg:text-[6.25rem] lg:leading-[0.91] lg:tracking-[-0.06em]">
+              Business leads{' '}
               <br className="hidden lg:block" />
-              in seconds.
+              in seconds.{' '}
               <br className="hidden lg:block" />
               Literally.
             </h1>
@@ -188,7 +188,7 @@ export default function HomePage() {
           </p>
 
           {/* Mobile heading */}
-          <h2 className="mt-5 max-w-3xl text-[2rem] font-semibold leading-[1.05] tracking-[-0.045em] text-white sm:text-5xl sm:leading-[1.02] lg:hidden">
+          <h2 className="mt-5 max-w-3xl text-[2rem] font-semibold leading-[1.08] tracking-tight text-white sm:text-5xl sm:leading-[1.02] sm:tracking-[-0.03em] lg:hidden">
             You did not become an entrepreneur to spend your time doing unpaid work.
           </h2>
 
@@ -198,7 +198,7 @@ export default function HomePage() {
           </h2>
 
           {/* Mobile supporting text */}
-          <p className="mt-7 text-xl font-medium leading-8 tracking-[-0.02em] text-slate-300 sm:text-2xl sm:leading-9 lg:hidden">
+          <p className="mt-7 text-lg font-medium leading-8 tracking-normal text-slate-300 sm:text-2xl sm:leading-9 sm:tracking-[-0.01em] lg:hidden">
             So why are you still spending hours hunting for leads manually when ALPA can do it in seconds?
           </p>
 
@@ -216,7 +216,7 @@ export default function HomePage() {
         of the deliverables (Website → Done.). Right column is the live preview —
         wider, ungridded, suggesting the system is running right now.
       */}
-      <section className="relative px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-28">
+      <section className="relative px-4 py-12 sm:px-6 sm:py-14 lg:px-10 lg:py-28">
 
         {/* Desktop: directional glow — drifts toward bottom-right, implying momentum */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
@@ -230,7 +230,7 @@ export default function HomePage() {
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-100">
               Contact-ready leads
             </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-white sm:text-5xl">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em]">
               Website. Email. Phone. Export. Done.
             </h2>
           </div>
@@ -276,18 +276,18 @@ export default function HomePage() {
         Desktop: giant faded ordinals anchor each step. No borders. Sparse.
         The whitespace IS the design.
       */}
-      <section className="relative px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-36">
+      <section className="relative px-4 py-12 sm:px-6 sm:py-14 lg:px-10 lg:py-36">
         <div className="cinematic-reveal mx-auto max-w-6xl">
-          <div className="flex flex-col gap-7 border-y border-white/[0.06] py-7 lg:flex-row lg:items-start lg:gap-0 lg:border-y-0 lg:py-0">
+          <div className="flex flex-col gap-8 border-y border-white/[0.06] py-8 lg:flex-row lg:items-start lg:gap-0 lg:border-y-0 lg:py-0">
             {flowSteps.map((step, index) => (
               <div
                 key={step.title}
-                className="flex min-w-0 flex-1 items-center gap-4 lg:flex-col lg:items-start lg:px-16 lg:first:pl-0 lg:last:pr-0"
+                className="flex min-w-0 flex-1 items-center gap-5 lg:flex-col lg:items-start lg:px-16 lg:first:pl-0 lg:last:pr-0"
               >
-                {/* Mobile: circle */}
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/18 bg-cyan-400/[0.08] text-sm font-semibold text-cyan-100 lg:hidden">
+                {/* Mobile: editorial numeral — no border, no box, just a faded ordinal */}
+                <span className="w-7 shrink-0 text-left text-[1.3rem] font-bold leading-none tracking-tight text-white/20 lg:hidden">
                   {index + 1}
-                </div>
+                </span>
 
                 {/* Desktop: large faded ordinal — the number IS the atmosphere */}
                 <div className="mb-6 hidden text-[7rem] font-bold leading-none tracking-[-0.08em] text-white/[0.07] lg:block">
@@ -295,7 +295,7 @@ export default function HomePage() {
                 </div>
 
                 <div>
-                  <div className="text-xl font-semibold tracking-[-0.03em] text-white lg:text-xl lg:tracking-[-0.04em]">
+                  <div className="text-[1.05rem] font-semibold tracking-normal text-white lg:text-xl lg:tracking-[-0.04em]">
                     {step.title}
                   </div>
                   <div className="mt-1 text-sm text-slate-500 lg:mt-2">
@@ -309,13 +309,13 @@ export default function HomePage() {
       </section>
 
       {/* ── PRICING ──────────────────────────────────────────────────────────── */}
-      <section className="relative px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-24">
+      <section className="relative px-4 py-12 sm:px-6 sm:py-14 lg:px-10 lg:py-24">
         <div className="mx-auto max-w-6xl">
           <div className="max-w-3xl">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-100">
               Simple pricing
             </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-white sm:text-5xl lg:text-[3.4rem]">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em] lg:text-[3.4rem] lg:tracking-[-0.045em]">
               25 free leads. No commitment.
             </h2>
           </div>
@@ -353,27 +353,27 @@ export default function HomePage() {
       </section>
 
       {/* ── FINAL CTA ────────────────────────────────────────────────────────── */}
-      <section className="relative px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:px-10 lg:pb-40 lg:pt-36">
+      <section className="relative px-4 pb-16 pt-12 sm:px-6 sm:pb-16 sm:pt-14 lg:px-10 lg:pb-40 lg:pt-36">
 
         {/* Desktop: breathing glow — shifted left to match editorial alignment */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
           <div className="cta-glow-breath absolute left-[38%] top-1/2 h-[640px] w-[960px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.22),transparent_58%)] blur-3xl" />
         </div>
 
-        <div className="cinematic-reveal mx-auto max-w-5xl border-t border-white/8 pt-10 text-center sm:pt-14 lg:border-t-0 lg:pt-0 lg:text-left">
-          <h2 className="mx-auto max-w-4xl text-4xl font-semibold leading-[1.02] tracking-[-0.055em] text-white sm:text-6xl lg:mx-0 lg:max-w-none lg:text-[5.25rem] lg:leading-[0.94] lg:tracking-[-0.065em]">
-            While you are still
+        <div className="cinematic-reveal mx-auto max-w-5xl border-t border-white/8 pt-12 text-center sm:pt-14 lg:border-t-0 lg:pt-0 lg:text-left">
+          <h2 className="mx-auto max-w-sm text-[2.1rem] font-semibold leading-[1.08] tracking-tight text-white sm:max-w-4xl sm:text-6xl sm:leading-[1.02] sm:tracking-[-0.04em] lg:mx-0 lg:max-w-none lg:text-[5.25rem] lg:leading-[0.94] lg:tracking-[-0.065em]">
+            While you are still{' '}
             <br className="hidden lg:block" />
             thinking about this,
           </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg lg:mx-0 lg:mt-9 lg:max-w-2xl lg:text-xl lg:text-slate-300">
+          <p className="mx-auto mt-6 max-w-xs text-base leading-7 text-slate-300 sm:max-w-2xl sm:text-lg lg:mx-0 lg:mt-9 lg:max-w-2xl lg:text-xl lg:text-slate-300">
             Your competitors are already talking to their next clients.
           </p>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base lg:mx-0 lg:mt-4 lg:text-slate-500">
+          <p className="mx-auto mt-4 max-w-xs text-sm leading-6 text-slate-400 sm:max-w-2xl sm:text-base lg:mx-0 lg:mt-4 lg:text-slate-500">
             Best case: you leave with 25 free leads. Worst case: you lose less than a minute.
           </p>
 
-          <div className="mx-auto mt-8 flex max-w-xl justify-center lg:mx-0 lg:mt-12 lg:justify-start">
+          <div className="mx-auto mt-10 flex max-w-xl justify-center lg:mx-0 lg:mt-12 lg:justify-start">
             <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
           </div>
         </div>
