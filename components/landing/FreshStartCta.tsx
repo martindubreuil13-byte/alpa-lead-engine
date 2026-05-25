@@ -1,12 +1,7 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
-import { supabase } from '@/lib/supabase'
 import { trackEvent } from '@/lib/track'
-import { enableGuestTrialMode } from '@/lib/session/guest-trial-mode'
-import { resetGuestSession } from '@/lib/session/resetGuestSession'
 
 export default function FreshStartCta({
   className,
@@ -15,8 +10,6 @@ export default function FreshStartCta({
   className?: string
   children: React.ReactNode
 }) {
-  const router = useRouter()
-
   function getCtaLocation() {
     const sourcePage = getSourcePage()
     if (sourcePage === '/') return 'hero'
@@ -25,27 +18,19 @@ export default function FreshStartCta({
     return 'other'
   }
 
-  async function handleClick() {
+  function handleClick() {
     const sourcePage = getSourcePage()
-    const visitorType = 'anonymous'
     trackGaEvent('free_trial_cta_click', {
       cta_location: getCtaLocation(),
       source_page: sourcePage,
-      visitor_type: visitorType,
+      visitor_type: 'anonymous',
     })
-    void trackEvent('trial_started', {
-      metadata: {
-        source: 'landing_cta',
-      },
-    })
-    enableGuestTrialMode()
-    resetGuestSession({ regenerateSessionId: true })
-    await supabase.auth.signOut()
-    router.push('/dashboard/scraper')
+    void trackEvent('trial_started', { metadata: { source: 'landing_cta' } })
+    window.dispatchEvent(new CustomEvent('alpa:open-trial-flow'))
   }
 
   return (
-    <button type="button" onClick={() => void handleClick()} className={className}>
+    <button type="button" onClick={handleClick} className={className}>
       {children}
     </button>
   )

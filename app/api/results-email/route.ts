@@ -12,6 +12,7 @@ type ResultsEmailPayload = {
   summaryLine?: string
   detailLine?: string | null
   limitMessage?: string | null
+  elapsedSeconds?: number | null
 }
 
 type ResendEmailResult = {
@@ -37,16 +38,25 @@ function getResendErrorMessage(result: ResendEmailResult | null) {
 
 function buildResultsEmailHtml(payload: ResultsEmailPayload) {
   const leads = Array.isArray(payload.leads) ? payload.leads.slice(0, 5) : []
+  const leadCount = Array.isArray(payload.leads) ? payload.leads.length : leads.length
+  const elapsed = payload.elapsedSeconds ?? null
+
+  const statsLine =
+    leadCount > 0 && elapsed !== null
+      ? `You generated ${leadCount} lead${leadCount !== 1 ? 's' : ''} in ${elapsed} second${elapsed !== 1 ? 's' : ''}.`
+      : leadCount > 0
+        ? `You generated ${leadCount} lead${leadCount !== 1 ? 's' : ''}.`
+        : (payload.summaryLine ?? 'Your latest results are attached.')
+
   const listHtml = leads
     .map((lead) => {
       const contact = lead.email || lead.phone || 'No direct contact found'
-      const location = lead.city || 'Unknown city'
-
+      const location = lead.city || ''
       return `
-        <div style="padding:14px 0;border-top:1px solid rgba(148,163,184,0.14);">
-          <div style="font-size:15px;font-weight:700;color:#0f172a;">${lead.company_name}</div>
+        <div style="padding:14px 0;border-top:1px solid rgba(148,163,184,0.12);">
+          <div style="font-size:15px;font-weight:600;color:#0f172a;">${lead.company_name}</div>
           <div style="margin-top:4px;font-size:14px;line-height:1.6;color:#334155;">${contact}</div>
-          <div style="margin-top:2px;font-size:13px;line-height:1.5;color:#64748b;">${location}</div>
+          ${location ? `<div style="margin-top:2px;font-size:13px;color:#64748b;">${location}</div>` : ''}
         </div>
       `
     })
@@ -54,12 +64,20 @@ function buildResultsEmailHtml(payload: ResultsEmailPayload) {
 
   return `
     <div style="margin:0;background:#f8fafc;padding:32px 16px;color:#0f172a;font-family:Arial,sans-serif;">
-      <div style="max-width:640px;margin:0 auto;border:1px solid rgba(15,23,42,0.08);border-radius:24px;background:#ffffff;padding:32px;">
-        <div style="font-size:12px;font-weight:700;letter-spacing:0.28em;text-transform:uppercase;color:#06b6d4;">ALPA</div>
-        <h1 style="margin:18px 0 0;font-size:30px;line-height:1.08;color:#0f172a;">Your ALPA results are ready</h1>
-        <p style="margin:16px 0 0;font-size:16px;line-height:1.7;color:#334155;">${payload.summaryLine || 'Your latest results are attached.'}</p>
-        <p style="margin:12px 0 0;font-size:14px;line-height:1.7;color:#64748b;">A CSV of your leads is attached.</p>
+      <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid rgba(15,23,42,0.08);border-radius:20px;padding:40px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.28em;text-transform:uppercase;color:#3b82f6;">ALPA</div>
+        <h1 style="margin:20px 0 0;font-size:28px;line-height:1.1;font-weight:700;color:#0f172a;">Your ALPA leads are ready</h1>
+        <p style="margin:20px 0 0;font-size:15px;line-height:1.75;color:#334155;">Thanks for trying ALPA.</p>
+        <p style="margin:12px 0 0;font-size:15px;line-height:1.75;color:#334155;">${statsLine} I hope these leads help you start a few useful conversations and open new business opportunities.</p>
+        <p style="margin:12px 0 0;font-size:15px;line-height:1.75;color:#334155;">ALPA was built to remove the unpaid manual work of lead hunting — so you can spend more time selling, serving, and building.</p>
+        <p style="margin:20px 0 0;font-size:15px;line-height:1.75;color:#334155;">If you want to keep prospecting, plans start at $9.99/month: <a href="https://alpa.mindrasolutions.com/plans" style="color:#3b82f6;text-decoration:none;">alpa.mindrasolutions.com/plans</a></p>
+        <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:#64748b;">Your leads are attached as a CSV below.</p>
         ${listHtml ? `<div style="margin-top:24px;">${listHtml}</div>` : ''}
+        <div style="margin-top:36px;padding-top:24px;border-top:1px solid rgba(148,163,184,0.14);">
+          <p style="margin:0;font-size:15px;line-height:1.75;color:#334155;">Good luck with the outreach,</p>
+          <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#0f172a;">Martin</p>
+          <p style="margin:2px 0 0;font-size:13px;color:#64748b;">ALPA by MINDRA</p>
+        </div>
       </div>
     </div>
   `

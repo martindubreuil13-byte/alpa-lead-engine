@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 import FreshStartCta from '@/components/landing/FreshStartCta'
+import FreeTrialCommandFlow from '@/components/landing/FreeTrialCommandFlow'
 import OperationalLeadPreview from '@/components/landing/OperationalLeadPreview'
 import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
@@ -424,6 +425,7 @@ export default function HomePage() {
       </section>
 
       <ResourcesFooter compact />
+      <FreeTrialCommandFlow />
     </main>
   )
 }
