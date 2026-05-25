@@ -5,6 +5,7 @@ import Script from 'next/script'
 
 export default function KaiaWidget() {
   const [visible, setVisible] = useState(false)
+  const [trialFlowActive, setTrialFlowActive] = useState(false)
 
   useEffect(() => {
     let triggered = false
@@ -24,6 +25,19 @@ export default function KaiaWidget() {
     }
   }, [])
 
+  useEffect(() => {
+    const hideForTrialFlow = () => setTrialFlowActive(true)
+    const restoreAfterTrialFlow = () => setTrialFlowActive(false)
+
+    window.addEventListener('alpa:trial-flow-active', hideForTrialFlow)
+    window.addEventListener('alpa:trial-flow-inactive', restoreAfterTrialFlow)
+
+    return () => {
+      window.removeEventListener('alpa:trial-flow-active', hideForTrialFlow)
+      window.removeEventListener('alpa:trial-flow-inactive', restoreAfterTrialFlow)
+    }
+  }, [])
+
   return (
     <>
       <Script
@@ -32,7 +46,14 @@ export default function KaiaWidget() {
         type="text/javascript"
       />
       {visible && (
-        <elevenlabs-convai agent-id="agent_7501krtex2vvev5artzaeh1azyt3"></elevenlabs-convai>
+        <elevenlabs-convai
+          agent-id="agent_7501krtex2vvev5artzaeh1azyt3"
+          className={`transition-all duration-300 ${
+            trialFlowActive
+              ? 'pointer-events-none opacity-0 scale-90'
+              : 'pointer-events-auto opacity-100 scale-100'
+          }`}
+        ></elevenlabs-convai>
       )}
     </>
   )

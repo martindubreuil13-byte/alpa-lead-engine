@@ -813,6 +813,19 @@ export default function FreeTrialCommandFlow() {
   const remainingFreeLeads = Math.max(0, FREE_TRIAL_LEAD_LIMIT - totalLeadsGenerated)
   const isAtLimit = remainingFreeLeads === 0
 
+  // Let floating widgets yield while the modal owns the conversion surface.
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent(phase === 'closed' ? 'alpa:trial-flow-inactive' : 'alpa:trial-flow-active'),
+    )
+  }, [phase])
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new CustomEvent('alpa:trial-flow-inactive'))
+    }
+  }, [])
+
   // Listen for open event
   useEffect(() => {
     const open = () => setPhase('input')
