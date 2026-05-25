@@ -31,8 +31,6 @@ export const metadata: Metadata = {
   },
 }
 
-const frictionPoints = ['25 free leads', 'No credit card', 'Export included']
-
 const flowSteps = [
   {
     title: 'Choose your niche',
@@ -49,7 +47,7 @@ const flowSteps = [
 ]
 
 const primaryCtaClass =
-  'inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_42%,#22D3EE_100%)] px-6 text-base font-semibold tracking-[-0.01em] text-white shadow-[0_0_18px_rgba(34,211,238,0.34),0_14px_38px_rgba(29,78,216,0.42)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_0_28px_rgba(34,211,238,0.58),0_18px_48px_rgba(29,78,216,0.58)] active:scale-[0.98] sm:min-h-[58px] sm:w-auto sm:px-8'
+  'inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/[0.14] bg-[linear-gradient(135deg,#1E3A8A_0%,#2563EB_52%,#38BDF8_100%)] px-6 text-base font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_rgba(37,99,235,0.28)] transition-all duration-200 ease-out hover:-translate-y-px hover:brightness-110 hover:shadow-[0_12px_36px_rgba(37,99,235,0.38)] active:scale-[0.98] active:brightness-100 sm:min-h-[58px] sm:w-auto sm:px-8'
 const pricingLinkClass =
   'inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/14 bg-white/[0.04] px-5 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/[0.07]'
 
@@ -109,7 +107,7 @@ export default function HomePage() {
       <div className="landing-grid pointer-events-none absolute inset-0 opacity-50 lg:opacity-[0.10]" />
 
       {/* Top gradient bloom */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[linear-gradient(180deg,rgba(37,99,235,0.18),rgba(2,6,23,0))]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[linear-gradient(180deg,rgba(37,99,235,0.11),rgba(2,6,23,0))]" />
 
       <PublicHeader />
 
@@ -118,9 +116,9 @@ export default function HomePage() {
 
         {/* Desktop: floating ambient orb system */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
-          <div className="hero-orb-float absolute -top-48 left-[16%] h-[700px] w-[800px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.16),transparent_65%)]" />
-          <div className="hero-orb-alt absolute -right-28 top-[-10%] h-[540px] w-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.10),transparent_65%)]" />
-          <div className="hero-orb-slow absolute -bottom-32 left-[0%] h-[440px] w-[540px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.08),transparent_65%)]" />
+          <div className="hero-orb-float absolute -top-48 left-[16%] h-[700px] w-[800px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.09),transparent_65%)]" />
+          <div className="hero-orb-alt absolute -right-28 top-[-10%] h-[540px] w-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.06),transparent_65%)]" />
+          <div className="hero-orb-slow absolute -bottom-32 left-[0%] h-[440px] w-[540px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.05),transparent_65%)]" />
         </div>
 
         <div className="mx-auto grid w-full max-w-7xl gap-9 lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)] lg:items-center lg:gap-16">
@@ -132,28 +130,16 @@ export default function HomePage() {
             <h1 className="mt-5 max-w-5xl text-[2.4rem] font-semibold leading-[1.1] tracking-tight text-white sm:mt-7 sm:text-[4.5rem] sm:leading-[1.02] sm:tracking-[-0.04em] lg:mt-8 lg:max-w-none lg:text-[6.25rem] lg:leading-[0.91] lg:tracking-[-0.06em]">
               Business leads{' '}
               <br className="hidden lg:block" />
-              in seconds.{' '}
-              <br className="hidden lg:block" />
-              Literally.
+              in seconds.
             </h1>
 
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8 lg:mt-7 lg:max-w-[26rem] lg:text-[1.15rem] lg:leading-8 lg:text-slate-400">
-              Start with 25 free leads and see how fast prospecting should feel.
+              Find contact-ready businesses with website, email, and phone numbers in seconds.
             </p>
 
-            <div className="mt-7 flex max-w-xl flex-col items-start gap-4 sm:mt-8 lg:mt-10">
+            <div className="mt-7 flex max-w-xl flex-col items-start gap-3 sm:mt-8 lg:mt-10">
               <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
-
-              <ul className="flex max-w-full flex-wrap gap-2 text-sm text-slate-300">
-                {frictionPoints.map((item) => (
-                  <li
-                    key={item}
-                    className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 lg:border-white/[0.07] lg:bg-white/[0.025]"
-                  >
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <p className="text-sm text-slate-500">No credit card required</p>
             </div>
           </div>
 
@@ -179,7 +165,7 @@ export default function HomePage() {
 
         {/* Desktop: directional glow from the left — makes it feel like a spotlight */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
-          <div className="section-glow-drift absolute -left-[8%] top-[15%] h-[640px] w-[760px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.11),transparent_62%)] blur-3xl" />
+          <div className="section-glow-drift absolute -left-[8%] top-[15%] h-[640px] w-[760px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.07),transparent_62%)] blur-3xl" />
         </div>
 
         <div className="cinematic-reveal mx-auto max-w-7xl">
@@ -198,13 +184,13 @@ export default function HomePage() {
           </h2>
 
           {/* Mobile supporting text */}
-          <p className="mt-7 text-lg font-medium leading-8 tracking-normal text-slate-300 sm:text-2xl sm:leading-9 sm:tracking-[-0.01em] lg:hidden">
-            So why are you still spending hours hunting for leads manually when ALPA can do it in seconds?
+          <p className="mt-6 max-w-xl text-lg font-normal leading-8 tracking-normal text-slate-400 sm:text-xl sm:leading-9 lg:hidden">
+            Hours spent searching manually across Google, LinkedIn, and directories are hours not spent building your business.
           </p>
 
           {/* Desktop supporting text — answered from the right, as a counterpoint */}
-          <p className="hidden text-[1.1rem] leading-8 tracking-[-0.015em] text-slate-500 lg:ml-auto lg:mt-16 lg:block lg:max-w-[400px]">
-            So why are you still spending hours hunting for leads manually when ALPA can do it in seconds?
+          <p className="hidden text-[1.05rem] leading-8 tracking-[-0.015em] text-slate-500 lg:ml-auto lg:mt-14 lg:block lg:max-w-[380px]">
+            Hours spent searching manually across Google, LinkedIn, and directories are hours not spent building your business.
           </p>
         </div>
       </section>
@@ -357,7 +343,7 @@ export default function HomePage() {
 
         {/* Desktop: breathing glow — shifted left to match editorial alignment */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
-          <div className="cta-glow-breath absolute left-[38%] top-1/2 h-[640px] w-[960px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.22),transparent_58%)] blur-3xl" />
+          <div className="cta-glow-breath absolute left-[38%] top-1/2 h-[640px] w-[960px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.14),transparent_58%)] blur-3xl" />
         </div>
 
         <div className="cinematic-reveal mx-auto max-w-5xl border-t border-white/8 pt-12 text-center sm:pt-14 lg:border-t-0 lg:pt-0 lg:text-left">
