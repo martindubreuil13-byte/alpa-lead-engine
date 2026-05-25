@@ -353,14 +353,14 @@ select:-webkit-autofill:focus {
 
 @keyframes heroOrbFloat {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  33%       { transform: translate(24px, -16px) scale(1.04); }
-  66%       { transform: translate(-14px, 11px) scale(0.97); }
+  33%       { transform: translate(12px, -8px) scale(1.018); }
+  66%       { transform: translate(-7px, 6px) scale(0.986); }
 }
 
 @keyframes heroOrbAlt {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  40%       { transform: translate(-20px, 14px) scale(1.05); }
-  70%       { transform: translate(15px, -9px) scale(0.97); }
+  40%       { transform: translate(-10px, 7px) scale(1.014); }
+  70%       { transform: translate(8px, -5px) scale(0.988); }
 }
 
 @keyframes previewSweep {
@@ -371,8 +371,8 @@ select:-webkit-autofill:focus {
 }
 
 @keyframes ctaGlowBreath {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%       { opacity: 0.88; transform: scale(1.06); }
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50%       { opacity: 0.70; transform: scale(1.02); }
 }
 
 @keyframes leadStatusBlink {
@@ -381,24 +381,24 @@ select:-webkit-autofill:focus {
 }
 
 @keyframes sectionGlowDrift {
-  0%, 100% { transform: translate(0, 0) scale(1);     opacity: 0.6; }
-  50%       { transform: translate(18px, -12px) scale(1.05); opacity: 0.9; }
+  0%, 100% { transform: translate(0, 0) scale(1);       opacity: 0.55; }
+  50%       { transform: translate(10px, -7px) scale(1.03); opacity: 0.72; }
 }
 
 /* Classes — applied only to hidden lg:block elements, so safe on mobile */
 
 .hero-orb-float {
-  animation: heroOrbFloat 14s ease-in-out infinite;
+  animation: heroOrbFloat 24s ease-in-out infinite;
   will-change: transform;
 }
 
 .hero-orb-alt {
-  animation: heroOrbAlt 18s ease-in-out infinite;
+  animation: heroOrbAlt 30s ease-in-out infinite;
   will-change: transform;
 }
 
 .hero-orb-slow {
-  animation: heroOrbFloat 22s ease-in-out infinite 4s;
+  animation: heroOrbFloat 36s ease-in-out infinite 6s;
   will-change: transform;
 }
 
@@ -408,7 +408,7 @@ select:-webkit-autofill:focus {
 }
 
 .cta-glow-breath {
-  animation: ctaGlowBreath 5s ease-in-out infinite;
+  animation: ctaGlowBreath 9s ease-in-out infinite;
   will-change: transform, opacity;
 }
 
@@ -425,8 +425,8 @@ select:-webkit-autofill:focus {
 /* ── Directional glow — operational section (top-left → bottom-right drift) */
 
 @keyframes directedGlowFlow {
-  0%, 100% { transform: translate(0, 0) scale(1);       opacity: 0.5; }
-  50%       { transform: translate(18px, 22px) scale(1.05); opacity: 0.82; }
+  0%, 100% { transform: translate(0, 0) scale(1);       opacity: 0.45; }
+  50%       { transform: translate(10px, 13px) scale(1.03); opacity: 0.65; }
 }
 
 .directed-glow-flow {
@@ -451,4 +451,29 @@ select:-webkit-autofill:focus {
       animation-range: entry 0% entry 22%;
     }
   }
+}
+
+/* ── Command bar CTA ─────────────────────────────────────────────────────────── */
+
+@keyframes commandShimmer {
+  0%   { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateX(280%) skewX(-18deg); opacity: 0; }
+}
+
+@keyframes commandCursorPulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.9; }
+}
+
+.command-bar-shimmer {
+  animation: commandShimmer 7s ease-in-out infinite;
+  animation-delay: 2s;
+  will-change: transform, opacity;
+}
+
+.command-cursor-pulse {
+  animation: commandCursorPulse 2.4s ease-in-out infinite;
+  will-change: opacity;
 }

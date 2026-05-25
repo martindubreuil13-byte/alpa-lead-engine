@@ -46,11 +46,6 @@ const flowSteps = [
   },
 ]
 
-const primaryCtaClass =
-  'inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/[0.14] bg-[linear-gradient(135deg,#1E3A8A_0%,#2563EB_52%,#38BDF8_100%)] px-6 text-base font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_rgba(37,99,235,0.28)] transition-all duration-200 ease-out hover:-translate-y-px hover:brightness-110 hover:shadow-[0_12px_36px_rgba(37,99,235,0.38)] active:scale-[0.98] active:brightness-100 sm:min-h-[58px] sm:w-auto sm:px-8'
-const pricingLinkClass =
-  'inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/14 bg-white/[0.04] px-5 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/[0.07]'
-
 export default function HomePage() {
   return (
     <main className="relative overflow-hidden bg-[#020617] text-white">
@@ -103,8 +98,8 @@ export default function HomePage() {
         }}
       />
 
-      {/* Grid — barely visible on desktop; atmosphere takes over */}
-      <div className="landing-grid pointer-events-none absolute inset-0 opacity-50 lg:opacity-[0.10]" />
+      {/* Grid — ghost trace on mobile; nearly invisible on desktop */}
+      <div className="landing-grid pointer-events-none absolute inset-0 opacity-[0.18] lg:opacity-[0.05]" />
 
       {/* Top gradient bloom */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[linear-gradient(180deg,rgba(37,99,235,0.11),rgba(2,6,23,0))]" />
@@ -112,44 +107,74 @@ export default function HomePage() {
       <PublicHeader />
 
       {/* ── HERO ─────────────────────────────────────────────────────────────── */}
-      <section className="relative px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-10 lg:px-10 lg:pb-32 lg:pt-20">
+      <section className="relative px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-10 lg:px-10 lg:pb-32 lg:pt-24">
 
-        {/* Desktop: floating ambient orb system */}
+        {/* Desktop: floating ambient orb system — restrained, slow, cinematic */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
-          <div className="hero-orb-float absolute -top-48 left-[16%] h-[700px] w-[800px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.09),transparent_65%)]" />
-          <div className="hero-orb-alt absolute -right-28 top-[-10%] h-[540px] w-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.06),transparent_65%)]" />
-          <div className="hero-orb-slow absolute -bottom-32 left-[0%] h-[440px] w-[540px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.05),transparent_65%)]" />
+          <div className="hero-orb-float absolute -top-48 left-[16%] h-[700px] w-[800px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.08),transparent_65%)]" />
+          <div className="hero-orb-alt absolute -right-28 top-[-10%] h-[540px] w-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.05),transparent_65%)]" />
+          <div className="hero-orb-slow absolute -bottom-32 left-[0%] h-[440px] w-[540px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.04),transparent_65%)]" />
         </div>
 
         <div className="mx-auto grid w-full max-w-7xl gap-9 lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)] lg:items-center lg:gap-16">
           <div className="max-w-4xl">
-            <div className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-100 lg:border-white/[0.12] lg:bg-white/[0.05] lg:px-3.5 lg:py-1.5">
-              Contact-ready leads
+
+            {/* Eyebrow — system indicator, no pill shape */}
+            <div className="flex items-center gap-2.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-400/50" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Contact-ready leads
+              </span>
             </div>
 
-            <h1 className="mt-5 max-w-5xl text-[2.4rem] font-semibold leading-[1.1] tracking-tight text-white sm:mt-7 sm:text-[4.5rem] sm:leading-[1.02] sm:tracking-[-0.04em] lg:mt-8 lg:max-w-none lg:text-[6.25rem] lg:leading-[0.91] lg:tracking-[-0.06em]">
+            <h1 className="mt-6 max-w-5xl text-[2.4rem] font-semibold leading-[1.08] tracking-tight text-white sm:mt-8 sm:text-[4.5rem] sm:leading-[1.02] sm:tracking-[-0.04em] lg:mt-9 lg:max-w-none lg:text-[6.25rem] lg:leading-[0.92] lg:tracking-[-0.06em]">
               Business leads{' '}
               <br className="hidden lg:block" />
               in seconds.
             </h1>
 
-            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8 lg:mt-7 lg:max-w-[26rem] lg:text-[1.15rem] lg:leading-8 lg:text-slate-400">
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-400 sm:text-xl sm:leading-8 lg:mt-7 lg:max-w-[27rem] lg:text-[1.1rem] lg:leading-[1.75] lg:text-slate-500">
               Find contact-ready businesses with website, email, and phone numbers in seconds.
             </p>
 
-            <div className="mt-7 flex max-w-xl flex-col items-start gap-3 sm:mt-8 lg:mt-10">
-              <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
-              <p className="text-sm text-slate-500">No credit card required</p>
+            {/* Command bar CTA */}
+            <div className="mt-8 flex max-w-xl flex-col items-start gap-3 lg:mt-11">
+              <FreshStartCta className="group relative w-full overflow-hidden rounded-[13px] border border-white/[0.08] bg-[rgba(10,18,32,0.72)] px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.14] hover:bg-[rgba(14,24,44,0.78)] active:scale-[0.99] sm:w-auto">
+                {/* Passive shimmer sweep */}
+                <span
+                  aria-hidden="true"
+                  className="command-bar-shimmer pointer-events-none absolute inset-0 rounded-[13px] bg-[linear-gradient(105deg,transparent_30%,rgba(255,255,255,0.022)_50%,transparent_70%)]"
+                />
+                <span className="relative flex items-center gap-3">
+                  {/* System label */}
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="command-cursor-pulse h-1.5 w-1.5 rounded-full bg-blue-400/60" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+                      Lead search
+                    </span>
+                  </span>
+                  {/* Divider */}
+                  <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
+                  {/* Action text */}
+                  <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
+                    Run a free lead search
+                  </span>
+                  {/* Arrow */}
+                  <span
+                    aria-hidden="true"
+                    className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400"
+                  >
+                    →
+                  </span>
+                </span>
+              </FreshStartCta>
+              <p className="text-xs text-slate-600">No credit card required</p>
             </div>
           </div>
 
           <div className="relative mx-auto hidden w-full max-w-[31rem] sm:block lg:max-w-none">
-            {/* Desktop: ambient glow behind the preview */}
-            <div className="pointer-events-none absolute -inset-8 hidden rounded-[48px] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.18),transparent_68%)] blur-3xl lg:block" />
-            {/* Desktop: light sweep */}
-            <div className="pointer-events-none absolute inset-0 hidden overflow-hidden rounded-[30px] lg:block">
-              <div className="preview-sweep absolute inset-y-0 w-36 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.04),transparent)]" />
-            </div>
+            {/* Ambient glow behind the preview — restrained */}
+            <div className="pointer-events-none absolute -inset-8 hidden rounded-[48px] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.09),transparent_68%)] blur-3xl lg:block" />
             <OperationalLeadPreview />
           </div>
         </div>
@@ -169,7 +194,7 @@ export default function HomePage() {
         </div>
 
         <div className="cinematic-reveal mx-auto max-w-7xl">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-cyan-100/80 sm:text-sm sm:tracking-[0.24em] lg:text-[11px] lg:tracking-[0.34em] lg:text-cyan-100/60">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
             The real problem
           </p>
 
@@ -206,17 +231,20 @@ export default function HomePage() {
 
         {/* Desktop: directional glow — drifts toward bottom-right, implying momentum */}
         <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
-          <div className="directed-glow-flow absolute right-[-6%] top-[20%] h-[520px] w-[640px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.10),transparent_62%)] blur-3xl" />
+          <div className="directed-glow-flow absolute right-[-6%] top-[20%] h-[520px] w-[640px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(29,78,216,0.07),transparent_62%)] blur-3xl" />
         </div>
 
         <div className="mx-auto max-w-6xl lg:max-w-none lg:px-0">
 
           {/* Mobile: conventional header */}
           <div className="mb-7 sm:mb-10 lg:hidden">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-100">
-              Contact-ready leads
-            </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em]">
+            <div className="flex items-center gap-2.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-400/50" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                Contact-ready leads
+              </span>
+            </div>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em]">
               Website. Email. Phone. Export. Done.
             </h2>
           </div>
@@ -226,7 +254,7 @@ export default function HomePage() {
 
             {/* Left: cascading opacity reveal — implied progress from Website → Done. */}
             <div className="w-[210px] shrink-0 pt-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100/60">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
                 Contact-ready leads
               </p>
               <div className="mt-10 space-y-px">
@@ -237,14 +265,14 @@ export default function HomePage() {
                 {/* Done. — system complete signal */}
                 <div className="flex items-center gap-2.5 text-[1.8rem] font-semibold leading-snug tracking-[-0.045em] text-white">
                   Done.
-                  <span className="lead-status-blink h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+                  <span className="lead-status-blink h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/70" />
                 </div>
               </div>
             </div>
 
             {/* Right: preview fills remaining space */}
             <div className="relative min-w-0 flex-1">
-              <div className="pointer-events-none absolute -inset-6 rounded-[44px] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.12),transparent_68%)] blur-2xl" />
+              <div className="pointer-events-none absolute -inset-6 rounded-[44px] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.07),transparent_68%)] blur-2xl" />
               <OperationalLeadPreview variant="export" />
             </div>
           </div>
@@ -298,39 +326,57 @@ export default function HomePage() {
       <section className="relative px-4 py-12 sm:px-6 sm:py-14 lg:px-10 lg:py-24">
         <div className="mx-auto max-w-6xl">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-100">
-              Simple pricing
-            </p>
+            <div className="flex items-center gap-2.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-400/50" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">Simple pricing</span>
+            </div>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em] lg:text-[3.4rem] lg:tracking-[-0.045em]">
               25 free leads. No commitment.
             </h2>
           </div>
 
-          <div className="cinematic-reveal mt-7 grid gap-4 lg:mt-14 lg:grid-cols-2 lg:gap-8">
-            {/* Free card — visually dominant: stronger glow, more presence */}
-            <div className="rounded-[30px] border border-cyan-300/18 bg-[linear-gradient(180deg,rgba(34,211,238,0.1),rgba(8,17,32,0.96))] p-6 shadow-[0_24px_80px_rgba(34,211,238,0.12)] backdrop-blur-xl sm:p-7 lg:rounded-[36px] lg:border-cyan-300/22 lg:p-10 lg:shadow-[0_40px_120px_rgba(34,211,238,0.20),inset_0_1px_0_rgba(34,211,238,0.18)]">
-              <div className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-100">
-                25 free leads
+          <div className="cinematic-reveal mt-7 grid gap-4 lg:mt-14 lg:grid-cols-2 lg:gap-6">
+            {/* Free card — subtle elevation via border tint, not neon */}
+            <div className="rounded-[26px] border border-blue-400/[0.12] bg-[rgba(8,16,36,0.80)] p-6 shadow-[0_16px_48px_rgba(2,8,23,0.40),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-7 lg:rounded-[30px] lg:p-10">
+              <div className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-400/50" />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">25 free leads</span>
               </div>
-              <p className="mt-3 text-base text-slate-300 lg:mt-4 lg:text-lg">
+              <p className="mt-4 text-base text-slate-300 lg:mt-5 lg:text-lg">
                 Test the workflow before choosing a plan.
               </p>
-              <div className="mt-6 lg:mt-9">
-                <FreshStartCta className={primaryCtaClass}>Start Free</FreshStartCta>
+              <div className="mt-6 lg:mt-8">
+                <FreshStartCta className="group relative w-full overflow-hidden rounded-[11px] border border-white/[0.09] bg-[rgba(10,18,32,0.68)] px-4 py-3 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.15] hover:bg-[rgba(14,24,44,0.76)] active:scale-[0.99] sm:w-auto">
+                  <span className="relative flex items-center gap-2.5">
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400/60" />
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">Free trial</span>
+                    </span>
+                    <span className="h-3 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
+                    <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
+                      Start free
+                    </span>
+                    <span aria-hidden="true" className="ml-0.5 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400">→</span>
+                  </span>
+                </FreshStartCta>
               </div>
             </div>
 
-            {/* Paid card — deliberately recessed: less glow, lower contrast */}
-            <div className="rounded-[30px] border border-white/10 bg-white/[0.035] p-6 shadow-[0_24px_80px_rgba(2,8,23,0.32)] backdrop-blur-xl sm:p-7 lg:rounded-[36px] lg:border-white/[0.05] lg:bg-white/[0.018] lg:p-9">
-              <div className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+            {/* Paid card — recessed, less presence */}
+            <div className="rounded-[26px] border border-white/[0.06] bg-white/[0.020] p-6 sm:p-7 lg:rounded-[30px] lg:p-9">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-600">
                 Upgrade when it fits
               </div>
-              <p className="mt-3 text-base text-slate-400 lg:mt-4 lg:text-lg">
+              <p className="mt-4 text-base text-slate-500 lg:mt-5 lg:text-lg">
                 Plans start from $9.99/month.
               </p>
-              <div className="mt-6 lg:mt-9">
-                <Link href="/plans" className={pricingLinkClass}>
+              <div className="mt-6 lg:mt-8">
+                <Link
+                  href="/plans"
+                  className="group inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-all duration-200 hover:text-slate-300"
+                >
                   View Plans
+                  <span aria-hidden="true" className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
                 </Link>
               </div>
             </div>
@@ -360,7 +406,19 @@ export default function HomePage() {
           </p>
 
           <div className="mx-auto mt-10 flex max-w-xl justify-center lg:mx-0 lg:mt-12 lg:justify-start">
-            <FreshStartCta className={primaryCtaClass}>Get 25 Free Leads</FreshStartCta>
+            <FreshStartCta className="group relative w-full overflow-hidden rounded-[13px] border border-white/[0.08] bg-[rgba(10,18,32,0.72)] px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.14] hover:bg-[rgba(14,24,44,0.78)] active:scale-[0.99] sm:w-auto">
+              <span className="relative flex items-center gap-3">
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="command-cursor-pulse h-1.5 w-1.5 rounded-full bg-blue-400/60" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">Free trial</span>
+                </span>
+                <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
+                <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
+                  Get 25 free leads
+                </span>
+                <span aria-hidden="true" className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400">→</span>
+              </span>
+            </FreshStartCta>
           </div>
         </div>
       </section>
