@@ -45,14 +45,9 @@ export default function KaiaWidget() {
         strategy="afterInteractive"
         type="text/javascript"
       />
-      {visible && (
+      {visible && !trialFlowActive && (
         <elevenlabs-convai
           agent-id="agent_7501krtex2vvev5artzaeh1azyt3"
-          className={`transition-all duration-300 ${
-            trialFlowActive
-              ? 'pointer-events-none opacity-0 scale-90'
-              : 'pointer-events-auto opacity-100 scale-100'
-          }`}
         ></elevenlabs-convai>
       )}
     </>
