@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { hasActivePaidAccess } from '@/lib/auth/paid-access'
 import {
   getActiveSubscription,
   getCurrentPeriodEnd,
@@ -45,7 +46,7 @@ export async function POST() {
       status: updatedSubscription.status,
       plan_status: synced?.plan_status ?? synced?.subscription_status ?? updatedSubscription.status,
       subscription_status: synced?.subscription_status ?? updatedSubscription.status,
-      subscription_active: true,
+      subscription_active: hasActivePaidAccess(updatedSubscription),
       stripe_customer_id: synced?.stripe_customer_id ?? null,
       stripe_subscription_id: synced?.stripe_subscription_id ?? updatedSubscription.id,
       current_period_end: getCurrentPeriodEnd(updatedSubscription),

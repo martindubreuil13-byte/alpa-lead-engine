@@ -1,6 +1,10 @@
 import Stripe from 'stripe'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
+import {
+  hasActivePaidAccess,
+  RETRIEVABLE_SUBSCRIPTION_STATUSES,
+} from '@/lib/auth/paid-access'
 import { STRIPE_API_VERSION, getPlanFromSubscription } from '@/lib/stripe'
 
 export type BillingPlan = 'free' | 'prospector' | 'starter'
@@ -78,16 +82,12 @@ function getSubscriptionPlanStatus(subscription: Stripe.Subscription): BillingPl
   return subscription.status as BillingPlanStatus
 }
 
-function isEndedSubscription(subscription: Stripe.Subscription) {
-  return subscription.status === 'canceled' || subscription.status === 'incomplete_expired'
-}
-
 function getSubscriptionTier(subscription: Stripe.Subscription): BillingPlan {
-  return isEndedSubscription(subscription) ? 'free' : getPlanFromSubscription(subscription)
+  return hasActivePaidAccess(subscription) ? getPlanFromSubscription(subscription) : 'free'
 }
 
 function isUsableSubscription(subscription: Stripe.Subscription) {
-  return ['active', 'trialing', 'past_due', 'unpaid', 'paused'].includes(subscription.status)
+  return RETRIEVABLE_SUBSCRIPTION_STATUSES.has(subscription.status) && hasActivePaidAccess(subscription)
 }
 
 async function findProfileByUserId(supabase: SupabaseClient, userId: string) {

@@ -1,5 +1,11 @@
 import Stripe from 'stripe'
 
+import {
+  hasActivePaidAccess,
+  hasActivePaidAccessState,
+  isFutureIsoDate,
+  RETRIEVABLE_SUBSCRIPTION_STATUSES,
+} from '@/lib/auth/paid-access'
 import type { UserPlan } from '@/lib/supabase/types'
 import {
   createSupabaseAdminClient,
@@ -46,14 +52,6 @@ type UserRow = {
   plan: UserPlan | null
 }
 
-const ACTIVE_STRIPE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'paused'])
-
-function isFutureDate(value: string | null | undefined) {
-  if (!value) return false
-  const date = new Date(value)
-  return Number.isFinite(date.getTime()) && date.getTime() > Date.now()
-}
-
 function normalizePlan(plan: string | null | undefined): UserPlan {
   if (plan === 'admin' || plan === 'pro' || plan === 'prospector' || plan === 'starter') {
     return plan
@@ -73,25 +71,21 @@ function getResolvedStripeStatus(subscription: Stripe.Subscription) {
   return subscription.status
 }
 
-function isSubscriptionAccessActive(subscription: Stripe.Subscription) {
-  if (!ACTIVE_STRIPE_STATUSES.has(subscription.status)) return false
-  if (!subscription.cancel_at_period_end) return true
-  return isFutureDate(getCurrentPeriodEnd(subscription))
-}
-
 function getSubscriptionTier(subscription: Stripe.Subscription): UserPlan {
-  if (!isSubscriptionAccessActive(subscription)) return 'free'
+  if (!hasActivePaidAccess(subscription)) return 'free'
   return getPlanFromSubscription(subscription)
 }
 
 function getLocalSubscriptionState(profile: ProfileRow | null, userPlan: UserPlan): ResolvedUserSubscription {
-  const plan = normalizePlan(profile?.plan ?? userPlan)
+  const storedTier = normalizePlan(profile?.subscription_tier)
+  const plan = storedTier !== 'free' ? storedTier : normalizePlan(profile?.plan ?? userPlan)
   const planStatus = normalizeStatus(profile?.plan_status ?? profile?.subscription_status, plan)
   const cancelAtPeriodEnd = Boolean(profile?.cancel_at_period_end)
-  const subscriptionActive =
-    planStatus === 'canceling'
-      ? isFutureDate(profile?.current_period_end)
-      : planStatus !== 'canceled' && planStatus !== 'incomplete_expired' && plan !== 'free'
+  const subscriptionActive = hasActivePaidAccessState({
+    status: planStatus,
+    cancelAtPeriodEnd,
+    currentPeriodEnd: profile?.current_period_end,
+  })
 
   return {
     plan: subscriptionActive ? plan : plan === 'admin' ? 'admin' : 'free',
@@ -167,10 +161,10 @@ async function findStripeCustomersForUser(userId: string, email: string | null) 
 function pickBestSubscription(subscriptions: Stripe.Subscription[]) {
   return (
     subscriptions
-      .filter((subscription) => ACTIVE_STRIPE_STATUSES.has(subscription.status))
+      .filter((subscription) => RETRIEVABLE_SUBSCRIPTION_STATUSES.has(subscription.status))
       .sort((left, right) => {
-        const leftActive = isSubscriptionAccessActive(left) ? 1 : 0
-        const rightActive = isSubscriptionAccessActive(right) ? 1 : 0
+        const leftActive = hasActivePaidAccess(left) ? 1 : 0
+        const rightActive = hasActivePaidAccess(right) ? 1 : 0
         if (leftActive !== rightActive) return rightActive - leftActive
 
         const leftEnd =
@@ -197,7 +191,7 @@ async function findAuthoritativeStripeSubscription({
 
   if (subscriptionId) {
     const subscription = await retrieveSubscription(subscriptionId)
-    if (subscription && ACTIVE_STRIPE_STATUSES.has(subscription.status)) {
+    if (subscription && RETRIEVABLE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
       return subscription
     }
   }
@@ -226,7 +220,7 @@ function shouldRefreshStripe(profile: ProfileRow | null, forceRefresh: boolean) 
   if (!profile.stripe_subscription_id && !profile.stripe_customer_id) return true
   if (profile.plan === 'free') return true
   if (profile.plan_status === 'free' || profile.subscription_status === 'free') return true
-  if (profile.cancel_at_period_end && !isFutureDate(profile.current_period_end)) return true
+  if (profile.cancel_at_period_end && !isFutureIsoDate(profile.current_period_end)) return true
   return false
 }
 
@@ -282,7 +276,7 @@ export async function resolveUserSubscription(
       resolvedState = {
         plan: subscriptionTier,
         plan_status: planStatus,
-        subscription_active: isSubscriptionAccessActive(subscription),
+        subscription_active: hasActivePaidAccess(subscription),
         cancel_at_period_end: subscription.cancel_at_period_end,
         current_period_end: getCurrentPeriodEnd(subscription),
         stripe_customer_id: synced?.stripe_customer_id ?? getStripeCustomerId(subscription.customer) ?? null,
