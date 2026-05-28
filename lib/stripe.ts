@@ -113,6 +113,20 @@ export async function createStripeCustomer({
     const existingCustomer = await stripe.customers.retrieve(normalizedCustomerId)
 
     if (!existingCustomer.deleted) {
+      if (
+        (normalizedUserId && existingCustomer.metadata?.user_id !== normalizedUserId) ||
+        (normalizedSource && existingCustomer.metadata?.source !== normalizedSource)
+      ) {
+        return stripe.customers.update(existingCustomer.id, {
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
+          metadata: {
+            ...existingCustomer.metadata,
+            user_id: normalizedUserId ?? existingCustomer.metadata?.user_id ?? '',
+            ...(normalizedSource ? { source: normalizedSource } : {}),
+          },
+        })
+      }
+
       return existingCustomer
     }
   }

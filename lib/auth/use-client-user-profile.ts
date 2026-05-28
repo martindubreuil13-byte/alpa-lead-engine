@@ -25,23 +25,36 @@ export function useClientUserProfile() {
         return
       }
 
-      const { data: dbProfile } = await supabase
-        .from('profiles')
-        .select('plan, subscription_status, current_period_end, created_at')
-        .eq('id', user.id)
-        .maybeSingle()
+      const [{ data: dbProfile }, subscriptionResponse] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('created_at')
+          .eq('id', user.id)
+          .maybeSingle(),
+        fetch('/api/auth/subscription', { cache: 'no-store' }),
+      ])
 
       if (cancelled) return
 
-      const plan = dbProfile?.plan || 'free'
+      const subscriptionPayload = subscriptionResponse.ok
+        ? await subscriptionResponse.json().catch(() => null)
+        : null
+      const subscription = subscriptionPayload?.subscription ?? null
+      const plan = subscription?.plan || 'free'
 
       setProfile({
         id: user.id,
         email: user.email ?? '',
         role: plan === 'admin' ? 'admin' : 'user',
         plan,
-        subscription_status: dbProfile?.subscription_status ?? null,
-        current_period_end: dbProfile?.current_period_end ?? null,
+        stripe_customer_id: subscription?.stripe_customer_id ?? null,
+        stripe_subscription_id: subscription?.stripe_subscription_id ?? null,
+        subscription_status: subscription?.plan_status ?? null,
+        plan_status: subscription?.plan_status ?? null,
+        cancel_at_period_end: subscription?.cancel_at_period_end ?? false,
+        current_period_end: subscription?.current_period_end ?? null,
+        subscription_tier: subscription?.subscription_tier ?? null,
+        subscription_active: subscription?.subscription_active ?? false,
         created_at: dbProfile?.created_at ?? user.created_at ?? new Date().toISOString(),
       })
       setLoading(false)

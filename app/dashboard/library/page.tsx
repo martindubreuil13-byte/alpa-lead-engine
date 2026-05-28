@@ -2,13 +2,15 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Check, Download, Minus, X } from 'lucide-react'
 
 import LeadCard from '@/components/leads/LeadCard'
-import { canAccessFeature, isAdmin } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin, isPaid } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
+import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import {
   getLibraryLifecycleLabel,
   getPipelineLifecycleStatus,
@@ -17,6 +19,7 @@ import {
   type PipelineStage,
 } from '@/lib/pipeline/lifecycle'
 import { supabase } from '@/lib/supabase'
+import { trackEvent } from '@/lib/track'
 import { safeFetch } from '@/lib/utils/safeFetch'
 
 type Lead = LifecycleLead & {
@@ -45,10 +48,15 @@ export default function LeadLibraryPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterValue>('all')
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<string[]>([])
+  const [exporting, setExporting] = useState(false)
+  const [statusMessage, setStatusMessage] = useState('')
   const [isGuest, setIsGuest] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
   const isAdminUser = !profileLoading && isAdmin(profile)
+  const canExportLibrary = !profileLoading && !isGuest && Boolean(profile && (isAdmin(profile) || isPaid(profile)))
+  const selectAllRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (userLoading) return
@@ -62,6 +70,7 @@ export default function LeadLibraryPage() {
       setIsGuest(true)
       setCurrentUserId(null)
       setLeads(getGuestLeads())
+      setSelected([])
       setLoading(false)
       return
     }
@@ -82,6 +91,7 @@ export default function LeadLibraryPage() {
     }
 
     setLeads((data || []) as Lead[])
+    setSelected((prev) => prev.filter((id) => (data || []).some((lead) => lead.id === id)))
     setLoading(false)
   }
 
@@ -137,12 +147,77 @@ export default function LeadLibraryPage() {
     })
   }, [filter, leads, search])
 
+  const visibleIds = useMemo(() => filteredLeads.map((lead) => lead.id), [filteredLeads])
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds])
+  const selectedIdSet = useMemo(() => new Set(selected), [selected])
+  const selectedLeads = useMemo(
+    () => selected.map((id) => leads.find((lead) => lead.id === id)).filter(Boolean) as Lead[],
+    [leads, selected]
+  )
+  const visibleSelectedCount = useMemo(
+    () => visibleIds.filter((id) => selectedIdSet.has(id)).length,
+    [selectedIdSet, visibleIds]
+  )
+  const allVisibleSelected = visibleIds.length > 0 && visibleSelectedCount === visibleIds.length
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someVisibleSelected
+    }
+  }, [someVisibleSelected])
+
+  function toggleSelect(id: string) {
+    if (!canExportLibrary) return
+    setSelected((prev) => (prev.includes(id) ? prev.filter((current) => current !== id) : [...prev, id]))
+    setStatusMessage('')
+  }
+
+  function toggleSelectAllVisible(checked: boolean) {
+    if (!canExportLibrary) return
+
+    if (checked) {
+      setSelected((prev) => Array.from(new Set([...prev, ...visibleIds])))
+      setStatusMessage('')
+      return
+    }
+
+    setSelected((prev) => prev.filter((id) => !visibleIdSet.has(id)))
+    setStatusMessage('')
+  }
+
+  function clearSelection() {
+    setSelected([])
+    setStatusMessage('')
+  }
+
+  async function exportSelectedCsv() {
+    if (!canExportLibrary || selectedLeads.length === 0 || exporting) return
+
+    setExporting(true)
+    setStatusMessage('')
+
+    try {
+      downloadLeadCsv(selectedLeads, getLeadCsvFilename('alpa-leads'))
+      setStatusMessage(`${selectedLeads.length} lead${selectedLeads.length === 1 ? '' : 's'} exported.`)
+      void trackEvent('csv_downloaded', {
+        leads_count: selectedLeads.length,
+        source: 'lead_library',
+      })
+    } catch (error) {
+      console.error('Library CSV export failed:', error)
+      setStatusMessage('Could not export the selected leads.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (loading) {
     return <div className="text-slate-400">Loading leads...</div>
   }
 
   return (
-    <div className="space-y-8">
+    <div className={`space-y-8 ${selected.length > 0 ? 'pb-28' : ''}`}>
       <div>
         <h1 className="text-4xl font-bold text-white">Lead Library</h1>
         <p className="mt-2 text-slate-400">A clean view of the leads in your workspace.</p>
@@ -191,6 +266,95 @@ export default function LeadLibraryPage() {
         />
       </div>
 
+      {canExportLibrary ? (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-[0_14px_34px_rgba(2,8,23,0.18)] backdrop-blur-xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label className="inline-flex w-fit items-center gap-3 text-sm text-slate-300">
+              <span className="relative inline-flex h-5 w-5 items-center justify-center">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  disabled={filteredLeads.length === 0}
+                  onChange={(event) => toggleSelectAllVisible(event.target.checked)}
+                  className="peer h-5 w-5 appearance-none rounded-md border border-white/15 bg-slate-950/60 transition checked:border-blue-300/60 checked:bg-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Select all visible leads"
+                />
+                <Check className="pointer-events-none absolute h-3.5 w-3.5 text-blue-100 opacity-0 peer-checked:opacity-100" />
+                {someVisibleSelected ? (
+                  <Minus className="pointer-events-none absolute h-3.5 w-3.5 text-blue-100" />
+                ) : null}
+              </span>
+              <span>Select all visible</span>
+              <span className="text-xs text-slate-500">({filteredLeads.length})</span>
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+              <span>{selected.length} selected</span>
+              <button
+                type="button"
+                onClick={() => void exportSelectedCsv()}
+                disabled={selected.length === 0 || exporting}
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-blue-300/24 bg-blue-500/10 px-3 font-medium text-blue-100 transition hover:bg-blue-500/16 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.03] disabled:text-slate-500"
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? 'Exporting...' : 'Export CSV'}
+              </button>
+              {selected.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 font-medium text-slate-200 transition hover:bg-white/[0.08]"
+                >
+                  <X className="h-4 w-4" />
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {statusMessage ? (
+            <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
+              {statusMessage}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {canExportLibrary && selected.length > 0 ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#060c18]/92 px-4 py-3 shadow-[0_-16px_40px_rgba(2,8,23,0.34)] backdrop-blur-xl lg:left-[280px]">
+          <div className="mx-auto flex max-w-[1180px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-medium text-white">
+              {selected.length} selected
+              {visibleSelectedCount > 0 ? (
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  {visibleSelectedCount} visible
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void exportSelectedCsv()}
+                disabled={exporting}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-blue-300/24 bg-blue-500/14 px-4 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? 'Exporting...' : 'Export CSV'}
+              </button>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-slate-200 transition hover:bg-white/[0.08]"
+              >
+                <X className="h-4 w-4" />
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="space-y-4">
         {filteredLeads.length === 0 ? (
           <div className="glass rounded-xl p-6 text-sm text-slate-400">No leads found.</div>
@@ -215,6 +379,8 @@ export default function LeadLibraryPage() {
               sourceUrl={lead.website}
               lifecycleLabel={getLibraryLifecycleLabel(lead)}
               lifecycleTone={tone}
+              selected={selectedIdSet.has(lead.id)}
+              onToggleSelect={canExportLibrary ? () => toggleSelect(lead.id) : undefined}
               onView={() => router.push(`/dashboard/leads/${lead.id}`)}
               onAddToPipeline={() =>
                 void updateStatus(lead.id, lifecycleStatus === 'ready' ? 'pipeline' : 'inbox')

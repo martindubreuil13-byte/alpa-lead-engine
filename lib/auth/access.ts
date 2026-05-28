@@ -8,12 +8,35 @@ export function isPaidPlan(plan: string | null | undefined) {
   return plan === 'prospector' || plan === 'starter' || plan === 'pro'
 }
 
+function isFutureDate(value: string | null | undefined) {
+  if (!value) return false
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) && date.getTime() > Date.now()
+}
+
+function hasBillableAccess(user: UserProfile | null) {
+  if (!user) return false
+  if (user.subscription_active) return true
+
+  const status = user.plan_status ?? user.subscription_status ?? null
+
+  if (status === 'canceled' || status === 'incomplete_expired') {
+    return false
+  }
+
+  if (status === 'canceling') {
+    return isFutureDate(user.current_period_end)
+  }
+
+  return isPaidPlan(user.plan)
+}
+
 export function isAdmin(user: UserProfile | null) {
   return isAdminPlan(user?.plan) || user?.role === 'admin'
 }
 
 export function isPaid(user: UserProfile | null) {
-  return isPaidPlan(user?.plan)
+  return hasBillableAccess(user)
 }
 
 export function isFree(user: UserProfile | null) {

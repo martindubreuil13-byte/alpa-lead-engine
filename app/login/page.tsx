@@ -168,12 +168,12 @@ export default function LoginPage() {
 
       const userId = signInData?.user?.id
       if (userId) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('plan')
-          .eq('id', userId)
-          .single()
-        const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(String(profile?.plan ?? ''))
+        const subscriptionResponse = await fetch('/api/auth/subscription', { cache: 'no-store' })
+        const subscriptionPayload = subscriptionResponse.ok
+          ? await subscriptionResponse.json().catch(() => null)
+          : null
+        const resolvedPlan = String(subscriptionPayload?.subscription?.plan ?? '')
+        const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(resolvedPlan)
         router.push(hasPaidPlan ? '/dashboard' : '/dashboard/scraper')
       } else {
         router.push('/dashboard/scraper')

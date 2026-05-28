@@ -12,7 +12,7 @@ import LeadCard from '@/components/leads/LeadCard'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import { getGuestLeads, removeGuestLead } from '@/lib/guest-session'
-import { buildLeadCsv } from '@/lib/leads/csv'
+import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import type { MissionInboxLead } from '@/lib/leads/mission-leads'
 import { consumeInboxFocusRequest } from '@/lib/session/scrape-result'
 import { supabase } from '@/lib/supabase'
@@ -287,14 +287,7 @@ export default function LeadsPageClient({
   function exportGuestTrialCsv() {
     if (!isGuest || leads.length === 0) return
 
-    const csv = buildLeadCsv(leads)
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'alpa-trial-leads.csv'
-    link.click()
-    URL.revokeObjectURL(url)
+    downloadLeadCsv(leads, getLeadCsvFilename('alpa-trial-leads'))
     void trackEvent('csv_downloaded', { leads_count: leads.length })
     trackGaEvent('csv_downloaded', {
       leads_exported: leads.length,
@@ -311,14 +304,7 @@ export default function LeadsPageClient({
     const exportLeads = selected.length > 0
       ? filtered.filter((lead) => selected.includes(lead.id))
       : filtered
-    const csv = buildLeadCsv(exportLeads)
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'alpa-leads.csv'
-    link.click()
-    URL.revokeObjectURL(url)
+    downloadLeadCsv(exportLeads, getLeadCsvFilename('alpa-leads'))
     void trackEvent('csv_downloaded', { leads_count: exportLeads.length })
     trackGaEvent('csv_downloaded', {
       leads_exported: exportLeads.length,

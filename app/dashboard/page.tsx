@@ -345,7 +345,7 @@ export default function Page() {
       const [{ data: profileData }, { data: usageData }, { count: freeLeadCount }] = await Promise.all([
         supabase
           .from('profiles')
-          .select('plan, subscription_status, current_period_end')
+          .select('plan, subscription_status, plan_status, current_period_end')
           .eq('id', currentUserId)
           .maybeSingle(),
         supabase
@@ -364,14 +364,17 @@ export default function Page() {
           .or('email.not.is.null,phone.not.is.null'),
       ])
 
-      const plan = profileData?.plan ?? loadedPlan
-      const isPaidUsagePlan = plan === 'admin' || plan === 'starter'
+      const plan = loadedPlan || profileData?.plan || 'free'
+      const isPaidUsagePlan = plan === 'admin' || plan === 'prospector' || plan === 'starter'
       const leadsLimit = getPlanLeadLimit(plan)
       const leadsUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
 
       setUsageSummary({
         plan,
-        subscriptionStatus: plan === 'free' ? 'free' : 'active',
+        subscriptionStatus:
+          plan === 'free'
+            ? 'free'
+            : profile?.plan_status ?? profileData?.plan_status ?? profileData?.subscription_status ?? 'active',
         currentPeriodStart: isPaidUsagePlan ? usageData?.period_start ?? null : null,
         currentPeriodEnd: isPaidUsagePlan ? usageData?.period_end ?? null : null,
         leadsUsed,

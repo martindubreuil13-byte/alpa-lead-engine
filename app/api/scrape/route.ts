@@ -16,7 +16,8 @@ import {
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
-import { isCountableLead } from '@/lib/usage/usage'
+import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
+import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 
 export const runtime = 'nodejs'
 
@@ -1187,12 +1188,8 @@ export async function POST(req: Request) {
   }
 
   if (user?.id) {
-    const [{ data: profile }, { count }] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('plan')
-        .eq('id', user.id)
-        .maybeSingle(),
+    const [subscription, { count }] = await Promise.all([
+      resolveUserSubscription(user.id, { email: user.email }),
       supabase
         .from('leads')
         .select('id', { count: 'exact', head: true })
@@ -1200,18 +1197,21 @@ export async function POST(req: Request) {
         .or('email.not.is.null,phone.not.is.null'),
     ])
 
-    authenticatedPlan = profile?.plan || 'free'
+    authenticatedPlan = subscription.subscription_active ? subscription.plan : 'free'
     currentUsage = count ?? 0
+    leadsLimit = getLeadLimit(authenticatedPlan)
 
-    if (authenticatedPlan === 'admin') {
-      leadsLimit = 10000
-    } else if (authenticatedPlan === 'starter') {
-      leadsLimit = 500
-    } else {
-      leadsLimit = 25
-    }
+    console.info('[scrape.subscription]', {
+      auth_user_id: user.id,
+      stripe_customer_id: subscription.stripe_customer_id,
+      stripe_subscription_id: subscription.stripe_subscription_id,
+      resolved_plan: authenticatedPlan,
+      resolved_status: subscription.plan_status,
+      subscription_active: subscription.subscription_active,
+      leads_limit: leadsLimit,
+    })
 
-    if (authenticatedPlan === 'starter' || authenticatedPlan === 'admin') {
+    if (subscription.subscription_active || authenticatedPlan === 'admin') {
       trackedUsageRow = await getOrCreateCurrentUsageRow(supabase, user.id, leadsLimit)
       currentUsage = trackedUsageRow.leads_used
 

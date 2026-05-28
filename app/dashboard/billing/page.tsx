@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import BillingPlanActions from '@/components/billing/BillingPlanActions'
 import UsageCard from '@/components/billing/UsageCard'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { isAdmin, isFree, isPaid } from '@/lib/auth/access'
@@ -36,7 +37,9 @@ export default async function BillingPage() {
   const [{ data: profileData }, { data: usageData }, { count: freeLeadCount }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('plan, subscription_status, current_period_end')
+      .select(
+        'plan, subscription_status, plan_status, stripe_subscription_id, cancel_at_period_end, current_period_end, canceled_at, subscription_tier'
+      )
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -55,9 +58,15 @@ export default async function BillingPage() {
       .or('email.not.is.null,phone.not.is.null'),
   ])
 
-  const usagePlan = profileData?.plan ?? user.plan
+  const usagePlan = user.plan
+  const billingStatus =
+    user.plan_status ?? profileData?.plan_status ?? profileData?.subscription_status ?? user.subscription_status ?? null
+  const cancelAtPeriodEnd = Boolean(user.cancel_at_period_end ?? profileData?.cancel_at_period_end)
+  const billingPeriodEnd = user.current_period_end ?? profileData?.current_period_end ?? null
+  const hasStripeSubscription = Boolean(user.stripe_subscription_id ?? profileData?.stripe_subscription_id)
+  const hasStripeCustomer = Boolean(user.stripe_customer_id)
   const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter'
-  const usageStatus = usagePlan === 'free' ? 'free' : 'active'
+  const usageStatus = usagePlan === 'free' ? 'free' : billingStatus ?? 'active'
   const usageStarted = isPaidUsagePlan ? usageData?.period_start ?? null : null
   const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
   const usageLimit = getPlanLeadLimit(usagePlan)
@@ -162,22 +171,27 @@ export default async function BillingPage() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-5">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
               Active Plan
             </div>
             <h2 className="text-3xl font-semibold tracking-[-0.04em] text-white">
-              Your plan is active
+              {cancelAtPeriodEnd ? 'Your plan is canceling' : 'Your plan is active'}
             </h2>
             <p className="max-w-2xl text-base leading-7 text-slate-300">
-              Your workspace has paid access enabled. Billing controls and future plan actions will land here in the next phase.
+              Your workspace keeps paid access through the current billing period.
             </p>
-            <button
-              type="button"
-              className="mt-4 inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.08]"
-            >
-              Cancel my plan
-            </button>
+            <BillingPlanActions
+              initialState={{
+                planStatus: billingStatus,
+                cancelAtPeriodEnd,
+                currentPeriodEnd: billingPeriodEnd,
+                subscriptionTier: user.subscription_tier ?? profileData?.subscription_tier ?? usagePlan,
+                hasStripeSubscription,
+                hasStripeCustomer,
+                subscriptionActive: Boolean(user.subscription_active),
+              }}
+            />
           </div>
         )}
       </section>

@@ -5,10 +5,11 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
-import { getPlanFromSubscription } from '@/lib/stripe'
+import { STRIPE_API_VERSION } from '@/lib/stripe'
+import { syncSubscriptionToDatabase } from '@/lib/stripe/subscription'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16' as Stripe.LatestApiVersion,
+  apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
 })
 
 const admin = createClient(
@@ -91,20 +92,6 @@ function getSubscriptionId(
   return typeof subscription === 'string' ? subscription.trim() : subscription.id.trim()
 }
 
-function getCurrentPeriodEnd(
-  subscription: Stripe.Subscription | (Stripe.Subscription & { current_period_end?: number | null })
-) {
-  const currentPeriodEnd = (
-    subscription as Stripe.Subscription & { current_period_end?: number | null }
-  ).current_period_end
-
-  if (!currentPeriodEnd) {
-    return null
-  }
-
-  return new Date(currentPeriodEnd * 1000).toISOString()
-}
-
 function isCheckoutUnlocked(session: Stripe.Checkout.Session) {
   return (
     session.mode === 'subscription' &&
@@ -169,8 +156,6 @@ export async function POST(req: Request) {
     const subscription = subscriptionId
       ? await stripe.subscriptions.retrieve(subscriptionId)
       : null
-    const currentPeriodEnd = subscription ? getCurrentPeriodEnd(subscription) : null
-    const activatedPlan = subscription ? getPlanFromSubscription(subscription) : 'starter'
 
     if (body?.cleanWorkspace) {
       const { error: leadsDeleteError } = await admin.from('leads').delete().eq('user_id', user.id)
@@ -192,30 +177,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const { error: userPlanError } = await admin
-      .from('users')
-      .update({ plan: activatedPlan })
-      .eq('id', user.id)
-
-    if (userPlanError) {
-      return NextResponse.json({ error: userPlanError.message }, { status: 500 })
-    }
-
-    const { error: profileError } = await admin
-      .from('profiles')
-      .upsert(
-        {
-          id: user.id,
-          stripe_customer_id: customerId || null,
-          plan: activatedPlan,
-          subscription_status: subscription?.status || 'active',
-          current_period_end: currentPeriodEnd,
-        },
-        { onConflict: 'id' }
-      )
-
-    if (profileError) {
-      return NextResponse.json({ error: profileError.message }, { status: 500 })
+    if (subscription) {
+      await syncSubscriptionToDatabase(subscription, { userId: user.id, customerId })
     }
 
     const leadsToImport = Array.isArray(body?.leads) ? body.leads.slice(0, FREE_TRIAL_LEAD_LIMIT) : []

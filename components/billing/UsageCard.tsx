@@ -75,7 +75,16 @@ export default function UsageCard({
   const startedLabel = formatRenewalDate(currentPeriodStart)
   const renewalLabel = formatRenewalDate(currentPeriodEnd)
   void usageWarning
-  const statusLabel = subscriptionStatus === 'active' ? 'Active' : 'Active'
+  const statusLabel =
+    subscriptionStatus === 'canceling'
+      ? 'Canceling'
+      : subscriptionStatus === 'trialing'
+        ? 'Trialing'
+        : subscriptionStatus === 'past_due'
+          ? 'Past due'
+          : subscriptionStatus === 'canceled'
+            ? 'Canceled'
+            : 'Active'
 
   return (
     <section className="rounded-xl border border-white/10 bg-[#0b1220] p-6 shadow-[0_18px_40px_rgba(2,8,23,0.24)]">
@@ -100,7 +109,11 @@ export default function UsageCard({
                 <div className="text-sm text-slate-400">Started on {startedLabel}</div>
               ) : null}
               {renewalLabel ? (
-                <div className="text-sm text-slate-400">Renews on {renewalLabel}</div>
+                <div className="text-sm text-slate-400">
+                  {subscriptionStatus === 'canceling'
+                    ? `Access until ${renewalLabel}`
+                    : `Renews on ${renewalLabel}`}
+                </div>
               ) : null}
             </>
           )}

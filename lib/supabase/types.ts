@@ -9,8 +9,14 @@ export type UserProfile = {
   role: UserRole;
   plan: UserPlan;
   stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
   subscription_status?: string | null;
+  plan_status?: string | null;
+  cancel_at_period_end?: boolean | null;
   current_period_end?: string | null;
+  canceled_at?: string | null;
+  subscription_tier?: string | null;
+  subscription_active?: boolean | null;
   created_at: string;
 };
 
@@ -22,16 +28,26 @@ export interface Database {
           id: string;
           plan: UserPlan;
           stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
           subscription_status: string | null;
+          plan_status: string | null;
+          cancel_at_period_end: boolean;
           current_period_end: string | null;
+          canceled_at: string | null;
+          subscription_tier: string | null;
           created_at: string;
         };
         Insert: {
           id: string;
           plan?: UserPlan;
           stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
           subscription_status?: string | null;
+          plan_status?: string | null;
+          cancel_at_period_end?: boolean;
           current_period_end?: string | null;
+          canceled_at?: string | null;
+          subscription_tier?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;

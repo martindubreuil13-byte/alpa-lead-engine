@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { UserProfile } from '@/lib/supabase/types'
+import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 
 export async function getUserProfile(): Promise<UserProfile | null> {
   const supabase = await createSupabaseServerClient()
@@ -13,21 +14,30 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     return null
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('plan, subscription_status, current_period_end, created_at')
-    .eq('id', user.id)
-    .maybeSingle()
+  const [{ data: profile }, subscription] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('created_at')
+      .eq('id', user.id)
+      .maybeSingle(),
+    resolveUserSubscription(user.id, { email: user.email }),
+  ])
 
-  const plan = profile?.plan || 'free'
+  const plan = subscription.plan
 
   return {
     id: user.id,
     email: user.email ?? '',
     role: plan === 'admin' ? 'admin' : 'user',
     plan,
-    subscription_status: profile?.subscription_status ?? null,
-    current_period_end: profile?.current_period_end ?? null,
+    stripe_customer_id: subscription.stripe_customer_id,
+    stripe_subscription_id: subscription.stripe_subscription_id,
+    subscription_status: subscription.plan_status,
+    plan_status: subscription.plan_status,
+    cancel_at_period_end: subscription.cancel_at_period_end,
+    current_period_end: subscription.current_period_end,
+    subscription_tier: subscription.subscription_tier,
+    subscription_active: subscription.subscription_active,
     created_at: profile?.created_at ?? user.created_at ?? new Date().toISOString(),
   }
 }
