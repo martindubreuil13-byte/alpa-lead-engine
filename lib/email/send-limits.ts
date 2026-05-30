@@ -1,4 +1,5 @@
 export const DAILY_EMAIL_LIMIT = 100
+export const ADMIN_DAILY_EMAIL_LIMIT = 500
 export const DAILY_LIMIT_WARNING_THRESHOLD = 20
 
 export type EmailLimitErrorCode = 'DAILY_LIMIT_REACHED'
@@ -9,6 +10,10 @@ export type EmailUsageSnapshot = {
   remaining: number
   date: string
   timeZone: string
+}
+
+export function getDailyEmailLimit(resolvedPlan: string | null | undefined) {
+  return resolvedPlan === 'admin' ? ADMIN_DAILY_EMAIL_LIMIT : DAILY_EMAIL_LIMIT
 }
 
 export function getEmailLimitFeedback(errorCode: string) {

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
+  BarChart3,
   BookOpenText,
   Columns3,
   CreditCard,
@@ -14,10 +15,13 @@ import {
   LifeBuoy,
   Lock,
   LogOut,
+  Mail,
   Menu,
   Rocket,
+  ServerCog,
   Settings,
   Sparkles,
+  Users,
   X,
   Zap,
 } from 'lucide-react'
@@ -104,6 +108,25 @@ const NAV_ITEMS: NavItem[] = [
   },
 ]
 
+const ADMIN_NAV_ITEMS: NavItem[] = [
+  { href: '/admin/activity', label: 'Analytics', icon: BarChart3 },
+  { href: '/admin/lead-capture', label: 'Lead Capture', icon: Mail },
+  { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/system', label: 'System', icon: ServerCog },
+]
+
+const ADMIN_ACTIVE_NAV_STYLE = {
+  backgroundColor: '#ffffff',
+  color: '#0B1020',
+  fontWeight: 600,
+} as const
+
+const ADMIN_ACTIVE_ICON_STYLE = {
+  color: '#0B1020',
+  fill: '#0B1020',
+  stroke: '#0B1020',
+} as const
+
 const HOME_BACK_ROUTES = new Set([
   '/dashboard/kanban',
   '/dashboard/leads',
@@ -182,24 +205,23 @@ export default function DashboardShell({
     () => NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin(profile)),
     [profile]
   )
-
-  const activeItem = useMemo(() => {
-    return (
-      visibleNavItems.find((item) => {
-        const href = getItemHref(item, viewerMode)
-        return isActivePath(pathname, href)
-      }) ?? null
-    )
-  }, [pathname, viewerMode, visibleNavItems])
-
-  const showHomeBackButton =
-    HOME_BACK_ROUTES.has(pathname) || pathname.startsWith('/agent/dashboard')
   const normalizedAdminEmail = String(adminEmail || '').trim().toLowerCase()
   const isAdminEmail = Boolean(
     profile?.email && normalizedAdminEmail && profile.email.toLowerCase() === normalizedAdminEmail
   )
-  const adminToggleHref = pathname.startsWith('/admin') ? '/dashboard' : '/admin/activity'
+  const canOpenAdmin = isAdmin(profile) || isAdminEmail
 
+  const activeItem = useMemo(() => {
+    return (
+      [...visibleNavItems, ...(canOpenAdmin ? ADMIN_NAV_ITEMS : [])].find((item) => {
+        const href = getItemHref(item, viewerMode)
+        return isActivePath(pathname, href)
+      }) ?? null
+    )
+  }, [canOpenAdmin, pathname, viewerMode, visibleNavItems])
+
+  const showHomeBackButton =
+    HOME_BACK_ROUTES.has(pathname) || pathname.startsWith('/agent/dashboard')
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
@@ -254,15 +276,6 @@ export default function DashboardShell({
             </div>
           </div>
 
-          {isAdminEmail ? (
-            <Link
-              href={adminToggleHref}
-              className="mt-4 flex min-h-[48px] items-center justify-center rounded-2xl border border-blue-400/18 bg-blue-500/10 px-4 text-sm font-medium text-blue-100 transition hover:bg-blue-500/14"
-            >
-              Admin Mode
-            </Link>
-          ) : null}
-
           <nav className="mt-8 space-y-2">
             {visibleNavItems.map((item) => {
               const href = getItemHref(item, viewerMode)
@@ -314,6 +327,55 @@ export default function DashboardShell({
               )
             })}
           </nav>
+
+          {canOpenAdmin ? (
+            <nav className="mt-8 border-t border-white/6 pt-6">
+              <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+                Admin
+              </div>
+              <div className="mt-3 space-y-2">
+                {ADMIN_NAV_ITEMS.map((item) => {
+                  const active = isActivePath(pathname, item.href)
+                  const Icon = item.icon
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      data-admin-nav-item={item.label}
+                      data-active={active ? 'true' : 'false'}
+                      style={active ? ADMIN_ACTIVE_NAV_STYLE : undefined}
+                      className={`flex min-h-[48px] items-center justify-between rounded-2xl px-4 py-3 text-sm transition ${
+                        active
+                          ? '!bg-white !font-semibold !text-[#0B1020] shadow-[0_0_24px_rgba(59,130,246,0.16)]'
+                          : 'bg-transparent text-slate-300 hover:bg-white/[0.06] hover:text-white hover:shadow-[0_0_18px_rgba(59,130,246,0.12)]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <span
+                          style={active ? ADMIN_ACTIVE_ICON_STYLE : undefined}
+                          className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+                            active ? '!text-[#0B1020]' : 'bg-white/[0.04] text-slate-400'
+                          }`}
+                        >
+                          <Icon
+                            className={`h-4 w-4 ${active ? '!fill-[#0B1020] !stroke-[#0B1020] !text-[#0B1020]' : ''}`}
+                            style={active ? ADMIN_ACTIVE_ICON_STYLE : undefined}
+                          />
+                        </span>
+                        <span
+                          style={active ? { color: '#0B1020', fontWeight: 600 } : undefined}
+                          className={active ? '!font-semibold !text-[#0B1020]' : 'font-medium'}
+                        >
+                          {item.label}
+                        </span>
+                      </span>
+                    </Link>
+                  )
+                })}
+              </div>
+            </nav>
+          ) : null}
 
           <div className="mt-auto space-y-3 pt-8">
             <button
@@ -373,15 +435,6 @@ export default function DashboardShell({
               </div>
 
               <div className="flex items-center gap-2">
-                {isAdminEmail ? (
-                  <Link
-                    href={adminToggleHref}
-                    className="inline-flex min-h-[44px] items-center rounded-2xl border border-blue-400/18 bg-blue-500/10 px-3 text-xs font-medium text-blue-100"
-                  >
-                    Admin Mode
-                  </Link>
-                ) : null}
-
                 <button
                   type="button"
                   aria-label="Open navigation"
@@ -494,6 +547,56 @@ export default function DashboardShell({
                   </Link>
                 )
               })}
+
+              {canOpenAdmin ? (
+                <div className="mt-6 border-t border-white/6 pt-5">
+                  <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+                    Admin
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    {ADMIN_NAV_ITEMS.map((item) => {
+                      const active = isActivePath(pathname, item.href)
+                      const Icon = item.icon
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          data-admin-nav-item={item.label}
+                          data-active={active ? 'true' : 'false'}
+                          style={active ? ADMIN_ACTIVE_NAV_STYLE : undefined}
+                          className={`flex min-h-[56px] items-center justify-between rounded-3xl px-4 py-3 transition ${
+                            active
+                              ? '!bg-white !font-semibold !text-[#0B1020] shadow-[0_0_24px_rgba(59,130,246,0.16)]'
+                              : 'border border-white/8 bg-transparent text-slate-300 hover:bg-white/[0.06] hover:text-white hover:shadow-[0_0_18px_rgba(59,130,246,0.12)]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-3">
+                            <span
+                              style={active ? ADMIN_ACTIVE_ICON_STYLE : undefined}
+                              className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
+                                active ? '!text-[#0B1020]' : 'bg-white/[0.04] text-slate-400'
+                              }`}
+                            >
+                              <Icon
+                                className={`h-5 w-5 ${active ? '!fill-[#0B1020] !stroke-[#0B1020] !text-[#0B1020]' : ''}`}
+                                style={active ? ADMIN_ACTIVE_ICON_STYLE : undefined}
+                              />
+                            </span>
+                            <span
+                              style={active ? { color: '#0B1020', fontWeight: 600 } : undefined}
+                              className={`text-sm ${active ? '!font-semibold !text-[#0B1020]' : 'font-medium'}`}
+                            >
+                              {item.label}
+                            </span>
+                          </span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </nav>
 
             <div className="space-y-3 border-t border-white/6 pt-4">

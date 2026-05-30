@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { z } from 'zod'
 
-import { DAILY_EMAIL_LIMIT, type EmailUsageSnapshot } from '@/lib/email/send-limits'
+import { getDailyEmailLimit, type EmailUsageSnapshot } from '@/lib/email/send-limits'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -68,12 +68,15 @@ function getUsageDateForTimeZone(timeZone: string, now = new Date()) {
 function buildUsageSnapshot(
   sent: number,
   date: string,
-  timeZone: string
+  timeZone: string,
+  resolvedPlan: string | null | undefined = null
 ): EmailUsageSnapshot {
+  const limit = getDailyEmailLimit(resolvedPlan)
+
   return {
     sent,
-    limit: DAILY_EMAIL_LIMIT,
-    remaining: Math.max(DAILY_EMAIL_LIMIT - sent, 0),
+    limit,
+    remaining: Math.max(limit - sent, 0),
     date,
     timeZone,
   }
@@ -175,8 +178,21 @@ async function getAuthenticatedUsage(timeZone: string) {
   const date = getUsageDateForTimeZone(timeZone)
 
   if (!user?.id) {
-    return { userId: null, sent: 0, date, timeZone }
+    return { userId: null, sent: 0, date, timeZone, resolvedPlan: null }
   }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('plan, subscription_tier')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (profileError) {
+    console.error('EMAIL USAGE PROFILE GET ERROR:', profileError)
+  }
+
+  const resolvedPlan =
+    profile?.plan === 'admin' || profile?.subscription_tier === 'admin' ? 'admin' : null
 
   const { data, error } = await supabase
     .from('email_usage')
@@ -195,10 +211,11 @@ async function getAuthenticatedUsage(timeZone: string) {
       timeZone,
       date,
       sent: data?.emails_sent ?? 0,
+      resolvedPlan,
     })
   }
 
-  return { userId: user.id, sent: data?.emails_sent ?? 0, date, timeZone }
+  return { userId: user.id, sent: data?.emails_sent ?? 0, date, timeZone, resolvedPlan }
 }
 
 async function incrementAuthenticatedUsage(
@@ -283,16 +300,21 @@ async function incrementUsageWithAdminFallback(
 export async function GET(req: Request) {
   try {
     const timeZone = getRequestTimeZone(req)
-    const { userId, sent, date } = await getAuthenticatedUsage(timeZone)
+    const currentUsage = await getAuthenticatedUsage(timeZone)
 
-    if (!userId) {
+    if (!currentUsage.userId) {
       return NextResponse.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401 })
     }
 
     return NextResponse.json(
       {
         success: true,
-        usage: buildUsageSnapshot(sent, date, timeZone),
+        usage: buildUsageSnapshot(
+          currentUsage.sent,
+          currentUsage.date,
+          timeZone,
+          currentUsage.resolvedPlan
+        ),
       },
       { status: 200 }
     )
@@ -352,15 +374,21 @@ export async function POST(req: Request) {
 
     const timeZone = getRequestTimeZone(req, parsed.data.timeZone)
     const currentUsage = await getAuthenticatedUsage(timeZone)
+    const dailyEmailLimit = getDailyEmailLimit(currentUsage.resolvedPlan)
 
-    if (!isTest && currentUsage.userId && currentUsage.sent >= DAILY_EMAIL_LIMIT) {
+    if (!isTest && currentUsage.userId && currentUsage.sent >= dailyEmailLimit) {
       return NextResponse.json(
         {
           success: false,
           result: 'failed',
           error: 'DAILY_LIMIT_REACHED',
           message: 'Daily sending limit reached',
-          usage: buildUsageSnapshot(currentUsage.sent, currentUsage.date, timeZone),
+          usage: buildUsageSnapshot(
+            currentUsage.sent,
+            currentUsage.date,
+            timeZone,
+            currentUsage.resolvedPlan
+          ),
         },
         { status: 429 }
       )
@@ -447,7 +475,12 @@ export async function POST(req: Request) {
               date: incrementedUsage.date,
               previousSent: currentUsage.sent,
               nextSent: newCount,
-              remaining: buildUsageSnapshot(newCount, incrementedUsage.date, timeZone).remaining,
+              remaining: buildUsageSnapshot(
+                newCount,
+                incrementedUsage.date,
+                timeZone,
+                currentUsage.resolvedPlan
+              ).remaining,
             })
           }
         }
@@ -459,7 +492,12 @@ export async function POST(req: Request) {
             result: 'failed',
             error: 'USAGE_TRACKING_FAILED',
             message: 'Email sent, but ALPA could not persist daily sending usage. Please refresh before sending more.',
-            usage: buildUsageSnapshot(currentUsage.sent, currentUsage.date, timeZone),
+            usage: buildUsageSnapshot(
+              currentUsage.sent,
+              currentUsage.date,
+              timeZone,
+              currentUsage.resolvedPlan
+            ),
           },
           { status: 500 }
         )
@@ -468,7 +506,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         result: 'sent',
-        usage: buildUsageSnapshot(newCount, date, timeZone),
+        usage: buildUsageSnapshot(newCount, date, timeZone, currentUsage.resolvedPlan),
       })
     } catch (error: any) {
       console.error('=== FULL ERROR OBJECT ===')

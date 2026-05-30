@@ -14,14 +14,34 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     return null
   }
 
-  const [{ data: profile }, subscription] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('created_at')
-      .eq('id', user.id)
-      .maybeSingle(),
-    resolveUserSubscription(user.id, { email: user.email }),
-  ])
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select(
+      'plan, stripe_customer_id, stripe_subscription_id, subscription_status, plan_status, cancel_at_period_end, current_period_end, canceled_at, subscription_tier, created_at'
+    )
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (profile?.plan === 'admin') {
+    return {
+      id: user.id,
+      email: user.email ?? '',
+      role: 'admin',
+      plan: 'admin',
+      stripe_customer_id: profile.stripe_customer_id,
+      stripe_subscription_id: profile.stripe_subscription_id,
+      subscription_status: profile.plan_status ?? profile.subscription_status,
+      plan_status: profile.plan_status,
+      cancel_at_period_end: profile.cancel_at_period_end,
+      current_period_end: profile.current_period_end,
+      canceled_at: profile.canceled_at,
+      subscription_tier: profile.subscription_tier,
+      subscription_active: true,
+      created_at: profile.created_at ?? user.created_at ?? new Date().toISOString(),
+    }
+  }
+
+  const subscription = await resolveUserSubscription(user.id, { email: user.email })
 
   const plan = subscription.plan
 

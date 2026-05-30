@@ -464,6 +464,82 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["guest_lead_captures"]["Insert"]>;
       };
+      follow_up_settings: {
+        Row: {
+          id: string;
+          follow_up_delay_days: number;
+          coupon_code: string | null;
+          discount_label: string | null;
+          email_subject: string;
+          email_body_template: string;
+          send_copy_to_admin: boolean;
+          admin_notification_email: string | null;
+          exclusion_patterns: string[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          follow_up_delay_days?: number;
+          coupon_code?: string | null;
+          discount_label?: string | null;
+          email_subject?: string;
+          email_body_template?: string;
+          send_copy_to_admin?: boolean;
+          admin_notification_email?: string | null;
+          exclusion_patterns?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["follow_up_settings"]["Insert"]>;
+      };
+      lead_follow_ups: {
+        Row: {
+          id: string;
+          source_activity_id: string | null;
+          session_id: string | null;
+          user_id: string | null;
+          email: string;
+          search_query: string | null;
+          location: string | null;
+          lead_count: number;
+          followup_sent: boolean;
+          status: string;
+          converted: boolean;
+          converted_at: string | null;
+          email_subject: string | null;
+          email_body: string | null;
+          email_html: string | null;
+          provider_message_id: string | null;
+          last_error: string | null;
+          created_at: string;
+          follow_up_sent_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          source_activity_id?: string | null;
+          session_id?: string | null;
+          user_id?: string | null;
+          email: string;
+          search_query?: string | null;
+          location?: string | null;
+          lead_count?: number;
+          followup_sent?: boolean;
+          status?: string;
+          converted?: boolean;
+          converted_at?: string | null;
+          email_subject?: string | null;
+          email_body?: string | null;
+          email_html?: string | null;
+          provider_message_id?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          follow_up_sent_at?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["lead_follow_ups"]["Insert"]>;
+      };
       templates: {
         Row: {
           id: string;
