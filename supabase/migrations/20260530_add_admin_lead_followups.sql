@@ -51,3 +51,77 @@ create index if not exists lead_follow_ups_created_at_idx
 
 alter table public.follow_up_settings enable row level security;
 alter table public.lead_follow_ups enable row level security;
+
+-- RLS Policies for follow_up_settings (admin-only access)
+create policy "Allow admin service role access to follow_up_settings"
+  on public.follow_up_settings
+  for all
+  using (true)
+  with check (true);
+
+create policy "Allow authenticated users who are admins to access follow_up_settings"
+  on public.follow_up_settings
+  for select
+  using (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );
+
+create policy "Allow authenticated admin users to modify follow_up_settings"
+  on public.follow_up_settings
+  for update
+  using (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );
+
+create policy "Allow authenticated admin users to insert follow_up_settings"
+  on public.follow_up_settings
+  for insert
+  with check (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );
+
+-- RLS Policies for lead_follow_ups (admin-only access)
+create policy "Allow admin service role access to lead_follow_ups"
+  on public.lead_follow_ups
+  for all
+  using (true)
+  with check (true);
+
+create policy "Allow authenticated admin users to access lead_follow_ups"
+  on public.lead_follow_ups
+  for select
+  using (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );
+
+create policy "Allow authenticated admin users to modify lead_follow_ups"
+  on public.lead_follow_ups
+  for update
+  using (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );
+
+create policy "Allow authenticated admin users to insert lead_follow_ups"
+  on public.lead_follow_ups
+  for insert
+  with check (
+    exists (
+      select 1 from public.users
+      where users.id = auth.uid() and users.plan = 'admin'
+    )
+  );

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import {
   DEFAULT_FOLLOW_UP_SETTINGS,
+  getEffectiveFollowUpSettings,
   normalizeEmail,
   normalizeExclusionPatterns,
   normalizeText,
@@ -78,7 +79,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ settings: data })
+    const effectiveSettings = getEffectiveFollowUpSettings(data as any)
+    return NextResponse.json({ settings: effectiveSettings })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to save settings.'
     return NextResponse.json({ error: message }, { status: 500 })

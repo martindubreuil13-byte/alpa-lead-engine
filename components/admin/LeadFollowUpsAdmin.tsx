@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronDown, Eye, Play, Save, Search, Send } from 'lucide-react'
 
@@ -70,6 +70,7 @@ export default function LeadFollowUpsAdmin({
 }) {
   const [rows, setRows] = useState(initialRows)
   const [settings, setSettings] = useState<SettingsDraft>(initialSettings)
+  const [savedSettings, setSavedSettings] = useState<SettingsDraft>(initialSettings)
   const [searchEmail, setSearchEmail] = useState('')
   const [filter, setFilter] = useState<CaptureFilter>('all')
   const [campaignOpen, setCampaignOpen] = useState(false)
@@ -79,11 +80,28 @@ export default function LeadFollowUpsAdmin({
   const [previewOpen, setPreviewOpen] = useState(false)
   const [confirmRunOpen, setConfirmRunOpen] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
+  const [bannerType, setBannerType] = useState<'success' | 'error' | 'info'>('info')
+  const [settingsSaveState, setSettingsSaveState] = useState<'clean' | 'dirty' | 'saved' | 'failed'>('clean')
   const [runSummary, setRunSummary] = useState<{
     eligible: number
     sent: number
     failed: number
   } | null>(null)
+
+  const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(savedSettings)
+
+  const settingsBadgeText = settingsSaveState === 'dirty' ? '● Unsaved Changes' :
+                            settingsSaveState === 'saved' ? '✓ Settings Saved' :
+                            settingsSaveState === 'failed' ? '✕ Save Failed' : null
+  const settingsBadgeColor = settingsSaveState === 'dirty' ? 'border-amber-300/20 bg-amber-400/10 text-amber-100' :
+                             settingsSaveState === 'saved' ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100' :
+                             settingsSaveState === 'failed' ? 'border-red-300/20 bg-red-400/10 text-red-100' : ''
+
+  useEffect(() => {
+    if (hasUnsavedChanges && settingsSaveState !== 'saved' && settingsSaveState !== 'failed') {
+      setSettingsSaveState('dirty')
+    }
+  }, [hasUnsavedChanges, settingsSaveState])
 
   const visibleRows = useMemo(() => {
     const query = searchEmail.trim().toLowerCase()
@@ -115,8 +133,8 @@ export default function LeadFollowUpsAdmin({
       searchQuery: null,
       location: null,
       leadCount: 25,
-      couponCode: 'ALPA30',
-      discountLabel: '10% Off',
+      couponCode: settings.coupon_code ?? 'ALPA30',
+      discountLabel: settings.discount_label ?? '10% off your first month',
     }
     const subject = renderFollowUpTemplate(settings.email_subject, sample)
     const body = renderFollowUpTemplate(settings.email_body_template, sample)
@@ -148,9 +166,19 @@ export default function LeadFollowUpsAdmin({
       }
 
       setSettings(result.settings)
-      setBanner('Lead Capture settings saved.')
+      setSavedSettings(result.settings)
+      setSettingsSaveState('saved')
+      setBannerType('success')
+      setBanner('✓ Settings Saved')
+
+      setTimeout(() => {
+        setSettingsSaveState('clean')
+        setBanner(null)
+      }, 3000)
     } catch (error) {
-      setBanner(error instanceof Error ? error.message : 'Unable to save settings.')
+      setSettingsSaveState('failed')
+      setBannerType('error')
+      setBanner(error instanceof Error ? error.message : 'Failed to save settings')
     } finally {
       setSavingSettings(false)
     }
@@ -257,7 +285,13 @@ export default function LeadFollowUpsAdmin({
       ) : null}
 
       {banner ? (
-        <div className="rounded-2xl border border-blue-300/15 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+        <div className={`rounded-2xl border px-4 py-3 text-sm ${
+          bannerType === 'success'
+            ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100'
+            : bannerType === 'error'
+              ? 'border-red-300/20 bg-red-400/10 text-red-100'
+              : 'border-blue-300/15 bg-blue-500/10 text-blue-100'
+        }`}>
           {banner}
         </div>
       ) : null}
@@ -270,29 +304,48 @@ export default function LeadFollowUpsAdmin({
       </section>
 
       <section className="rounded-[28px] bg-white/[0.035] p-5 shadow-[0_22px_70px_rgba(2,8,23,0.18)]">
-        <button
-          type="button"
-          onClick={() => setCampaignOpen((value) => !value)}
-          className="flex w-full items-center justify-between gap-4 text-left"
-        >
-          <div>
-            <h2 className="text-lg font-semibold text-white">Follow-Up Campaign</h2>
-            <p className="mt-1 text-sm text-slate-400">Email settings, preview, test send, and manual campaign run.</p>
-          </div>
-          <ChevronDown className={`h-5 w-5 text-slate-400 transition ${campaignOpen ? 'rotate-180' : ''}`} />
-        </button>
+        <div className="flex w-full items-start justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setCampaignOpen((value) => !value)}
+            className="flex flex-1 items-start gap-4 text-left"
+          >
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-white">Follow-Up Campaign</h2>
+                {settingsBadgeText && (
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${settingsBadgeColor}`}>
+                    {settingsBadgeText}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-slate-400">Email settings, preview, test send, and manual campaign run.</p>
+            </div>
+            <ChevronDown className={`h-5 w-5 text-slate-400 transition ${campaignOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {campaignOpen && (
+            <button
+              type="button"
+              onClick={saveSettings}
+              disabled={savingSettings || !hasUnsavedChanges}
+              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-500 px-5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-500"
+            >
+              <Save className="h-4 w-4" />
+              {savingSettings ? 'Saving...' : 'Save Settings'}
+            </button>
+          )}
+        </div>
 
         {campaignOpen ? (
           <div className="mt-5">
             <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={saveSettings}
-              disabled={savingSettings}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-medium text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => setPreviewOpen(true)}
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl bg-white/[0.06] px-4 text-sm font-medium text-slate-200 transition hover:bg-white/[0.1]"
             >
-              <Save className="h-4 w-4" />
-              {savingSettings ? 'Saving...' : 'Save Settings'}
+              <Eye className="h-4 w-4" />
+              Preview Email
             </button>
             <button
               type="button"

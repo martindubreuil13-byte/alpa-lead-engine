@@ -135,15 +135,14 @@ export default async function AdminLeadCapturePage() {
   ])
 
   const initialSettings = {
-    follow_up_delay_days: settings.follow_up_delay_days ?? DEFAULT_FOLLOW_UP_SETTINGS.follow_up_delay_days,
+    follow_up_delay_days: settings.follow_up_delay_days,
     coupon_code: settings.coupon_code,
     discount_label: settings.discount_label,
     email_subject: settings.email_subject,
     email_body_template: settings.email_body_template,
     send_copy_to_admin: settings.send_copy_to_admin,
-    admin_notification_email:
-      settings.admin_notification_email || process.env.ADMIN_EMAIL || DEFAULT_FOLLOW_UP_SETTINGS.admin_notification_email,
-    exclusion_patterns: settings.exclusion_patterns || DEFAULT_FOLLOW_UP_SETTINGS.exclusion_patterns,
+    admin_notification_email: settings.admin_notification_email,
+    exclusion_patterns: settings.exclusion_patterns,
   }
 
   return (

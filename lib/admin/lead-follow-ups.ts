@@ -121,7 +121,7 @@ export function buildFollowUpHtml(
     .map((line) => (line.trim() ? line : '&nbsp;'))
     .join('<br/>')
   const couponCode = escapeHtml(options?.couponCode || 'ALPA30')
-  const discountLabel = escapeHtml(options?.discountLabel || '10% Off')
+  const discountLabel = escapeHtml(options?.discountLabel || DEFAULT_FOLLOW_UP_SETTINGS.discount_label || '10% off')
   const ctaUrl = escapeHtml(options?.ctaUrl || 'https://alpa.mindrasolutions.com/plans')
 
   return `
