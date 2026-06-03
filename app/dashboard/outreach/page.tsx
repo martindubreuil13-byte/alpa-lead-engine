@@ -1,15 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Clock, Loader2, Send, Trash2, XCircle, Zap } from 'lucide-react'
+import { CheckCircle2, Clock, Loader2, Search, Send, Trash2, XCircle, Zap } from 'lucide-react'
 
 import ReviewPanel from '@/components/outreach/ReviewPanel'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
+import {
+  buildOutreachSenderProfile,
+  type OutreachSenderProfile,
+  type OutreachSenderSettings,
+} from '@/lib/outreach/render-email'
 import { supabase } from '@/lib/supabase'
 import { safeFetch } from '@/lib/utils/safeFetch'
 
 type QueueItem = {
   id: string
+  lead_id: string | null
+  template_id: string | null
+  automation_step: AutomationStepValue | null
   company_name: string | null
   contact_email: string | null
   location: string | null
@@ -33,9 +41,53 @@ type QueueItem = {
   created_at: string
 }
 
-type SendResult = { sent: number; failed: number }
+type SendFailure = {
+  queueId?: string | null
+  leadId?: string | null
+  recipient?: string | null
+  subject?: string | null
+  message?: string | null
+  resendError?: Record<string, unknown>
+}
+type SendResult = {
+  sent: number
+  failed: number
+  error?: string
+  message?: string
+  queueId?: string | null
+  recipient?: string | null
+  failures?: SendFailure[]
+}
 type TimeoutResult = { timeout: true }
 type SendOutcome = { result: SendResult | null; timedOut: boolean }
+type ReviewStatus = 'draft' | 'approved' | 'sent' | 'rejected'
+type StatusFilter = 'all' | ReviewStatus
+type SourceFilter = 'all' | 'pipeline_automation' | 'manual' | 'agent'
+type AutomationStepValue = 'first_outreach' | 'follow_up' | 'final_attempt'
+type StepFilter = 'all' | AutomationStepValue
+type TemplateRow = {
+  id: string
+  name: string | null
+  subject: string | null
+}
+type QueueStats = {
+  total: number
+  draft: number
+  approved: number
+  sent: number
+  rejected: number
+  pipelineAutomation: number
+}
+
+const PAGE_SIZE = 50
+const EMPTY_STATS: QueueStats = {
+  total: 0,
+  draft: 0,
+  approved: 0,
+  sent: 0,
+  rejected: 0,
+  pipelineAutomation: 0,
+}
 
 // ─── Badges ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +141,13 @@ function contextBadge(status: string) {
 }
 
 function sourceBadge(source: string) {
+  if (source === 'pipeline_automation') {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-400/18 bg-emerald-500/8 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+        Pipeline Automation
+      </span>
+    )
+  }
   if (source === 'agent') {
     return (
       <span className="inline-flex items-center rounded-full border border-blue-400/18 bg-blue-500/8 px-2 py-0.5 text-[10px] font-medium text-blue-300">
@@ -99,6 +158,22 @@ function sourceBadge(source: string) {
   return (
     <span className="inline-flex items-center rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-slate-500">
       Manual
+    </span>
+  )
+}
+
+function stepLabel(step: StepFilter | null) {
+  if (step === 'first_outreach') return 'First Outreach'
+  if (step === 'follow_up') return 'Follow-Up'
+  if (step === 'final_attempt') return 'Final Attempt'
+  return 'Unknown Step'
+}
+
+function stepBadge(step: StepFilter | null) {
+  if (!step || step === 'all') return null
+  return (
+    <span className="inline-flex items-center rounded-full border border-amber-400/20 bg-amber-500/8 px-2 py-0.5 text-[10px] font-medium text-amber-200">
+      {stepLabel(step)}
     </span>
   )
 }
@@ -145,14 +220,52 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   )
 }
 
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="sr-only">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full rounded-xl border border-white/[0.08] bg-slate-950/46 px-3 text-sm font-medium text-slate-100 outline-none transition focus:border-violet-300/24 focus:bg-slate-950/62"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function OutreachQueuePage() {
   const { user, loading: userLoading } = useCurrentUser()
   const [items, setItems] = useState<QueueItem[]>([])
+  const [templates, setTemplates] = useState<TemplateRow[]>([])
+  const [senderProfile, setSenderProfile] = useState<OutreachSenderProfile | undefined>()
+  const [stats, setStats] = useState<QueueStats>(EMPTY_STATS)
+  const [filteredTotal, setFilteredTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeItem, setActiveItem] = useState<QueueItem | null>(null)
-  const [filter, setFilter] = useState<'all' | 'draft' | 'approved' | 'sent' | 'rejected'>('all')
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [stepFilter, setStepFilter] = useState<StepFilter>('all')
+  const [templateFilter, setTemplateFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('draft')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [page, setPage] = useState(1)
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -164,7 +277,7 @@ export default function OutreachQueuePage() {
   // Toast
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isFetchingRef = useRef(false)
+  const queueRequestRef = useRef(0)
 
   function showToast(msg: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -174,30 +287,183 @@ export default function OutreachQueuePage() {
   useEffect(() => {
     if (userLoading) return
     void fetchQueue()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, userLoading, sourceFilter, stepFilter, templateFilter, statusFilter, searchQuery, page])
+
+  useEffect(() => {
+    if (userLoading || !user) return
+    void fetchFilterMetadata()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, userLoading])
 
+  useEffect(() => {
+    setPage(1)
+    setSelectedIds(new Set())
+  }, [sourceFilter, stepFilter, templateFilter, statusFilter, searchQuery])
+
   async function fetchQueue() {
-    if (isFetchingRef.current) return
-    isFetchingRef.current = true
+    const requestId = queueRequestRef.current + 1
+    queueRequestRef.current = requestId
 
     try {
       setLoading(true)
       if (!user) return
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('outreach_queue')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
+        .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
+
+      query = applyQueueFilters(query)
+
+      const [queueResult, statsResult] = await Promise.all([
+        query,
+        fetchQueueStats(),
+      ])
+
+      if (requestId !== queueRequestRef.current) return
+
+      const { data, error, count } = queueResult
 
       if (error) {
         console.error('[outreach-queue] fetch error:', error)
       } else {
         setItems((data || []) as QueueItem[])
+        setFilteredTotal(count ?? 0)
       }
+
+      setStats(statsResult)
     } finally {
-      setLoading(false)
-      isFetchingRef.current = false
+      if (requestId === queueRequestRef.current) {
+        setLoading(false)
+      }
+    }
+  }
+
+  async function fetchFilterMetadata() {
+    if (!user) return
+
+    const templatesQuery = supabase
+      .from('templates')
+      .select('id, name, subject')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+
+    const senderSettingsQuery = supabase
+      .from('sender_settings')
+      .select('sender_name, sender_email, company_name, job_title, phone, website, logo_url')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const [templatesResult, senderSettingsResult] = await Promise.all([
+      templatesQuery,
+      senderSettingsQuery,
+    ])
+
+    if (templatesResult.error) {
+      console.error('[outreach-queue] templates fetch error:', templatesResult.error)
+    } else {
+      setTemplates((templatesResult.data || []) as TemplateRow[])
+    }
+
+    if (senderSettingsResult.error) {
+      console.error('[outreach-queue] sender settings fetch error:', senderSettingsResult.error)
+    } else {
+      setSenderProfile(
+        buildOutreachSenderProfile(
+          senderSettingsResult.data as OutreachSenderSettings | null,
+          {
+            name: typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : null,
+            email: user.email || null,
+          }
+        )
+      )
+    }
+  }
+
+  function applyQueueFilters(query: any) {
+    let nextQuery = query
+
+    if (statusFilter !== 'all') {
+      nextQuery = nextQuery.eq('review_status', statusFilter)
+    }
+
+    if (sourceFilter !== 'all') {
+      nextQuery = nextQuery.eq('source', sourceFilter)
+    }
+
+    if (stepFilter !== 'all') {
+      nextQuery = nextQuery.eq('source', 'pipeline_automation')
+      nextQuery = nextQuery.eq('automation_step', stepFilter)
+    }
+
+    if (templateFilter !== 'all') {
+      nextQuery = nextQuery.eq('template_id', templateFilter)
+    }
+
+    const search = searchQuery.trim().replace(/[%,]/g, ' ')
+    if (search) {
+      nextQuery = nextQuery.or(
+        `company_name.ilike.%${search}%,contact_email.ilike.%${search}%,location.ilike.%${search}%`
+      )
+    }
+
+    return nextQuery
+  }
+
+  async function fetchQueueStats(): Promise<QueueStats> {
+    if (!user) return EMPTY_STATS
+
+    const countBy = (status?: ReviewStatus) => {
+      let query = supabase
+        .from('outreach_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+
+      if (status) {
+        query = query.eq('review_status', status)
+      }
+
+      return query
+    }
+
+    const [
+      total,
+      draft,
+      approved,
+      sent,
+      rejected,
+      pipelineAutomation,
+    ] = await Promise.all([
+      countBy(),
+      countBy('draft'),
+      countBy('approved'),
+      countBy('sent'),
+      countBy('rejected'),
+      supabase
+        .from('outreach_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('source', 'pipeline_automation'),
+    ])
+
+    for (const result of [total, draft, approved, sent, rejected, pipelineAutomation]) {
+      if (result.error) {
+        console.error('[outreach-queue] count fetch error:', result.error)
+      }
+    }
+
+    return {
+      total: total.count ?? 0,
+      draft: draft.count ?? 0,
+      approved: approved.count ?? 0,
+      sent: sent.count ?? 0,
+      rejected: rejected.count ?? 0,
+      pipelineAutomation: pipelineAutomation.count ?? 0,
     }
   }
 
@@ -229,6 +495,9 @@ export default function OutreachQueuePage() {
         return { ...item, ...(payload || {}) }
       })
     )
+    if (action !== 'save') {
+      void fetchQueue()
+    }
   }
 
   // ── Delete ───────────────────────────────────────────────────────────────
@@ -264,6 +533,7 @@ export default function OutreachQueuePage() {
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(item.id); return next })
       if (activeItem?.id === item.id) setActiveItem(null)
       showToast('Deleted successfully')
+      void fetchQueue()
     }
     setDeleting(false)
   }
@@ -284,6 +554,7 @@ export default function OutreachQueuePage() {
       setItems((prev) => prev.filter((i) => !selectedIds.has(i.id)))
       setSelectedIds(new Set())
       showToast(`Deleted ${ids.length} email${ids.length > 1 ? 's' : ''}`)
+      void fetchQueue()
     }
     setDeleting(false)
   }
@@ -305,6 +576,7 @@ export default function OutreachQueuePage() {
         return next
       })
       showToast(`Cleared ${rejectedIds.length} rejected email${rejectedIds.length > 1 ? 's' : ''}`)
+      void fetchQueue()
     }
     setDeleting(false)
   }
@@ -343,6 +615,7 @@ export default function OutreachQueuePage() {
         prev && ids.includes(prev.id) ? { ...prev, review_status: 'approved' as const } : prev
       )
       showToast(`Approved ${ids.length} message${ids.length > 1 ? 's' : ''}`)
+      void fetchQueue()
     } catch (error) {
       console.error('[outreach-queue] batch approve error:', error)
       showToast('Approve failed - check logs')
@@ -374,6 +647,9 @@ export default function OutreachQueuePage() {
       if (!('sent' in data) || !('failed' in data)) {
         return { result: null, timedOut: false }
       }
+      if (data.failed > 0 || data.failures?.length) {
+        console.error('[outreach-queue] send diagnostic response:', data)
+      }
       return { result: data, timedOut: false }
     } catch (err) {
       if (err instanceof Error && err.message === 'Request timeout') {
@@ -398,10 +674,11 @@ export default function OutreachQueuePage() {
         prev.map((i) => (i.id === item.id ? { ...i, review_status: 'sent' as const } : i))
       )
       showToast('Email sent')
+      void fetchQueue()
     } else if (timedOut) {
       showToast('Sending is taking longer than expected. Please wait...')
     } else {
-      showToast('Send failed — check logs')
+      showToast(result?.message || result?.failures?.[0]?.message || 'Send failed — check logs')
     }
     setSendingIds((prev) => { const next = new Set(prev); next.delete(item.id); return next })
   }
@@ -437,8 +714,9 @@ export default function OutreachQueuePage() {
         )
         setSelectedIds(new Set())
         showToast(`${result.sent} email${result.sent > 1 ? 's' : ''} sent${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
+        void fetchQueue()
       } else {
-        showToast('Send failed — check logs')
+        showToast(result.message || result.failures?.[0]?.message || 'Send failed — check logs')
       }
     } else if (timedOut) {
       showToast('Sending is taking longer than expected. Please wait...')
@@ -479,7 +757,8 @@ export default function OutreachQueuePage() {
     })
   }
 
-  const filtered = filter === 'all' ? items : items.filter((i) => i.review_status === filter)
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE))
+  const filtered = items
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((i) => selectedIds.has(i.id))
   const selectedDraftCount = [...selectedIds].filter(
@@ -563,14 +842,15 @@ export default function OutreachQueuePage() {
       </div>
 
       {/* Stats row */}
-      {items.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+      {stats.total > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           {[
-            { label: 'Total', count: items.length },
-            { label: 'Drafts', count: items.filter((i) => i.review_status === 'draft').length },
-            { label: 'Approved', count: items.filter((i) => i.review_status === 'approved').length },
-            { label: 'Sent', count: items.filter((i) => i.review_status === 'sent').length },
-            { label: 'Rejected', count: rejectedCount },
+            { label: 'Total', count: stats.total },
+            { label: 'Drafts', count: stats.draft },
+            { label: 'Approved', count: stats.approved },
+            { label: 'Sent', count: stats.sent },
+            { label: 'Rejected', count: stats.rejected },
+            { label: 'Pipeline Automation', count: stats.pipelineAutomation },
           ].map(({ label, count }) => (
             <div
               key={label}
@@ -583,24 +863,92 @@ export default function OutreachQueuePage() {
         </div>
       )}
 
-      {/* Filter tabs */}
-      {items.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {(['all', 'draft', 'approved', 'sent', 'rejected'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setFilter(value)}
-              className={`inline-flex h-9 items-center rounded-lg border px-3 text-sm capitalize transition ${
-                filter === value
-                  ? 'border-white/20 bg-white/10 text-white'
-                  : 'border-white/8 bg-white/[0.03] text-slate-400 hover:border-white/15 hover:text-white'
-              }`}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
+      {/* Filters */}
+      {stats.total > 0 && (
+        <section className="rounded-2xl border border-white/[0.07] bg-white/[0.028] p-3 shadow-[0_16px_42px_rgba(2,8,23,0.18)] backdrop-blur-xl">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_170px_170px_170px_220px]">
+            <label className="group relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition group-focus-within:text-violet-200" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search company, email, location..."
+                className="h-11 w-full rounded-xl border border-white/[0.08] bg-slate-950/46 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-300/24 focus:bg-slate-950/62"
+              />
+            </label>
+
+            <FilterSelect
+              label="Status"
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value as StatusFilter)}
+              options={[
+                { value: 'all', label: 'All Statuses' },
+                { value: 'draft', label: 'Ready to Review' },
+                { value: 'approved', label: 'Approved' },
+                { value: 'sent', label: 'Sent' },
+                { value: 'rejected', label: 'Rejected' },
+              ]}
+            />
+
+            <FilterSelect
+              label="Source"
+              value={sourceFilter}
+              onChange={(value) => setSourceFilter(value as SourceFilter)}
+              options={[
+                { value: 'all', label: 'All Sources' },
+                { value: 'pipeline_automation', label: 'Pipeline Automation' },
+                { value: 'manual', label: 'Manual' },
+                { value: 'agent', label: 'Agent' },
+              ]}
+            />
+
+            <FilterSelect
+              label="Step"
+              value={stepFilter}
+              onChange={(value) => setStepFilter(value as StepFilter)}
+              options={[
+                { value: 'all', label: 'All Steps' },
+                { value: 'first_outreach', label: 'First Outreach' },
+                { value: 'follow_up', label: 'Follow-Up' },
+                { value: 'final_attempt', label: 'Final Attempt' },
+              ]}
+            />
+
+            <FilterSelect
+              label="Template"
+              value={templateFilter}
+              onChange={setTemplateFilter}
+              options={[
+                { value: 'all', label: 'All Templates' },
+                ...templates.map((template) => ({
+                  value: template.id,
+                  label: template.name || template.subject || 'Untitled template',
+                })),
+              ]}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>
+              Showing {items.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredTotal)} of {filteredTotal}
+            </span>
+            {(sourceFilter !== 'all' || stepFilter !== 'all' || templateFilter !== 'all' || statusFilter !== 'draft' || searchQuery.trim()) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceFilter('all')
+                  setStepFilter('all')
+                  setTemplateFilter('all')
+                  setStatusFilter('draft')
+                  setSearchQuery('')
+                }}
+                className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+              >
+                Reset filters
+              </button>
+            ) : null}
+          </div>
+        </section>
       )}
 
       {/* Bulk action bar */}
@@ -649,7 +997,7 @@ export default function OutreachQueuePage() {
       )}
 
       {/* Empty state */}
-      {items.length === 0 ? (
+      {stats.total === 0 ? (
         <div className="glass rounded-2xl p-16 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-500/10">
             <Zap className="h-6 w-6 text-violet-300" />
@@ -661,7 +1009,7 @@ export default function OutreachQueuePage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="glass rounded-2xl p-12 text-center text-slate-400">
-          No items match this filter.
+          No queue items match the current filters.
         </div>
       ) : (
         <div className="space-y-3">
@@ -674,12 +1022,13 @@ export default function OutreachQueuePage() {
               className="h-4 w-4 cursor-pointer rounded border-white/20 bg-white/[0.04] accent-violet-500"
             />
             <span className="text-xs text-slate-500">
-              {allFilteredSelected ? 'Deselect all' : `Select all ${filtered.length}`}
+              {allFilteredSelected ? 'Deselect page' : `Select ${filtered.length} on this page`}
             </span>
           </div>
 
           {filtered.map((item) => {
             const isSelected = selectedIds.has(item.id)
+            const template = item.template_id ? templates.find((current) => current.id === item.template_id) : null
             return (
               <div
                 key={item.id}
@@ -717,6 +1066,12 @@ export default function OutreachQueuePage() {
                     {matchBadge(item.personalization_score)}
                     {contextBadge(item.context_status)}
                     {sourceBadge(item.source)}
+                    {stepBadge(item.automation_step)}
+                    {template ? (
+                      <span className="inline-flex max-w-[180px] items-center truncate rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-slate-400">
+                        {template.name || template.subject || 'Untitled template'}
+                      </span>
+                    ) : null}
                     {ctaBadge(item.cta_label, item.cta_type)}
                     {/* Single delete */}
                     <button
@@ -832,12 +1187,39 @@ export default function OutreachQueuePage() {
               </div>
             )
           })}
+
+          {totalPages > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
+              <div className="text-sm text-slate-400">
+                Page {page} of {totalPages}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((current) => Math.max(current - 1, 1))}
+                  className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+                  className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
       {/* Review side panel */}
       <ReviewPanel
         item={activeItem}
+        senderProfile={senderProfile}
         onClose={() => setActiveItem(null)}
         onSave={handleSave}
         onApprove={handleApprove}

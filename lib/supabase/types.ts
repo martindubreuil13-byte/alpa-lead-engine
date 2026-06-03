@@ -595,6 +595,8 @@ export interface Database {
           id: string;
           user_id: string;
           lead_id: string | null;
+          template_id: string | null;
+          automation_step: string | null;
           run_id: string | null;
           source: string;
           mission_id: string | null;
@@ -629,6 +631,8 @@ export interface Database {
           id?: string;
           user_id?: string;
           lead_id?: string | null;
+          template_id?: string | null;
+          automation_step?: string | null;
           run_id?: string | null;
           source?: string;
           mission_id?: string | null;

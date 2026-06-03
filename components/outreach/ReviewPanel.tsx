@@ -3,6 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Eye, Pencil, X } from 'lucide-react'
 
+import {
+  buildOutreachEmailHtml,
+  OUTREACH_FROM_EMAIL,
+  type OutreachSenderProfile,
+} from '@/lib/outreach/render-email'
+
 type QueueItem = {
   id: string
   company_name: string | null
@@ -26,13 +32,14 @@ type QueueItem = {
 
 type ReviewPanelProps = {
   item: QueueItem | null
+  senderProfile?: OutreachSenderProfile
   onClose: () => void
   onSave: (id: string, payload: { subject: string; full_email: string }) => Promise<void>
   onApprove: (id: string, payload: { subject: string; full_email: string }) => Promise<void>
   onReject: (id: string) => Promise<void>
 }
 
-export default function ReviewPanel({ item, onClose, onSave, onApprove, onReject }: ReviewPanelProps) {
+export default function ReviewPanel({ item, senderProfile, onClose, onSave, onApprove, onReject }: ReviewPanelProps) {
   const [subject, setSubject] = useState('')
   const [email, setEmail] = useState('')
   const [tab, setTab] = useState<'edit' | 'preview'>('edit')
@@ -42,7 +49,7 @@ export default function ReviewPanel({ item, onClose, onSave, onApprove, onReject
   useEffect(() => {
     if (item) {
       setSubject(item.subject || '')
-      setEmail(item.full_email || '')
+      setEmail(item.full_email || item.body || '')
       setTab('edit')
     }
   }, [item])
@@ -217,19 +224,18 @@ export default function ReviewPanel({ item, onClose, onSave, onApprove, onReject
                   <span className="w-14 shrink-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                     From
                   </span>
-                  <span className="text-sm text-slate-300">ALPA by MINDRA &lt;info@mindrasolutions.com&gt;</span>
+                  <span className="text-sm text-slate-300">{OUTREACH_FROM_EMAIL}</span>
                 </div>
               </div>
 
               {/* Email body */}
               <div className="px-5 py-5">
                 {email ? (
-                  <p
-                    className="text-sm leading-relaxed text-slate-200"
-                    style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                  >
-                    {email}
-                  </p>
+                  <iframe
+                    title="Recipient email preview"
+                    srcDoc={buildOutreachEmailHtml(email, { senderProfile })}
+                    className="h-[620px] w-full rounded-lg border-0 bg-white"
+                  />
                 ) : (
                   <p className="text-sm text-slate-500 italic">No content yet.</p>
                 )}

@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Archive, CheckCircle2, Search, RotateCcw, Send, X } from 'lucide-react'
+import { Archive, ArrowDown, ArrowRight, CheckCircle2, Search, RotateCcw, Send, X } from 'lucide-react'
 
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import SendCampaignModal from '@/components/email/SendCampaignModal'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import LeadDetailDrawer from '@/components/pipeline/LeadDetailDrawer'
 import PipelineColumn from '@/components/pipeline/PipelineColumn'
-import { canAccessFeature } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
@@ -33,7 +33,56 @@ import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 import { cn } from '@/lib/utils'
 
 type CloseReason = 'no_answer' | 'not_interested' | 'wrong_contact' | 'bounce' | 'other'
+type PipelineAutomationTemplate = {
+  id: string
+  name: string | null
+  subject: string | null
+}
+type PipelineAutomationSettings = {
+  enabled: boolean
+  step1_template_id: string | null
+  step2_template_id: string | null
+  step2_delay_days: number
+  step3_template_id: string | null
+  step3_delay_days: number
+}
+type AutomationStatus = {
+  type: 'success' | 'error'
+  message: string
+} | null
+type DistributionRow = {
+  key: string
+  count: number
+}
+type PipelineDataCheck = {
+  total: number
+  status: DistributionRow[]
+  pipeline_stage: DistributionRow[]
+}
+type DraftGenerationResult = {
+  created: number
+  skipped: number
+  firstOutreach: number
+  followUp: number
+  finalAttempt: number
+  lifecycleCounts: {
+    ready: number
+    readyFollowup: number
+    finalAttempt: number
+    skipped: number
+    closed: number
+  }
+} | null
+
 const FOLLOWUP_WAIT_DAYS = 5
+const DEFAULT_AUTOMATION_SETTINGS: PipelineAutomationSettings = {
+  enabled: false,
+  step1_template_id: null,
+  step2_template_id: null,
+  step2_delay_days: 3,
+  step3_template_id: null,
+  step3_delay_days: 5,
+}
 const PIPELINE_SORT_OPTIONS: Array<{ value: PipelineSortMode; label: string }> = [
   { value: 'recent_activity', label: 'Recent Activity' },
   { value: 'recently_added', label: 'Recently added' },
@@ -61,6 +110,7 @@ export default function PipelinePage() {
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])
+  const [pipelineTotalCount, setPipelineTotalCount] = useState<number | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [isGuest, setIsGuest] = useState(false)
@@ -77,6 +127,17 @@ export default function PipelinePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortMode, setSortMode] = useState<PipelineSortMode>('recent_activity')
   const pipelineLocked = !profileLoading && !canAccessFeature('pipeline', profile)
+  const isAdminUser = !profileLoading && isAdmin(profile)
+  const [automationTemplates, setAutomationTemplates] = useState<PipelineAutomationTemplate[]>([])
+  const [automationSettings, setAutomationSettings] = useState<PipelineAutomationSettings>(DEFAULT_AUTOMATION_SETTINGS)
+  const [automationLoading, setAutomationLoading] = useState(false)
+  const [automationSaving, setAutomationSaving] = useState(false)
+  const [automationGenerating, setAutomationGenerating] = useState(false)
+  const [automationStatus, setAutomationStatus] = useState<AutomationStatus>(null)
+  const [draftGenerationResult, setDraftGenerationResult] = useState<DraftGenerationResult>(null)
+  const [dataCheck, setDataCheck] = useState<PipelineDataCheck | null>(null)
+  const [dataCheckLoading, setDataCheckLoading] = useState(false)
+  const [dataCheckError, setDataCheckError] = useState('')
 
   useEffect(() => {
     if (userLoading) return
@@ -101,6 +162,12 @@ export default function PipelinePage() {
     const visibleIds = new Set(leads.map((lead) => lead.id))
     setSelected((prev) => prev.filter((id) => visibleIds.has(id)))
   }, [leads])
+
+  useEffect(() => {
+    if (!isAdminUser || !user?.id) return
+    void fetchAutomationSettings()
+    void fetchPipelineDataCheck()
+  }, [isAdminUser, user?.id])
 
   const visibleLeads = useMemo(() => {
     return sortPipelineLeads(filterPipelineLeads(leads, searchQuery), sortMode)
@@ -129,7 +196,7 @@ export default function PipelinePage() {
   const closableSelected = selectedLeads.filter((lead) => getPipelineLifecycleStatus(lead) !== 'closed')
 
   const summary = {
-    total: visibleLeads.length,
+    total: searchQuery.trim() ? visibleLeads.length : pipelineTotalCount ?? visibleLeads.length,
     ready: stageMap.ready.length,
     waiting: stageMap.contacted.length,
     readyFollowup: stageMap.ready_followup.length,
@@ -149,15 +216,15 @@ export default function PipelinePage() {
     setLoading(true)
 
     if (!user) {
+      const guestPipelineLeads = getGuestLeads().map((lead) => ({
+        ...lead,
+        status: 'pipeline',
+        pipeline_stage: 'ready',
+        last_activity_at: lead.last_activity_at || lead.status_updated_at || lead.created_at,
+      }))
       setIsGuest(true)
-      setLeads(
-        getGuestLeads().map((lead) => ({
-          ...lead,
-          status: 'pipeline',
-          pipeline_stage: 'ready',
-          last_activity_at: lead.last_activity_at || lead.status_updated_at || lead.created_at,
-        })) as Lead[]
-      )
+      setLeads(guestPipelineLeads as Lead[])
+      setPipelineTotalCount(guestPipelineLeads.length)
       setLoading(false)
       return
     }
@@ -172,9 +239,22 @@ export default function PipelinePage() {
       .order('last_activity_at', { ascending: false, nullsFirst: false })
       .order('date_added', { ascending: false, nullsFirst: false })
 
-    const result = await query
+    const [result, countResult] = await Promise.all([
+      query,
+      supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .or(PIPELINE_ACTIVE_STATUS_FILTER),
+    ])
     let data = result.data as Lead[] | null
     let error = result.error
+
+    if (countResult.error) {
+      console.error('Error counting pipeline leads:', formatSupabaseError(countResult.error))
+    } else {
+      setPipelineTotalCount(countResult.count ?? 0)
+    }
 
     if (error && isMissingColumnError(error)) {
       console.warn('Retrying pipeline fetch without optional lifecycle activity fields:', formatSupabaseError(error))
@@ -213,6 +293,141 @@ export default function PipelinePage() {
   function isMissingColumnError(error: any) {
     const message = String(error?.message || '').toLowerCase()
     return error?.code === '42703' || message.includes('last_activity_at') || message.includes('status_updated_at')
+  }
+
+  async function fetchAutomationSettings() {
+    setAutomationLoading(true)
+    setAutomationStatus(null)
+
+    try {
+      const response = await fetch('/api/pipeline-automation/settings', { cache: 'no-store' })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        console.error('Pipeline automation settings fetch API error:', result)
+        throw new Error(result?.message || result?.error || 'Settings fetch failed')
+      }
+
+      setAutomationTemplates((result?.templates || []) as PipelineAutomationTemplate[])
+      setAutomationSettings({
+        ...DEFAULT_AUTOMATION_SETTINGS,
+        ...(result?.settings || {}),
+      })
+      setDraftGenerationResult(null)
+    } catch (error) {
+      console.error('Pipeline automation settings fetch failed:', error)
+      setAutomationStatus({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Could not load automation settings.',
+      })
+    } finally {
+      setAutomationLoading(false)
+    }
+  }
+
+  async function saveAutomationSettings() {
+    if (!isAdminUser) return
+
+    setAutomationSaving(true)
+    setAutomationStatus(null)
+
+    try {
+      const response = await fetch('/api/pipeline-automation/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(automationSettings),
+      })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        console.error('Pipeline automation settings save API error:', result)
+        throw new Error(result?.message || result?.error || 'Settings save failed')
+      }
+
+      setAutomationStatus({
+        type: 'success',
+        message: 'Pipeline automation settings saved.',
+      })
+    } catch (error) {
+      console.error('Pipeline automation settings save failed:', error)
+      setAutomationStatus({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Could not save automation settings.',
+      })
+    } finally {
+      setAutomationSaving(false)
+    }
+  }
+
+  async function generateAutomationDrafts() {
+    if (!isAdminUser) return
+
+    setAutomationGenerating(true)
+    setAutomationStatus(null)
+    setDraftGenerationResult(null)
+
+    try {
+      const response = await fetch('/api/pipeline-automation/generate-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        console.error('Pipeline automation draft generation API error:', result)
+        throw new Error(result?.message || result?.error || 'Draft generation failed')
+      }
+
+      const generationResult = {
+        created: Number(result?.created || 0),
+        skipped: Number(result?.skipped || 0),
+        firstOutreach: Number(result?.firstOutreach || 0),
+        followUp: Number(result?.followUp || 0),
+        finalAttempt: Number(result?.finalAttempt || 0),
+        lifecycleCounts: {
+          ready: Number(result?.lifecycleCounts?.ready || 0),
+          readyFollowup: Number(result?.lifecycleCounts?.readyFollowup || 0),
+          finalAttempt: Number(result?.lifecycleCounts?.finalAttempt || 0),
+          skipped: Number(result?.lifecycleCounts?.skipped || 0),
+          closed: Number(result?.lifecycleCounts?.closed || 0),
+        },
+      }
+
+      setDraftGenerationResult(generationResult)
+      setAutomationStatus({
+        type: 'success',
+        message: `${generationResult.created} draft${generationResult.created === 1 ? '' : 's'} generated.`,
+      })
+    } catch (error) {
+      console.error('Pipeline automation draft generation failed:', error)
+      setAutomationStatus({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Could not generate drafts.',
+      })
+    } finally {
+      setAutomationGenerating(false)
+    }
+  }
+
+  async function fetchPipelineDataCheck() {
+    setDataCheckLoading(true)
+    setDataCheckError('')
+
+    try {
+      const response = await fetch('/api/pipeline-automation/data-check', { cache: 'no-store' })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Data check failed')
+      }
+
+      setDataCheck(result as PipelineDataCheck)
+    } catch (error) {
+      console.error('Pipeline data check failed:', error)
+      setDataCheckError('Could not load pipeline distributions.')
+    } finally {
+      setDataCheckLoading(false)
+    }
   }
 
   const toggleSelect = useCallback((id: string) => {
@@ -338,6 +553,7 @@ export default function PipelinePage() {
     if (error) throw error
 
     setLeads((prev) => prev.filter((lead) => !ids.includes(lead.id)))
+    setPipelineTotalCount((prev) => (prev === null ? prev : Math.max(prev - ids.length, 0)))
     setSelected((prev) => prev.filter((id) => !ids.includes(id)))
     setSelectedLeadId((prev) => (prev && ids.includes(prev) ? null : prev))
   }
@@ -451,6 +667,32 @@ export default function PipelinePage() {
             <MetricCard label="Final Attempt" value={summary.final} tone="purple" />
           </div>
         </header>
+
+        {isAdminUser ? (
+          <>
+            <PipelineAutomationCard
+              templates={automationTemplates}
+              settings={automationSettings}
+              loading={automationLoading}
+              saving={automationSaving}
+              generating={automationGenerating}
+              status={automationStatus}
+              generationResult={draftGenerationResult}
+              onChange={(settings) => {
+                setAutomationSettings(settings)
+                setDraftGenerationResult(null)
+              }}
+              onSave={() => void saveAutomationSettings()}
+              onGenerateDrafts={() => void generateAutomationDrafts()}
+            />
+            <PipelineDataCheckPanel
+              data={dataCheck}
+              loading={dataCheckLoading}
+              error={dataCheckError}
+              onRefresh={() => void fetchPipelineDataCheck()}
+            />
+          </>
+        ) : null}
 
         <section className="rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 backdrop-blur-xl">
           <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
@@ -693,6 +935,359 @@ export default function PipelinePage() {
         showUpgradeCta={!profileLoading && (profile?.plan || 'free') === 'free'}
       />
     </>
+  )
+}
+
+function PipelineAutomationCard({
+  templates,
+  settings,
+  loading,
+  saving,
+  generating,
+  status,
+  generationResult,
+  onChange,
+  onSave,
+  onGenerateDrafts,
+}: {
+  templates: PipelineAutomationTemplate[]
+  settings: PipelineAutomationSettings
+  loading: boolean
+  saving: boolean
+  generating: boolean
+  status: AutomationStatus
+  generationResult: DraftGenerationResult
+  onChange: (settings: PipelineAutomationSettings) => void
+  onSave: () => void
+  onGenerateDrafts: () => void
+}) {
+  const update = (patch: Partial<PipelineAutomationSettings>) => {
+    onChange({ ...settings, ...patch })
+  }
+  const configuredTemplates = [
+    settings.step1_template_id,
+    settings.step2_template_id,
+    settings.step3_template_id,
+  ].filter(Boolean).length
+  const canGenerateDrafts = settings.enabled && configuredTemplates > 0
+
+  return (
+    <section className="rounded-2xl border border-blue-300/14 bg-white/[0.032] p-4 shadow-[0_14px_34px_rgba(2,8,23,0.16)] backdrop-blur-xl sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Pipeline Automation</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+            Choose the templates and timing ALPA should use to prepare outreach drafts for review. Emails are not sent automatically.
+          </p>
+        </div>
+
+        <label className="inline-flex w-fit shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm font-medium text-slate-200">
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={(event) => update({ enabled: event.target.checked })}
+            className="h-4 w-4 rounded border-white/20 bg-transparent text-blue-400"
+          />
+          Enabled
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+        <StatusChip label="Templates configured" value={`${configuredTemplates}/3`} />
+        <StatusChip label="Automation" value={settings.enabled ? 'Enabled' : 'Disabled'} />
+        <StatusChip label="Mode" value="Review before send" />
+      </div>
+
+      <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(0,1fr)_92px_minmax(0,1fr)_92px_minmax(0,1fr)] lg:items-center">
+        <AutomationStepCard
+          label="Step 1"
+          title="First outreach"
+          value={settings.step1_template_id}
+          templates={templates}
+          loading={loading}
+          onChange={(value) => update({ step1_template_id: value })}
+        />
+        <AutomationWaitControl
+          value={settings.step2_delay_days}
+          target="follow-up"
+          onChange={(value) => update({ step2_delay_days: value })}
+        />
+        <AutomationStepCard
+          label="Step 2"
+          title="Follow-up"
+          value={settings.step2_template_id}
+          templates={templates}
+          loading={loading}
+          onChange={(value) => update({ step2_template_id: value })}
+        />
+        <AutomationWaitControl
+          value={settings.step3_delay_days}
+          target="final attempt"
+          onChange={(value) => update({ step3_delay_days: value })}
+        />
+        <AutomationStepCard
+          label="Step 3"
+          title="Final attempt"
+          value={settings.step3_template_id}
+          templates={templates}
+          loading={loading}
+          onChange={(value) => update({ step3_template_id: value })}
+        />
+      </div>
+
+      {generationResult ? (
+        <div className="mt-4 rounded-xl border border-emerald-300/18 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+          <div className="font-semibold">
+            {generationResult.created} draft{generationResult.created === 1 ? '' : 's'} generated
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-emerald-100/80">
+            <span>First Outreach: {generationResult.firstOutreach}</span>
+            <span>Follow-Up: {generationResult.followUp}</span>
+            <span>Final Attempt: {generationResult.finalAttempt}</span>
+            {generationResult.skipped > 0 ? <span>Skipped duplicates/unconfigured: {generationResult.skipped}</span> : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-emerald-100/12 pt-2 text-xs text-emerald-100/70">
+            <span>Ready: {generationResult.lifecycleCounts.ready}</span>
+            <span>Ready Follow-up: {generationResult.lifecycleCounts.readyFollowup}</span>
+            <span>Final Attempt: {generationResult.lifecycleCounts.finalAttempt}</span>
+            <span>Skipped: {generationResult.lifecycleCounts.skipped}</span>
+            <span>Closed: {generationResult.lifecycleCounts.closed}</span>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {status && !generationResult ? (
+          <div
+            className={cn(
+              'rounded-xl border px-3 py-2 text-sm',
+              status.type === 'success'
+                ? 'border-emerald-300/18 bg-emerald-500/10 text-emerald-100'
+                : 'border-rose-300/18 bg-rose-500/10 text-rose-100'
+            )}
+          >
+            {status.message}
+          </div>
+        ) : (
+          <div />
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {generationResult?.created ? (
+            <a
+              href="/dashboard/outreach"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.08] hover:text-white"
+            >
+              Open Outreach Queue
+            </a>
+          ) : null}
+          {canGenerateDrafts ? (
+            <button
+              type="button"
+              onClick={onGenerateDrafts}
+              disabled={loading || saving || generating}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-500/90 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(16,185,129,0.13)] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.04] disabled:text-slate-500 sm:min-w-[150px]"
+            >
+              {generating ? 'Generating...' : 'Generate Drafts'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={loading || saving || generating}
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-blue-300/20 bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(59,130,246,0.16)] transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.04] disabled:text-slate-500 sm:min-w-[150px]"
+          >
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function StatusChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-slate-950/34 px-2.5 py-1">
+      <span className="text-slate-500">{label}:</span>
+      <span className="font-medium text-slate-100">{value}</span>
+    </span>
+  )
+}
+
+function AutomationStepCard({
+  label,
+  title,
+  value,
+  templates,
+  loading,
+  onChange,
+}: {
+  label: string
+  title: string
+  value: string | null
+  templates: PipelineAutomationTemplate[]
+  loading: boolean
+  onChange: (value: string | null) => void
+}) {
+  return (
+    <div className="rounded-xl border border-blue-300/14 bg-slate-950/42 p-3 shadow-[0_10px_26px_rgba(2,8,23,0.14)]">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-200/70">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-white">{title}</div>
+      <AutomationTemplateSelect
+        value={value}
+        templates={templates}
+        loading={loading}
+        onChange={onChange}
+      />
+    </div>
+  )
+}
+
+function AutomationWaitControl({
+  value,
+  target,
+  onChange,
+}: {
+  value: number
+  target: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="flex items-center justify-center px-1 py-1 text-sm text-slate-300">
+      <div className="hidden items-center gap-1 text-slate-500 lg:flex">
+        <ArrowRight className="h-3.5 w-3.5" />
+      </div>
+      <div className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.018] px-2 py-2 lg:w-auto lg:flex-col lg:gap-1 lg:border-transparent lg:bg-transparent lg:px-0">
+        <ArrowDown className="h-3.5 w-3.5 text-slate-500 lg:hidden" />
+        <span className="text-xs text-slate-500">Wait</span>
+        <input
+          type="number"
+          min={0}
+          max={365}
+          value={value}
+          onChange={(event) => onChange(Math.max(0, Number(event.target.value) || 0))}
+          className="h-8 w-14 rounded-lg border border-white/[0.08] bg-slate-950/50 px-2 text-center text-sm font-semibold text-white outline-none transition focus:border-blue-300/24"
+          aria-label={`Days before ${target}`}
+        />
+        <span className="text-xs text-slate-400">days</span>
+      </div>
+      <div className="hidden items-center gap-1 text-slate-500 lg:flex">
+        <ArrowRight className="h-3.5 w-3.5" />
+      </div>
+    </div>
+  )
+}
+
+function AutomationTemplateSelect({
+  value,
+  templates,
+  loading,
+  onChange,
+}: {
+  value: string | null
+  templates: PipelineAutomationTemplate[]
+  loading: boolean
+  onChange: (value: string | null) => void
+}) {
+  return (
+    <select
+      value={value || ''}
+      onChange={(event) => onChange(event.target.value || null)}
+      disabled={loading}
+      className="mt-3 h-10 w-full rounded-xl border border-white/[0.08] bg-slate-950/46 px-3 text-sm text-slate-100 outline-none transition focus:border-blue-300/24 focus:bg-slate-950/62 disabled:cursor-not-allowed disabled:text-slate-500"
+    >
+      <option value="">{loading ? 'Loading templates...' : 'Select template'}</option>
+      {templates.map((template) => (
+        <option key={template.id} value={template.id}>
+          {template.name || template.subject || 'Untitled template'}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function PipelineDataCheckPanel({
+  data,
+  loading,
+  error,
+  onRefresh,
+}: {
+  data: PipelineDataCheck | null
+  loading: boolean
+  error: string
+  onRefresh: () => void
+}) {
+  return (
+    <details className="rounded-2xl border border-white/[0.06] bg-white/[0.025] px-4 py-3 text-sm text-slate-300 backdrop-blur-xl">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <span>
+          <span className="font-semibold text-white">Pipeline Data Check</span>
+          <span className="ml-2 text-xs text-slate-500">
+            {loading ? 'Loading distributions...' : data ? `${data.total} total lead rows` : 'Status and stage distribution'}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault()
+            onRefresh()
+          }}
+          className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+        >
+          Refresh
+        </button>
+      </summary>
+
+      <div className="mt-3">
+        {error ? (
+          <div className="rounded-xl border border-rose-300/18 bg-rose-500/10 px-3 py-2 text-rose-100">
+            {error}
+          </div>
+        ) : null}
+
+        {!error && !data && !loading ? (
+          <div className="rounded-xl border border-white/[0.06] bg-slate-950/32 px-3 py-2 text-slate-500">
+            No diagnostic data loaded yet.
+          </div>
+        ) : null}
+
+        {data ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            <DistributionList title="Status" prefix="status" rows={data.status} />
+            <DistributionList title="Pipeline stage" prefix="pipeline_stage" rows={data.pipeline_stage} />
+          </div>
+        ) : null}
+      </div>
+    </details>
+  )
+}
+
+function DistributionList({
+  title,
+  prefix,
+  rows,
+}: {
+  title: string
+  prefix: string
+  rows: DistributionRow[]
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-slate-950/32 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</div>
+      <div className="mt-2 space-y-1">
+        {rows.length === 0 ? (
+          <div className="text-xs text-slate-500">No rows</div>
+        ) : rows.map((row) => (
+          <div key={`${prefix}-${row.key}`} className="flex items-center justify-between gap-3 text-xs">
+            <span className="truncate text-slate-400">
+              {prefix}: <span className="text-slate-200">{row.key}</span>
+            </span>
+            <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 font-medium text-white">
+              {row.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

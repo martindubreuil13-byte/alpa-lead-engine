@@ -1,110 +1,136 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  ArrowRight,
+  Bot,
   Clock3,
-  Lock,
+  Inbox,
+  Layers3,
+  Loader2,
+  MailCheck,
   Radio,
+  Search,
+  Send,
   Sparkles,
+  Target,
+  Zap,
 } from 'lucide-react'
 
-import UsageCard from '@/components/billing/UsageCard'
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 import { isAdmin, isPaid } from '@/lib/auth/access'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
-import { DAILY_EMAIL_LIMIT, type EmailUsageSnapshot } from '@/lib/email/send-limits'
+import { getDailyEmailLimit, type EmailUsageSnapshot } from '@/lib/email/send-limits'
 import { getGuestLeads } from '@/lib/guest-session'
+import { getPipelineLifecycleStatus, type Lead, type PipelineStage } from '@/lib/pipeline/lifecycle'
 import { supabase } from '@/lib/supabase'
 import { getBrowserTimeZone } from '@/lib/timezone'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 
-const PIPELINE_STATUSES = [
-  'pipeline',
-  'new',
-  'contacted',
-  'ready_followup',
-  'followup_due',
-  'final_attempt',
-  'followup_sent',
-  'closed',
-] as const
-
-const DASHBOARD_PIPELINE_SELECT =
-  'status, pipeline_stage, first_contact_at, followup_sent_at, updated_at, created_at'
-const DASHBOARD_LEGACY_PIPELINE_SELECT =
-  'status, first_contact_at, followup_sent_at, created_at'
-const DASHBOARD_MINIMAL_PIPELINE_SELECT = 'status, created_at'
-
-type LeadStatusRow = {
-  status: string | null
-  pipeline_stage?: string | null
-  email?: string | null
-  phone?: string | null
-  created_at?: string | null
-  updated_at?: string | null
-  first_contact_at?: string | null
-  followup_sent_at?: string | null
+type QueueStatus = 'draft' | 'approved' | 'sent' | 'rejected'
+type DashboardLead = Lead & {
+  user_id?: string | null
 }
-
-type Stats = {
-  saved: number
-  inbox: number
-  found: number
-  ready: number
+type OutreachQueueRow = {
+  id: string
+  source: string | null
+  review_status: QueueStatus | null
+  automation_step: string | null
+  company_name: string | null
+  updated_at: string | null
+  created_at: string | null
 }
-
-type DateRange = '7d' | '30d' | '90d' | 'month' | 'all'
-
-type UsageSummary = {
-  plan: string
-  subscriptionStatus: string | null
-  currentPeriodStart: string | null
-  currentPeriodEnd: string | null
-  leadsUsed: number
-  leadsLimit: number
-  usageWarning: 'none' | 'warning' | 'critical'
+type EmailUsageRow = {
+  date: string
+  emails_sent: number
 }
-
+type ActivityRow = {
+  id?: string | null
+  lead_id: string | null
+  event_type: string
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
 type ActivityItem = {
+  id: string
   label: string
   detail: string
-  tone: 'blue' | 'cyan' | 'amber' | 'emerald'
+  time: string
+  tone: 'cyan' | 'amber' | 'emerald' | 'blue'
 }
-
-function getPlanLeadLimit(plan: string) {
-  if (plan === 'admin') return 10000
-  if (plan === 'prospector') return 120
-  if (plan === 'starter') return 500
-  return 25
+type Insight = {
+  label: string
+  value: string
+  detail: string
 }
-
-function hasContactDetails(lead: Pick<LeadStatusRow, 'email' | 'phone'>) {
-  return Boolean(String(lead.email || '').trim() || String(lead.phone || '').trim())
-}
-
-function getRangeStart(dateRange: DateRange) {
-  const now = new Date()
-
-  if (dateRange === 'all') return null
-  if (dateRange === 'month') {
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+type DashboardData = {
+  loading: boolean
+  pipeline: Record<PipelineStage, number>
+  actionCounts: {
+    newReady: number
+    followupsDue: number
+    approvedQueue: number
+    repliesAwaitingReview: number | null
   }
-
-  const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90
-  const start = new Date(now)
-  start.setDate(start.getDate() - days)
-  return start.toISOString()
+  outreach: {
+    sentToday: number
+    sentThisWeek: number
+    remaining: number | null
+    limit: number | null
+    draftQueue: number
+    approvedQueue: number
+    pipelineAutomationDrafts: number
+  }
+  recentActivity: ActivityItem[]
+  insights: Insight[]
 }
 
-function getClientUsageDate(timeZone = getBrowserTimeZone(), now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', {
+const EMPTY_PIPELINE: Record<PipelineStage, number> = {
+  ready: 0,
+  contacted: 0,
+  ready_followup: 0,
+  final_attempt: 0,
+  closed: 0,
+}
+
+const EMPTY_DASHBOARD: DashboardData = {
+  loading: true,
+  pipeline: EMPTY_PIPELINE,
+  actionCounts: {
+    newReady: 0,
+    followupsDue: 0,
+    approvedQueue: 0,
+    repliesAwaitingReview: null,
+  },
+  outreach: {
+    sentToday: 0,
+    sentThisWeek: 0,
+    remaining: null,
+    limit: null,
+    draftQueue: 0,
+    approvedQueue: 0,
+    pipelineAutomationDrafts: 0,
+  },
+  recentActivity: [],
+  insights: [],
+}
+
+const LEAD_SELECT =
+  'id, user_id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at, created_at, date_added, status_updated_at, last_activity_at'
+const QUEUE_SELECT = 'id, source, review_status, automation_step, company_name, updated_at, created_at'
+const LEAD_PAGE_SIZE = 1000
+const ACTIVE_LEAD_FILTER =
+  'status.in.(pipeline,contacted,followup_due,followup_sent,interested,closed_no_response,no_response,rejected,invalid,inbox,new),pipeline_stage.in.(ready,contacted,followup,ready_followup,final_attempt,closed)'
+
+function getLocalDate(timeZone = getBrowserTimeZone(), date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(now)
+  }).formatToParts(date)
   const year = parts.find((part) => part.type === 'year')?.value
   const month = parts.find((part) => part.type === 'month')?.value
   const day = parts.find((part) => part.type === 'day')?.value
@@ -112,548 +138,740 @@ function getClientUsageDate(timeZone = getBrowserTimeZone(), now = new Date()) {
   return `${year}-${month}-${day}`
 }
 
+function getStartOfLocalDay(timeZone = getBrowserTimeZone()) {
+  return new Date(`${getLocalDate(timeZone)}T00:00:00`).toISOString()
+}
+
+function getWeekStartDate(timeZone = getBrowserTimeZone()) {
+  const now = new Date()
+  const localDate = getLocalDate(timeZone, now)
+  const start = new Date(`${localDate}T00:00:00`)
+  start.setDate(start.getDate() - 6)
+  return getLocalDate(timeZone, start)
+}
+
 function normalizeUsageSnapshot(usage: Partial<EmailUsageSnapshot> | null): EmailUsageSnapshot | null {
   if (!usage) return null
-
-  const limit = Number.isFinite(usage.limit) ? Number(usage.limit) : DAILY_EMAIL_LIMIT
-  const sent = Math.min(Math.max(Number.isFinite(usage.sent) ? Number(usage.sent) : 0, 0), limit)
+  const limit = Number.isFinite(usage.limit) ? Number(usage.limit) : 100
+  const sent = Math.max(Number.isFinite(usage.sent) ? Number(usage.sent) : 0, 0)
   const timeZone = usage.timeZone || getBrowserTimeZone()
 
   return {
     sent,
     limit,
     remaining: Math.max(limit - sent, 0),
-    date: usage.date || getClientUsageDate(timeZone),
+    date: usage.date || getLocalDate(timeZone),
     timeZone,
   }
 }
 
-function getStage(row: LeadStatusRow) {
-  return row.pipeline_stage || row.status || 'pipeline'
+function formatTimeAgo(value: string | null | undefined) {
+  if (!value) return 'Just now'
+  const diffMs = Date.now() - new Date(value).getTime()
+  if (!Number.isFinite(diffMs)) return 'Just now'
+  const minutes = Math.max(0, Math.floor(diffMs / 60_000))
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
-function getFollowupsRecommended(pipeline: Record<string, number>) {
-  return (pipeline.ready_followup || 0) + (pipeline.followup_due || 0)
+function getFirstName(userName: string | null | undefined, email: string | null | undefined) {
+  const name = userName?.trim()
+  if (name) return name.split(/\s+/)[0]
+  const localPart = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim()
+  if (!localPart) return null
+  return localPart.charAt(0).toUpperCase() + localPart.slice(1)
 }
 
-function getFinalAttempts(pipeline: Record<string, number>) {
-  return (pipeline.final_attempt || 0) + (pipeline.followup_sent || 0)
+function getGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
 }
 
-function formatSupabaseError(error: any) {
+function getHighestPriority(data: DashboardData) {
+  if (data.actionCounts.followupsDue > 0) {
+    return 'Review follow-ups first. They represent the warmest open opportunities today.'
+  }
+  if (data.actionCounts.approvedQueue > 0) {
+    return 'Send approved emails next. They are already reviewed and waiting on execution.'
+  }
+  if (data.actionCounts.newReady > 0) {
+    return 'Start with new ready leads. Fresh leads lose value when they sit idle.'
+  }
+  return 'No urgent queue is blocking the operation. Use the next block to create more opportunities.'
+}
+
+function getOperationalState(data: DashboardData) {
+  if (data.actionCounts.followupsDue || data.actionCounts.approvedQueue || data.actionCounts.newReady) {
+    return 'Your outreach engine is active.'
+  }
+  return 'Your outreach engine is stable.'
+}
+
+async function fetchAllLeads(userId: string) {
+  const rows: DashboardLead[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('leads')
+      .select(LEAD_SELECT)
+      .eq('user_id', userId)
+      .or(ACTIVE_LEAD_FILTER)
+      .order('last_activity_at', { ascending: false, nullsFirst: false })
+      .range(from, from + LEAD_PAGE_SIZE - 1)
+
+    if (error) throw error
+
+    const page = (data || []) as DashboardLead[]
+    rows.push(...page)
+    if (page.length < LEAD_PAGE_SIZE) break
+    from += LEAD_PAGE_SIZE
+  }
+
+  return rows
+}
+
+async function fetchEmailUsageRows(userId: string, weekStartDate: string) {
+  const { data, error } = await supabase
+    .from('email_usage')
+    .select('date, emails_sent')
+    .eq('user_id', userId)
+    .gte('date', weekStartDate)
+
+  if (error) throw error
+  return (data || []) as EmailUsageRow[]
+}
+
+async function fetchEmailUsageSnapshot() {
+  const timeZone = getBrowserTimeZone()
+  const response = await fetch(`/api/send-email?timeZone=${encodeURIComponent(timeZone)}`, {
+    cache: 'no-store',
+    headers: { 'x-alpa-time-zone': timeZone },
+  })
+  const result = await response.json().catch(() => null)
+  return response.ok ? normalizeUsageSnapshot(result?.usage) : null
+}
+
+async function fetchQueueRows(userId: string, weekStartIso: string) {
+  const [allQueue, weekSentQueue] = await Promise.all([
+    supabase.from('outreach_queue').select(QUEUE_SELECT).eq('user_id', userId),
+    supabase
+      .from('outreach_queue')
+      .select(QUEUE_SELECT)
+      .eq('user_id', userId)
+      .eq('review_status', 'sent')
+      .gte('updated_at', weekStartIso),
+  ])
+
+  if (allQueue.error) throw allQueue.error
+  if (weekSentQueue.error) throw weekSentQueue.error
+
   return {
-    message: error?.message,
-    details: error?.details,
-    hint: error?.hint,
-    code: error?.code,
-    raw: error,
+    all: (allQueue.data || []) as OutreachQueueRow[],
+    sentThisWeek: (weekSentQueue.data || []) as OutreachQueueRow[],
   }
 }
 
-function isMissingOptionalPipelineField(error: any) {
-  const message = String(error?.message || '').toLowerCase()
-  return (
-    error?.code === '42703' ||
-    message.includes('pipeline_stage') ||
-    message.includes('first_contact_at') ||
-    message.includes('followup_sent_at') ||
-    message.includes('updated_at')
-  )
+async function fetchRecentEvents(userId: string) {
+  const [eventsResult, leadsResult] = await Promise.all([
+    supabase
+      .from('lead_activity_events')
+      .select('id, lead_id, event_type, metadata, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(12),
+    supabase
+      .from('leads')
+      .select('id, company_name, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(6),
+  ])
+
+  if (eventsResult.error) throw eventsResult.error
+  if (leadsResult.error) throw leadsResult.error
+
+  const events = (eventsResult.data || []) as ActivityRow[]
+  const leadIds = Array.from(new Set(events.map((event) => event.lead_id).filter(Boolean))) as string[]
+  const namesByLeadId = new Map<string, string>()
+
+  if (leadIds.length > 0) {
+    const { data: leadRows } = await supabase
+      .from('leads')
+      .select('id, company_name')
+      .eq('user_id', userId)
+      .in('id', leadIds)
+
+    for (const lead of leadRows || []) {
+      namesByLeadId.set(lead.id, lead.company_name || 'Unknown lead')
+    }
+  }
+
+  const mappedEvents = events.map((event, index) => {
+    const company = event.lead_id ? namesByLeadId.get(event.lead_id) : null
+    const queueId = typeof event.metadata?.queue_id === 'string' ? event.metadata.queue_id : null
+    const automationStep = typeof event.metadata?.automation_step === 'string' ? event.metadata.automation_step : null
+
+    if (event.event_type === 'email_sent') {
+      return {
+        id: event.id || `${event.created_at}-${index}`,
+        label: `Email sent${company ? ` to ${company}` : ''}`,
+        detail: queueId ? `Outreach queue item ${queueId.slice(0, 8)} confirmed.` : 'Delivery confirmed by send route.',
+        time: formatTimeAgo(event.created_at),
+        tone: 'emerald' as const,
+      }
+    }
+
+    if (event.event_type === 'draft_generated') {
+      return {
+        id: event.id || `${event.created_at}-${index}`,
+        label: `${automationStep ? formatAutomationStep(automationStep) : 'Draft'} generated${company ? ` for ${company}` : ''}`,
+        detail: 'Pipeline Automation prepared a draft for review.',
+        time: formatTimeAgo(event.created_at),
+        tone: 'cyan' as const,
+      }
+    }
+
+    return {
+      id: event.id || `${event.created_at}-${index}`,
+      label: event.event_type.replace(/_/g, ' '),
+      detail: company || 'Lead activity recorded.',
+      time: formatTimeAgo(event.created_at),
+      tone: 'blue' as const,
+    }
+  })
+
+  const imported = (leadsResult.data || [])
+    .slice(0, 3)
+    .map((lead, index) => ({
+      id: `lead-${lead.id || index}`,
+      label: `Lead added${lead.company_name ? `: ${lead.company_name}` : ''}`,
+      detail: 'New record entered the operator workspace.',
+      time: formatTimeAgo(lead.created_at),
+      tone: 'blue' as const,
+    }))
+
+  return [...mappedEvents, ...imported].slice(0, 8)
+}
+
+function formatAutomationStep(step: string) {
+  if (step === 'first_outreach' || step === 'firstOutreach') return 'First outreach'
+  if (step === 'follow_up' || step === 'followUp') return 'Follow-up'
+  if (step === 'final_attempt' || step === 'finalAttempt') return 'Final attempt'
+  return 'Draft'
+}
+
+function buildInsights(leads: DashboardLead[], pipeline: Record<PipelineStage, number>) {
+  const insights: Insight[] = []
+  const followupByIndustry = new Map<string, number>()
+
+  for (const lead of leads) {
+    if (getPipelineLifecycleStatus(lead) !== 'ready_followup') continue
+    const industry = lead.industry?.trim()
+    if (!industry) continue
+    followupByIndustry.set(industry, (followupByIndustry.get(industry) || 0) + 1)
+  }
+
+  const highestFollowup = [...followupByIndustry.entries()].sort((a, b) => b[1] - a[1])[0]
+  if (highestFollowup) {
+    insights.push({
+      label: 'Highest follow-up volume',
+      value: highestFollowup[0],
+      detail: `${highestFollowup[1]} follow-ups are waiting in this niche.`,
+    })
+  }
+
+  const bottleneck = (Object.entries(pipeline) as Array<[PipelineStage, number]>)
+    .filter(([stage]) => stage !== 'closed')
+    .sort((a, b) => b[1] - a[1])[0]
+
+  if (bottleneck && bottleneck[1] > 0) {
+    insights.push({
+      label: 'Pipeline bottleneck',
+      value: formatPipelineLabel(bottleneck[0]),
+      detail: `${bottleneck[1]} leads are concentrated here.`,
+    })
+  }
+
+  return insights
+}
+
+function formatPipelineLabel(stage: PipelineStage) {
+  if (stage === 'ready') return 'Ready'
+  if (stage === 'contacted') return 'Contacted'
+  if (stage === 'ready_followup') return 'Follow-Up Due'
+  if (stage === 'final_attempt') return 'Final Attempt'
+  return 'Closed'
+}
+
+function getStageTone(stage: PipelineStage) {
+  if (stage === 'ready_followup') return 'bg-amber-300'
+  if (stage === 'final_attempt') return 'bg-fuchsia-300'
+  if (stage === 'closed') return 'bg-slate-500'
+  if (stage === 'contacted') return 'bg-cyan-300'
+  return 'bg-emerald-300'
 }
 
 export default function Page() {
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
-  const plan = profile?.plan ?? null
-  const [stats, setStats] = useState<Stats>({
-    saved: 0,
-    inbox: 0,
-    found: 0,
-    ready: 0,
-  })
-
-  const [pipelineBreakdown, setPipelineBreakdown] = useState<Record<string, number>>({})
-  const [emailUsage, setEmailUsage] = useState<EmailUsageSnapshot | null>(null)
+  const [data, setData] = useState<DashboardData>(EMPTY_DASHBOARD)
   const [isGuest, setIsGuest] = useState(false)
-  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
-  const [usageLoading, setUsageLoading] = useState(true)
-  const [dateRange, setDateRange] = useState<DateRange>('month')
 
   const paidViewer = !isGuest && !profileLoading && Boolean(profile && (isPaid(profile) || isAdmin(profile)))
-  const freeViewer = isGuest || (!profileLoading && !paidViewer)
-  const freeLeadLimit = usageSummary?.leadsLimit ?? getPlanLeadLimit('free')
+  const userName = user?.user_metadata?.full_name as string | undefined
+  const displayName =
+    userLoading || profileLoading
+      ? null
+      : getFirstName(userName, profile?.email || user?.email)
 
   useEffect(() => {
     if (userLoading || profileLoading) return
-
     void loadDashboard()
 
     const refreshGuest = () => {
-      loadGuestStats(dateRange)
+      if (!user) loadGuestDashboard()
     }
 
     window.addEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
-    return () => {
-      window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
-    }
-  }, [dateRange, profileLoading, profile?.id, profile?.plan, user, userLoading])
+    return () => window.removeEventListener(GUEST_LEADS_UPDATED_EVENT, refreshGuest)
+  }, [profileLoading, profile?.id, profile?.plan, user, userLoading])
 
   async function loadDashboard() {
     if (!user) {
-      setIsGuest(true)
-      const guestLeads = getGuestLeads()
-      loadGuestStats(dateRange)
-      setEmailUsage(null)
-      setUsageSummary({
-        plan: 'free',
-        subscriptionStatus: null,
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
-        leadsUsed: 0,
-        leadsLimit: getPlanLeadLimit('free'),
-        usageWarning: 'none',
-      })
-      setUsageLoading(false)
+      loadGuestDashboard()
       return
     }
 
     setIsGuest(false)
-    if (!plan) return
-    await Promise.all([
-      loadStats(user.id, dateRange),
-      loadPipeline(user.id, dateRange),
-      loadUsage(user.id, plan),
-      loadEmailUsage(),
-    ])
-  }
+    setData((current) => ({ ...current, loading: true }))
 
-  function loadGuestStats(selectedRange: DateRange) {
-    const guestLeads = getGuestLeads()
-    const rangeStart = getRangeStart(selectedRange)
-    const filteredGuestLeads = rangeStart
-      ? guestLeads.filter((lead) => new Date(lead.created_at).getTime() >= new Date(rangeStart).getTime())
-      : guestLeads
-    const inbox = filteredGuestLeads.filter((lead) => lead.status === 'inbox').length
-    const ready = filteredGuestLeads.filter((lead) => hasContactDetails(lead)).length
-
-    setStats({
-      saved: filteredGuestLeads.length,
-      inbox,
-      found: filteredGuestLeads.length,
-      ready,
-    })
-
-    const counts: Record<string, number> = {}
-    filteredGuestLeads.forEach((lead) => {
-      const key = lead.status || 'pipeline'
-      counts[key] = (counts[key] || 0) + 1
-    })
-    setPipelineBreakdown(counts)
-  }
-
-  async function loadStats(currentUserId: string, selectedRange: DateRange) {
-    try {
-      const rangeStart = getRangeStart(selectedRange)
-      let query = supabase
-        .from('leads')
-        .select('status, email, phone')
-        .eq('user_id', currentUserId)
-
-      if (rangeStart) {
-        query = query.gte('created_at', rangeStart)
-      }
-
-      const { data } = await query
-
-      const inbox = data?.filter((l) => l.status === 'inbox').length || 0
-      const saved = data?.length || 0
-      const ready = data?.filter((lead) => hasContactDetails(lead)).length || 0
-
-      setStats({
-        saved,
-        inbox,
-        found: saved,
-        ready,
-      })
-    } catch (err) {
-      console.error('Stats error:', err)
-    }
-  }
-
-  async function loadPipeline(currentUserId: string, selectedRange: DateRange) {
-    try {
-      const rangeStart = getRangeStart(selectedRange)
-      const buildPipelineQuery = (selectFields: string) => {
-        let query = supabase
-          .from('leads')
-          .select(selectFields)
-          .eq('user_id', currentUserId)
-
-        if (rangeStart) {
-          query = query.gte('created_at', rangeStart)
-        }
-
-        return query
-      }
-
-      let result = await buildPipelineQuery(DASHBOARD_PIPELINE_SELECT)
-      let data = result.data as LeadStatusRow[] | null
-      let error = result.error
-
-      if (error && isMissingOptionalPipelineField(error)) {
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('[dashboard] retrying pipeline query with legacy lifecycle fields', formatSupabaseError(error))
-        }
-
-        result = await buildPipelineQuery(DASHBOARD_LEGACY_PIPELINE_SELECT)
-        data = result.data as LeadStatusRow[] | null
-        error = result.error
-      }
-
-      if (error && isMissingOptionalPipelineField(error)) {
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('[dashboard] retrying pipeline query with minimal legacy fields', formatSupabaseError(error))
-        }
-
-        result = await buildPipelineQuery(DASHBOARD_MINIMAL_PIPELINE_SELECT)
-        data = result.data as LeadStatusRow[] | null
-        error = result.error
-      }
-
-      if (error) throw error
-
-      const counts: Record<string, number> = {}
-
-      data?.forEach((row) => {
-        const stage = getStage(row)
-        if ([...PIPELINE_STATUSES].includes(stage as (typeof PIPELINE_STATUSES)[number])) {
-          counts[stage] = (counts[stage] || 0) + 1
-        }
-      })
-
-      setPipelineBreakdown(counts)
-    } catch (err) {
-      console.error('Pipeline error:', formatSupabaseError(err))
-    }
-  }
-
-  async function loadUsage(currentUserId: string, loadedPlan: string) {
-    try {
-      setUsageLoading(true)
-      const nowIso = new Date().toISOString()
-
-      const [{ data: profileData }, { data: usageData }, { count: freeLeadCount }] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('plan, subscription_status, plan_status, current_period_end')
-          .eq('id', currentUserId)
-          .maybeSingle(),
-        supabase
-          .from('usage')
-          .select('leads_used, leads_limit, period_start, period_end')
-          .eq('user_id', currentUserId)
-          .lte('period_start', nowIso)
-          .gte('period_end', nowIso)
-          .order('period_start', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('leads')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', currentUserId)
-          .or('email.not.is.null,phone.not.is.null'),
-      ])
-
-      const plan = loadedPlan || profileData?.plan || 'free'
-      const isPaidUsagePlan = plan === 'admin' || plan === 'prospector' || plan === 'starter'
-      const leadsLimit = getPlanLeadLimit(plan)
-      const leadsUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
-
-      setUsageSummary({
-        plan,
-        subscriptionStatus:
-          plan === 'free'
-            ? 'free'
-            : profile?.plan_status ?? profileData?.plan_status ?? profileData?.subscription_status ?? 'active',
-        currentPeriodStart: isPaidUsagePlan ? usageData?.period_start ?? null : null,
-        currentPeriodEnd: isPaidUsagePlan ? usageData?.period_end ?? null : null,
-        leadsUsed,
-        leadsLimit,
-        usageWarning:
-          isPaidUsagePlan && leadsLimit > 0
-            ? leadsUsed / leadsLimit >= 0.9
-              ? 'critical'
-              : leadsUsed / leadsLimit >= 0.8
-                ? 'warning'
-                : 'none'
-            : 'none',
-      })
-    } catch (err) {
-      console.error('Usage error:', err)
-      setUsageSummary({
-        plan: loadedPlan,
-        subscriptionStatus: loadedPlan === 'free' ? 'free' : 'active',
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
-        leadsUsed: 0,
-        leadsLimit: getPlanLeadLimit(loadedPlan),
-        usageWarning: 'none',
-      })
-    } finally {
-      setUsageLoading(false)
-    }
-  }
-
-  async function loadEmailUsage() {
     try {
       const timeZone = getBrowserTimeZone()
-      const response = await fetch(`/api/send-email?timeZone=${encodeURIComponent(timeZone)}`, {
-        cache: 'no-store',
-        headers: {
-          'x-alpa-time-zone': timeZone,
-        },
-      })
-      const result = await response.json().catch(() => null)
+      const todayDate = getLocalDate(timeZone)
+      const todayStartIso = getStartOfLocalDay(timeZone)
+      const weekStartDate = getWeekStartDate(timeZone)
+      const weekStartIso = new Date(`${weekStartDate}T00:00:00`).toISOString()
 
-      if (response.ok && result?.usage) {
-        const nextUsage = normalizeUsageSnapshot(result.usage)
-        setEmailUsage(nextUsage)
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('[dashboard] email usage snapshot', {
-            detectedTimeZone: timeZone,
-            localBusinessDate: getClientUsageDate(timeZone),
-            fetchedUsageDate: nextUsage?.date,
-            reconciledSent: nextUsage?.sent,
-          })
-        }
+      const [leads, queue, usageRows, usageSnapshot, recentActivity] = await Promise.all([
+        fetchAllLeads(user.id),
+        fetchQueueRows(user.id, weekStartIso),
+        fetchEmailUsageRows(user.id, weekStartDate),
+        fetchEmailUsageSnapshot(),
+        fetchRecentEvents(user.id),
+      ])
+
+      const pipeline = { ...EMPTY_PIPELINE }
+      for (const lead of leads) {
+        const stage = getPipelineLifecycleStatus(lead)
+        pipeline[stage] += 1
       }
+
+      const draftQueue = queue.all.filter((row) => row.review_status === 'draft').length
+      const approvedQueue = queue.all.filter((row) => row.review_status === 'approved').length
+      const pipelineAutomationDrafts = queue.all.filter(
+        (row) => row.source === 'pipeline_automation' && row.review_status === 'draft'
+      ).length
+      const queueSentToday = queue.sentThisWeek.filter((row) => row.updated_at && row.updated_at >= todayStartIso).length
+      const queueSentWeek = queue.sentThisWeek.length
+      const manualSentToday = usageRows.find((row) => row.date === todayDate)?.emails_sent || usageSnapshot?.sent || 0
+      const manualSentWeek = usageRows.reduce((sum, row) => sum + (row.emails_sent || 0), 0)
+      const limit = usageSnapshot?.limit ?? getDailyEmailLimit(profile?.plan)
+      const sentToday = manualSentToday + queueSentToday
+      const sentThisWeek = manualSentWeek + queueSentWeek
+
+      const nextData: DashboardData = {
+        loading: false,
+        pipeline,
+        actionCounts: {
+          newReady: pipeline.ready,
+          followupsDue: pipeline.ready_followup,
+          approvedQueue,
+          repliesAwaitingReview: null,
+        },
+        outreach: {
+          sentToday,
+          sentThisWeek,
+          remaining: Math.max(limit - sentToday, 0),
+          limit,
+          draftQueue,
+          approvedQueue,
+          pipelineAutomationDrafts,
+        },
+        recentActivity,
+        insights: buildInsights(leads, pipeline),
+      }
+
+      setData(nextData)
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[dashboard] email usage unavailable', error)
-      }
+      console.error('[dashboard] command center load failed:', error)
+      setData((current) => ({ ...current, loading: false }))
     }
   }
 
-  const pipeline = pipelineBreakdown.pipeline || 0
-  const newLeads = pipelineBreakdown.new || 0
-  const contacted = pipelineBreakdown.contacted || 0
-  const followups = getFollowupsRecommended(pipelineBreakdown)
-  const finalAttempts = getFinalAttempts(pipelineBreakdown)
-  const contactedToday = emailUsage?.sent
-  const emailsRemaining = emailUsage?.remaining
-  const contactedTodayLabel = typeof contactedToday === 'number' ? contactedToday : '—'
-  const emailsRemainingLabel = typeof emailsRemaining === 'number' ? emailsRemaining : '—'
-  const activityItems = useMemo<ActivityItem[]>(
-    () => [
-      {
-        label:
-          typeof contactedToday === 'number'
-            ? `${contactedToday} sends completed today`
-            : 'Sends today unavailable',
-        detail: 'Successful sends.',
-        tone: 'cyan',
-      },
-      {
-        label: followups > 0 ? `${followups} follow-ups due` : 'Follow-up queue is clear',
-        detail: 'Ready for Follow-up.',
-        tone: 'amber',
-      },
-      {
-        label: 'Outreach limit resets tomorrow',
-        detail: 'Local account day.',
-        tone: 'blue',
-      },
-    ],
-    [contactedToday, followups]
-  )
+  function loadGuestDashboard() {
+    const guestLeads = getGuestLeads()
+    const ready = guestLeads.filter((lead) => lead.email || lead.phone).length
 
-  if (!isGuest && !plan) {
+    setIsGuest(true)
+    setData({
+      ...EMPTY_DASHBOARD,
+      loading: false,
+      pipeline: { ...EMPTY_PIPELINE, ready },
+      actionCounts: {
+        newReady: ready,
+        followupsDue: 0,
+        approvedQueue: 0,
+        repliesAwaitingReview: null,
+      },
+      recentActivity: guestLeads.slice(0, 5).map((lead, index) => ({
+        id: lead.id || `guest-${index}`,
+        label: `Lead found${lead.company_name ? `: ${lead.company_name}` : ''}`,
+        detail: 'Trial lead captured locally.',
+        time: formatTimeAgo(lead.created_at),
+        tone: 'blue',
+      })),
+    })
+  }
+
+  if (!isGuest && !profile && !profileLoading) {
     return null
   }
 
   return (
-    <div className="space-y-6 pb-10 lg:-mt-2">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
-            <Radio className="h-3.5 w-3.5 animate-pulse" />
-            Operational command
-          </div>
-          <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-white sm:text-5xl">
-            ALPA Command Center
-          </h1>
+    <div className="space-y-5 pb-10 lg:-mt-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
+          <Radio className="h-3.5 w-3.5 animate-pulse" />
+          Operational Command Center
         </div>
-
-        <select
-          value={dateRange}
-          onChange={(event) => setDateRange(event.target.value as DateRange)}
-          className="h-11 rounded-2xl border border-white/10 bg-[#07111f]/90 px-4 text-sm text-slate-200 shadow-[0_14px_40px_rgba(2,8,23,0.22)] outline-none transition focus:border-cyan-300/30 focus:ring-4 focus:ring-cyan-300/10"
-        >
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="month">This month</option>
-          <option value="all">All time</option>
-        </select>
+        {data.loading ? (
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Syncing live signals
+          </div>
+        ) : null}
       </div>
 
-      <OperationalHero
-        isFreeViewer={freeViewer}
-        stats={stats}
-        contactedToday={contactedTodayLabel}
-        followups={followups}
-        emailsRemaining={emailsRemainingLabel}
-        freeLeadLimit={freeLeadLimit}
-        email={profile?.email ?? ''}
+      <DailyCommandBrief
+        data={data}
+        displayName={displayName}
+        isFreeViewer={!paidViewer}
+        email={profile?.email || user?.email || ''}
       />
 
-      <LiveActivityFeed isFreeViewer={freeViewer} items={activityItems} />
+      <ActionRequired data={data} isFreeViewer={!paidViewer} email={profile?.email || user?.email || ''} />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_0.86fr]">
-        <OperationalStatusStrip
-          newReady={pipeline + newLeads}
-          contactedWaiting={contacted}
-          readyFollowup={followups}
-          finalAttempt={finalAttempts}
-          isFreeViewer={freeViewer}
-        />
-        <UsageCard
-          loading={usageLoading}
-          plan={usageSummary?.plan}
-          subscriptionStatus={usageSummary?.subscriptionStatus}
-          currentPeriodStart={usageSummary?.currentPeriodStart}
-          currentPeriodEnd={usageSummary?.currentPeriodEnd}
-          leadsUsed={usageSummary?.leadsUsed}
-          leadsLimit={usageSummary?.leadsLimit}
-          usageWarning={usageSummary?.usageWarning}
-        />
+      <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
+        <OutreachEngineHealth data={data} isFreeViewer={!paidViewer} />
+        <PipelineSnapshot data={data} isFreeViewer={!paidViewer} />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_0.78fr]">
+        <RecentActivity items={data.recentActivity} isFreeViewer={!paidViewer} />
+        <div className="space-y-5">
+          <AiInsights insights={data.insights} isFreeViewer={!paidViewer} />
+          <QuickActions isFreeViewer={!paidViewer} email={profile?.email || user?.email || ''} />
+        </div>
       </div>
     </div>
   )
 }
 
-function OperationalHero({
+function DailyCommandBrief({
+  data,
+  displayName,
   isFreeViewer,
-  stats,
-  contactedToday,
-  followups,
-  emailsRemaining,
-  freeLeadLimit,
   email,
 }: {
+  data: DashboardData
+  displayName: string | null
   isFreeViewer: boolean
-  stats: Stats
-  contactedToday: number | string
-  followups: number
-  emailsRemaining: number | string
-  freeLeadLimit: number
   email: string
 }) {
   return (
-    <section className="group relative overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.20),transparent_34%),radial-gradient(circle_at_84%_18%,rgba(59,130,246,0.18),transparent_36%),linear-gradient(145deg,rgba(5,12,26,0.98),rgba(8,18,34,0.94)_52%,rgba(2,8,23,0.98))] p-5 shadow-[0_32px_120px_rgba(2,8,23,0.48)] transition duration-500 hover:border-cyan-200/20 sm:p-7 lg:p-8">
-      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
-      <div className="pointer-events-none absolute right-8 top-8 h-24 w-24 rounded-full bg-cyan-300/10 blur-3xl transition duration-700 group-hover:bg-cyan-300/16" />
-
-      <div className="relative grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-end">
+    <section className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.18),transparent_34%),radial-gradient(circle_at_86%_20%,rgba(99,102,241,0.18),transparent_34%),linear-gradient(145deg,rgba(2,8,23,0.98),rgba(8,18,34,0.94)_54%,rgba(4,10,22,0.98))] p-5 shadow-[0_32px_120px_rgba(2,8,23,0.48)] sm:p-7">
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
+      <div className="relative grid gap-6 lg:grid-cols-[1fr_320px] lg:items-end">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs font-medium text-slate-300">
-            {isFreeViewer ? <Lock className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5 text-cyan-200" />}
-            {isFreeViewer ? 'Preview' : 'Operational state'}
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs font-medium text-cyan-100">
+            <Bot className="h-3.5 w-3.5" />
+            Daily command brief
+          </div>
+          <h1 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white sm:text-5xl">
+            {displayName ? `${getGreeting()} ${displayName}.` : `${getGreeting()}.`}
+          </h1>
+          <p className="mt-3 text-lg text-slate-300">{getOperationalState(data)}</p>
+
+          <div className={`mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 ${isFreeViewer ? 'blur-[2px]' : ''}`}>
+            <BriefSignal label="Emails sent today" value={data.outreach.sentToday} />
+            <BriefSignal label="Follow-ups due" value={data.actionCounts.followupsDue} />
+            <BriefSignal label="New leads ready" value={data.actionCounts.newReady} />
+            <BriefSignal label="Approved emails" value={data.actionCounts.approvedQueue} />
           </div>
 
-          <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-[-0.055em] text-white sm:text-5xl lg:text-6xl">
-            {isFreeViewer ? 'Operational Intelligence activates after upgrade.' : 'Your outreach pipeline is active.'}
-          </h2>
-          {isFreeViewer ? (
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              {Math.min(stats.saved, freeLeadLimit)} of {freeLeadLimit} trial leads found.
-            </p>
-          ) : null}
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link href="/dashboard/kanban" className="btn-primary min-h-[50px] rounded-2xl px-5 text-sm font-semibold">
-              Open Pipeline
-            </Link>
-            {isFreeViewer ? (
-              <StartCheckoutButton
-                label="Activate command center"
-                email={email}
-                source="dashboard_command_center"
-                className="btn-secondary min-h-[50px] rounded-2xl px-5 text-sm font-semibold text-white"
-              />
-            ) : (
-              <Link href="/dashboard/scraper" className="btn-secondary min-h-[50px] rounded-2xl px-5 text-sm font-semibold text-white">
-                Find more leads
-              </Link>
-            )}
+          <div className="mt-6 rounded-2xl border border-cyan-300/12 bg-cyan-300/[0.06] px-4 py-3 text-sm leading-6 text-cyan-50">
+            <span className="font-semibold">Recommended action: </span>
+            {isFreeViewer ? 'Activate ALPA to unlock live operational recommendations.' : getHighestPriority(data)}
           </div>
         </div>
 
-        <div className={`grid gap-3 sm:grid-cols-3 lg:grid-cols-1 ${isFreeViewer ? 'select-none' : ''}`}>
-          <HeroMetric label="Contacted today" value={isFreeViewer ? 'Preview' : contactedToday} locked={isFreeViewer} />
-          <HeroMetric label="Follow-ups due" value={isFreeViewer ? 'Preview' : followups} locked={isFreeViewer} accent />
-          <HeroMetric label="Emails remaining" value={isFreeViewer ? 'Preview' : emailsRemaining} locked={isFreeViewer} />
+        <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Current focus</div>
+          <div className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-white tabular-nums">
+            {isFreeViewer ? 'Preview' : data.actionCounts.followupsDue || data.actionCounts.approvedQueue || data.actionCounts.newReady}
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            {isFreeViewer ? 'Live queue intelligence appears after activation.' : 'Highest-priority operator queue right now.'}
+          </p>
+          {isFreeViewer ? (
+            <StartCheckoutButton
+              label="Activate command center"
+              email={email}
+              source="dashboard_command_center"
+              className="mt-4 inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+            />
+          ) : null}
         </div>
       </div>
     </section>
   )
 }
 
-function HeroMetric({
-  label,
-  value,
-  locked,
-  accent,
-}: {
-  label: string
-  value: number | string
-  locked?: boolean
-  accent?: boolean
-}) {
+function BriefSignal({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="relative min-h-[126px] overflow-hidden rounded-3xl border border-white/10 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:border-cyan-200/18 hover:bg-white/[0.075]">
-      <div className={`flex h-full min-h-[94px] flex-col justify-between ${locked ? 'blur-[3px]' : ''}`}>
-        <div className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
-        <div className={`mt-4 text-4xl font-semibold leading-none tracking-[-0.04em] tabular-nums ${accent ? 'text-cyan-100' : 'text-white'}`}>{value}</div>
-      </div>
-      {locked ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#020617]/10">
-          <div className="rounded-full border border-white/10 bg-[#081120]/80 p-2 text-cyan-100 shadow-[0_18px_50px_rgba(2,8,23,0.35)]">
-            <Lock className="h-4 w-4" />
-          </div>
-        </div>
-      ) : null}
+    <div className="rounded-2xl border border-white/8 bg-white/[0.045] px-3 py-3">
+      <div className="text-2xl font-semibold text-white tabular-nums">{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{label}</div>
     </div>
   )
 }
 
-function LiveActivityFeed({ isFreeViewer, items }: { isFreeViewer: boolean; items: ActivityItem[] }) {
-  return (
-    <section className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.025))] p-5 shadow-[0_22px_70px_rgba(2,8,23,0.22)] sm:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-[-0.035em] text-white">Live activity</h2>
-        </div>
-        <div className="flex items-center gap-2 rounded-full border border-emerald-300/12 bg-emerald-300/8 px-3 py-1 text-xs text-emerald-100">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
-          {isFreeViewer ? 'Preview' : 'Live'}
-        </div>
-      </div>
+function ActionRequired({ data, isFreeViewer, email }: { data: DashboardData; isFreeViewer: boolean; email: string }) {
+  const actions = [
+    data.actionCounts.followupsDue > 0
+      ? {
+          label: 'Follow-Ups Due',
+          count: data.actionCounts.followupsDue,
+          priority: 'Critical',
+          href: '/dashboard/kanban',
+          cta: 'Open Pipeline',
+          icon: Clock3,
+          tone: 'amber',
+        }
+      : null,
+    data.actionCounts.newReady > 0
+      ? {
+          label: 'New Leads Ready',
+          count: data.actionCounts.newReady,
+          priority: 'High',
+          href: '/dashboard/kanban',
+          cta: 'Review Leads',
+          icon: Target,
+          tone: 'emerald',
+        }
+      : null,
+    data.actionCounts.approvedQueue > 0
+      ? {
+          label: 'Approved Emails Waiting',
+          count: data.actionCounts.approvedQueue,
+          priority: 'High',
+          href: '/dashboard/outreach?status=approved',
+          cta: 'Send Now',
+          icon: Send,
+          tone: 'cyan',
+        }
+      : null,
+    data.actionCounts.repliesAwaitingReview && data.actionCounts.repliesAwaitingReview > 0
+      ? {
+          label: 'Replies Awaiting Review',
+          count: data.actionCounts.repliesAwaitingReview,
+          priority: 'Critical',
+          href: '/dashboard/outreach',
+          cta: 'Open Inbox',
+          icon: Inbox,
+          tone: 'blue',
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    label: string
+    count: number
+    priority: string
+    href: string
+    cta: string
+    icon: typeof Clock3
+    tone: string
+  }>
 
-      <div className="relative mt-6 space-y-4">
-        <div className="absolute bottom-5 left-[19px] top-5 w-px bg-gradient-to-b from-cyan-200/40 via-white/10 to-transparent" />
-        {items.map((item, index) => (
-          <div
-            key={item.label}
-            className={`relative flex gap-4 rounded-3xl border border-white/0 p-2 transition duration-300 hover:border-white/8 hover:bg-white/[0.035] ${isFreeViewer ? 'blur-[2px]' : ''}`}
-            style={{ animationDelay: `${index * 80}ms` }}
-          >
-            <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${getFeedTone(item.tone)}`}>
-              <Clock3 className="h-4 w-4" />
+  return (
+    <section>
+      <SectionHeader eyebrow="Action Required" title="What needs attention now" />
+      {isFreeViewer ? (
+        <LockedActionPanel email={email} />
+      ) : actions.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {actions.map((action) => (
+            <ActionCard key={action.label} {...action} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-3xl border border-emerald-300/14 bg-emerald-300/[0.055] p-5 text-sm text-emerald-50">
+          No urgent operator queue is waiting. Generate drafts or find new leads to create the next action.
+        </div>
+      )}
+    </section>
+  )
+}
+
+function LockedActionPanel({ email }: { email: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5">
+      <div className="text-lg font-semibold text-white">Live action queue is locked.</div>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+        Activate ALPA to see follow-ups, approved sends, and pipeline work ranked by urgency.
+      </p>
+      <StartCheckoutButton
+        label="Activate command center"
+        email={email}
+        source="dashboard_action_required"
+        className="mt-4 inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+      />
+    </div>
+  )
+}
+
+function ActionCard({
+  label,
+  count,
+  priority,
+  href,
+  cta,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  count: number
+  priority: string
+  href: string
+  cta: string
+  icon: typeof Clock3
+  tone: string
+}) {
+  const toneClass =
+    tone === 'amber'
+      ? 'border-amber-300/18 bg-amber-300/[0.07] text-amber-100'
+      : tone === 'emerald'
+        ? 'border-emerald-300/18 bg-emerald-300/[0.07] text-emerald-100'
+        : 'border-cyan-300/18 bg-cyan-300/[0.07] text-cyan-100'
+
+  return (
+    <Link
+      href={href}
+      className="group min-h-[172px] rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-5 shadow-[0_18px_60px_rgba(2,8,23,0.22)] transition hover:-translate-y-0.5 hover:border-cyan-200/18"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className={`rounded-2xl border p-2.5 ${toneClass}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
+          {priority}
+        </span>
+      </div>
+      <div className="mt-5 text-5xl font-semibold tracking-[-0.06em] text-white tabular-nums">{count}</div>
+      <div className="mt-1 text-sm font-medium text-slate-300">{label}</div>
+      <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-cyan-100">
+        {cta}
+        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+      </div>
+    </Link>
+  )
+}
+
+function OutreachEngineHealth({ data, isFreeViewer }: { data: DashboardData; isFreeViewer: boolean }) {
+  const metrics = [
+    { label: 'Emails Sent Today', value: data.outreach.sentToday, detail: 'Manual sends + queue sends' },
+    { label: 'Emails Sent This Week', value: data.outreach.sentThisWeek, detail: 'Last 7 local days' },
+    { label: 'Emails Remaining', value: data.outreach.remaining ?? '—', detail: data.outreach.limit ? `Daily limit ${data.outreach.limit}` : 'Limit unavailable' },
+    { label: 'Draft Queue', value: data.outreach.draftQueue, detail: 'Needs review' },
+    { label: 'Approved Queue', value: data.outreach.approvedQueue, detail: 'Ready to send' },
+    { label: 'Pipeline Automation Drafts', value: data.outreach.pipelineAutomationDrafts, detail: 'Generated by automation' },
+  ]
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+      <SectionHeader eyebrow="Outreach Engine Health" title="Execution capacity" compact />
+      <div className={`mt-4 grid gap-2 sm:grid-cols-2 ${isFreeViewer ? 'blur-[2px]' : ''}`}>
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-2xl border border-white/8 bg-slate-950/32 px-4 py-3">
+            <div className="text-2xl font-semibold text-white tabular-nums">{metric.value}</div>
+            <div className="mt-1 text-xs font-medium text-slate-300">{metric.label}</div>
+            <div className="mt-1 text-xs text-slate-600">{metric.detail}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function PipelineSnapshot({ data, isFreeViewer }: { data: DashboardData; isFreeViewer: boolean }) {
+  const stages: PipelineStage[] = ['ready', 'contacted', 'ready_followup', 'final_attempt', 'closed']
+  const max = Math.max(...stages.map((stage) => data.pipeline[stage]), 1)
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+      <SectionHeader eyebrow="Pipeline Snapshot" title="Lifecycle distribution" compact />
+      <div className={`mt-5 space-y-4 ${isFreeViewer ? 'blur-[2px]' : ''}`}>
+        {stages.map((stage) => {
+          const value = data.pipeline[stage]
+          const width = `${Math.max((value / max) * 100, value > 0 ? 8 : 2)}%`
+          return (
+            <div key={stage}>
+              <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                <span className="text-slate-300">{formatPipelineLabel(stage)}</span>
+                <span className="font-semibold text-white tabular-nums">{value}</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/[0.055]">
+                <div className={`h-full rounded-full ${getStageTone(stage)}`} style={{ width }} />
+              </div>
             </div>
-            <div>
-              <div className="text-sm font-medium text-white">{isFreeViewer ? 'Premium activity signal' : item.label}</div>
-              <div className="mt-1 text-sm leading-6 text-slate-500">{isFreeViewer ? 'Operational movement appears here after activation.' : item.detail}</div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function RecentActivity({ items, isFreeViewer }: { items: ActivityItem[]; isFreeViewer: boolean }) {
+  const visibleItems = items.length > 0 ? items : [{
+    id: 'empty',
+    label: 'No recent activity yet',
+    detail: 'Activity will appear after drafts, sends, or new leads.',
+    time: 'Now',
+    tone: 'blue' as const,
+  }]
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+      <SectionHeader eyebrow="Recent Activity" title="What happened" compact />
+      <div className={`relative mt-5 space-y-3 ${isFreeViewer ? 'blur-[2px]' : ''}`}>
+        <div className="absolute bottom-5 left-[17px] top-5 w-px bg-gradient-to-b from-cyan-200/35 via-white/10 to-transparent" />
+        {visibleItems.map((item) => (
+          <div key={item.id} className="relative flex gap-3 rounded-2xl p-1.5 transition hover:bg-white/[0.025]">
+            <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${getActivityTone(item.tone)}`}>
+              <Clock3 className="h-3.5 w-3.5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="truncate text-sm font-medium text-white">{item.label}</div>
+                <div className="text-xs text-slate-600">{item.time}</div>
+              </div>
+              <div className="mt-1 text-sm leading-6 text-slate-500">{item.detail}</div>
             </div>
           </div>
         ))}
@@ -662,48 +880,82 @@ function LiveActivityFeed({ isFreeViewer, items }: { isFreeViewer: boolean; item
   )
 }
 
-function getFeedTone(tone: ActivityItem['tone']) {
+function getActivityTone(tone: ActivityItem['tone']) {
   if (tone === 'cyan') return 'border-cyan-300/16 bg-cyan-300/8 text-cyan-100'
   if (tone === 'amber') return 'border-amber-300/16 bg-amber-300/8 text-amber-100'
   if (tone === 'emerald') return 'border-emerald-300/16 bg-emerald-300/8 text-emerald-100'
   return 'border-blue-300/16 bg-blue-300/8 text-blue-100'
 }
 
-function OperationalStatusStrip({
-  newReady,
-  contactedWaiting,
-  readyFollowup,
-  finalAttempt,
-  isFreeViewer,
-}: {
-  newReady: number
-  contactedWaiting: number
-  readyFollowup: number
-  finalAttempt: number
-  isFreeViewer: boolean
-}) {
-  const metrics = [
-    ['New / Ready', newReady],
-    ['Contacted / Waiting', contactedWaiting],
-    ['Ready for Follow-up', readyFollowup],
-    ['Final Attempt', finalAttempt],
-  ]
+function AiInsights({ insights, isFreeViewer }: { insights: Insight[]; isFreeViewer: boolean }) {
+  if (!isFreeViewer && insights.length === 0) return null
 
   return (
-    <section className="rounded-[28px] border border-white/8 bg-white/[0.022] px-4 py-3 sm:px-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map(([label, value]) => (
-          <div
-            key={label}
-            className="flex min-h-[76px] flex-col justify-center rounded-2xl px-3 py-2 transition hover:bg-white/[0.03]"
-          >
-            <div className="text-3xl font-semibold leading-none tracking-[-0.045em] text-white tabular-nums">
-              {isFreeViewer ? '—' : value}
-            </div>
-            <div className="mt-2 text-xs font-medium leading-4 text-slate-500">{label}</div>
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+      <SectionHeader eyebrow="AI Insights" title="Supported signals" compact />
+      <div className={`mt-4 space-y-3 ${isFreeViewer ? 'blur-[2px]' : ''}`}>
+        {(insights.length > 0 ? insights : [
+          { label: 'Pipeline bottleneck', value: 'Preview', detail: 'Supported insights appear when data is available.' },
+        ]).map((insight) => (
+          <div key={insight.label} className="rounded-2xl border border-white/8 bg-slate-950/32 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{insight.label}</div>
+            <div className="mt-2 text-lg font-semibold text-white">{insight.value}</div>
+            <div className="mt-1 text-sm leading-6 text-slate-500">{insight.detail}</div>
           </div>
         ))}
       </div>
     </section>
+  )
+}
+
+function QuickActions({ isFreeViewer, email }: { isFreeViewer: boolean; email: string }) {
+  const actions = [
+    { label: 'Generate Drafts', href: '/dashboard/kanban', icon: Sparkles },
+    { label: 'Open Pipeline', href: '/dashboard/kanban', icon: Layers3 },
+    { label: 'Open Outreach Queue', href: '/dashboard/outreach', icon: MailCheck },
+    { label: 'Import Leads', href: '/dashboard/leads', icon: Zap },
+    { label: 'Find Leads', href: '/dashboard/scraper', icon: Search },
+  ]
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+      <SectionHeader eyebrow="Quick Actions" title="Operator shortcuts" compact />
+      <div className="mt-4 grid gap-2">
+        {isFreeViewer ? (
+          <StartCheckoutButton
+            label="Activate command center"
+            email={email}
+            source="dashboard_quick_actions"
+            className="inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+          />
+        ) : actions.map((action) => {
+          const Icon = action.icon
+          return (
+            <Link
+              key={action.label}
+              href={action.href}
+              className="group flex items-center justify-between rounded-2xl border border-white/8 bg-slate-950/32 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-cyan-200/18 hover:bg-white/[0.045] hover:text-white"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Icon className="h-4 w-4 text-cyan-200" />
+                {action.label}
+              </span>
+              <ArrowRight className="h-4 w-4 text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-cyan-100" />
+            </Link>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function SectionHeader({ eyebrow, title, compact }: { eyebrow: string; title: string; compact?: boolean }) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/60">{eyebrow}</div>
+      <h2 className={`${compact ? 'mt-1 text-xl' : 'mt-1 text-2xl'} font-semibold tracking-[-0.035em] text-white`}>
+        {title}
+      </h2>
+    </div>
   )
 }
