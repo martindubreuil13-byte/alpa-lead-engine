@@ -11,7 +11,24 @@ import type { Database } from '@/lib/supabase/types'
 export const dynamic = 'force-dynamic'
 
 type ActivityLogRow = Database['public']['Tables']['activity_logs']['Row']
-type UserRow = Pick<Database['public']['Tables']['users']['Row'], 'id' | 'email' | 'plan' | 'created_at'>
+type UserRow = Pick<
+  Database['public']['Tables']['users']['Row'],
+  | 'id'
+  | 'email'
+  | 'plan'
+  | 'role'
+  | 'created_at'
+  | 'subscription_status'
+  | 'plan_status'
+  | 'subscription_tier'
+  | 'subscription_active'
+  | 'analytics_excluded'
+  | 'signup_date'
+  | 'first_search_date'
+  | 'first_export_date'
+  | 'first_upgrade_click_date'
+  | 'paid_conversion_date'
+>
 
 export default async function AdminActivityPage() {
   const profile = await getUserProfile()
@@ -21,10 +38,17 @@ export default async function AdminActivityPage() {
   }
 
   const admin = createAdminClient()
-  const [{ data: activityLogsData }, { data: followUpsData }, { data: settingsData }] = await Promise.all([
+  const [
+    { data: activityLogsData },
+    { data: followUpsData },
+    { data: settingsData },
+    { data: usersData },
+    { data: searchAnalyticsData },
+    { data: attributionData },
+  ] = await Promise.all([
     admin
       .from('activity_logs')
-      .select('id, session_id, user_id, email, event, query, location, leads_count, metadata, created_at')
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(10000),
     (admin.from('lead_follow_ups' as never) as any)
@@ -36,19 +60,23 @@ export default async function AdminActivityPage() {
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle(),
+    admin
+      .from('users')
+      .select('id, email, role, plan, subscription_status, plan_status, subscription_tier, subscription_active, analytics_excluded, signup_date, first_search_date, first_export_date, first_upgrade_click_date, paid_conversion_date, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10000),
+    (admin.from('search_analytics' as never) as any)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10000),
+    (admin.from('user_attribution' as never) as any)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10000),
   ])
 
   const activityLogs = (activityLogsData || []) as ActivityLogRow[]
   const settings = getEffectiveFollowUpSettings((settingsData || null) as FollowUpSettingsRow | null)
-
-  const userIds = [...new Set(activityLogs.map((row) => row.user_id).filter(Boolean))] as string[]
-
-  const { data: usersData } = userIds.length
-    ? await admin
-        .from('users')
-        .select('id, email, plan, created_at')
-        .in('id', userIds)
-    : { data: [] }
 
   const users = (usersData || []) as UserRow[]
 
@@ -57,6 +85,8 @@ export default async function AdminActivityPage() {
       <AdminGrowthDashboard
         initialLogs={activityLogs}
         users={users}
+        searches={(searchAnalyticsData || []) as Database['public']['Tables']['search_analytics']['Row'][]}
+        attribution={(attributionData || []) as Database['public']['Tables']['user_attribution']['Row'][]}
         followUps={(followUpsData || []) as LeadFollowUpRow[]}
         delayDays={settings.follow_up_delay_days}
       />

@@ -42,13 +42,17 @@ import {
   writeStoredUsage,
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
-import { trackEvent } from '@/lib/track'
+import {
+  createAnalyticsSearchId,
+  trackEvent,
+} from '@/lib/track'
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import ProspectorOnboardingOverlay from '@/components/scraper/ProspectorOnboardingOverlay'
 import TrialLimitModal from '@/components/scraper/TrialLimitModal'
 
 const LEAD_OPTIONS = ['10', '25', '50']
 const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
+const FIRST_SEARCH_STORAGE_KEY = 'alpa_first_search_tracked'
 
 function formatTime(s: number) {
   const m = Math.floor(s / 60)
@@ -176,6 +180,25 @@ function hasSeenFirstSuccessModal() {
 function markFirstSuccessModalSeen() {
   if (typeof window === 'undefined') return
   window.sessionStorage.setItem(FIRST_SUCCESS_MODAL_STORAGE_KEY, '1')
+}
+
+function shouldTrackFirstSearch() {
+  if (typeof window === 'undefined') return false
+  if (window.localStorage.getItem(FIRST_SEARCH_STORAGE_KEY) === '1') return false
+  window.localStorage.setItem(FIRST_SEARCH_STORAGE_KEY, '1')
+  return true
+}
+
+function countLeadContacts(leads: TrialLead[]) {
+  return leads.reduce(
+    (acc, lead) => {
+      if (lead.email?.trim()) acc.email += 1
+      if (lead.phone?.trim()) acc.phone += 1
+      if (lead.website?.trim()) acc.website += 1
+      return acc
+    },
+    { email: 0, phone: 0, website: 0 }
+  )
 }
 
 type ScrapeResultPayload = {
@@ -328,6 +351,12 @@ export default function Page() {
     if (viewerMode === 'resolving') return
 
     trialStartedTrackedRef.current = true
+    void trackEvent('trial_started', {
+      metadata: {
+        source: 'prospector_page',
+        visitor_type: visitorType,
+      },
+    })
     trackGaEvent('free_trial_started', {
       source_page: getSourcePage(),
       visitor_type: visitorType,
@@ -340,9 +369,16 @@ export default function Page() {
   useEffect(() => {
     if (usageBlocked && isFree && !trialLimitModalShownRef.current) {
       trialLimitModalShownRef.current = true
+      void trackEvent('trial_expired', {
+        metadata: {
+          lead_limit: resolvedLeadLimit,
+          leads_used: resolvedUsageCount,
+          visitor_type: visitorType,
+        },
+      })
       setShowTrialLimitModal(true)
     }
-  }, [usageBlocked, isFree])
+  }, [resolvedLeadLimit, resolvedUsageCount, usageBlocked, isFree, visitorType])
   const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
   const progressTarget = Math.max(requestedLeadCount, discovered, enriched, 1)
   const missingBusinessType = !businessType.trim()
@@ -807,8 +843,11 @@ export default function Page() {
         existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
       }
+      const analyticsSearchId = createAnalyticsSearchId()
+      const searchStartedAt = Date.now()
 
       void trackEvent('scrape_started', {
+        search_id: analyticsSearchId,
         query: payload.query,
         location: payload.defaultCity,
         metadata: {
@@ -973,7 +1012,35 @@ export default function Page() {
 
       if (latestResult) {
         const finalResult: ScrapeResultPayload = latestResult as ScrapeResultPayload
+        const contactCounts = countLeadContacts(finalResult.addedLeads)
+        const searchEventName = shouldTrackFirstSearch() ? 'first_search_performed' : 'search_performed'
+        void trackEvent(searchEventName, {
+          search_id: analyticsSearchId,
+          query: payload.query,
+          search_query: payload.query,
+          business_type: businessType.trim(),
+          location: payload.defaultCity,
+          filters_used: {
+            region: region.trim() || null,
+            country,
+            requested_leads: requestedLeadCount,
+          },
+          leads_count: finalResult.addedCount,
+          number_of_results_returned: finalResult.addedCount,
+          number_of_results_with_email: contactCounts.email,
+          number_of_results_with_phone: contactCounts.phone,
+          number_of_results_with_website: contactCounts.website,
+          search_duration_ms: Date.now() - searchStartedAt,
+          no_results: finalResult.addedCount === 0,
+        })
         void trackEvent('scrape_completed', {
+          search_id: analyticsSearchId,
+          query: payload.query,
+          location: payload.defaultCity,
+          leads_count: finalResult.addedCount,
+        })
+        void trackEvent('results_viewed', {
+          search_id: analyticsSearchId,
           query: payload.query,
           location: payload.defaultCity,
           leads_count: finalResult.addedCount,
@@ -1043,6 +1110,20 @@ export default function Page() {
 
       const message =
         error instanceof Error ? error.message : 'Scrape failed'
+      void trackEvent('search_performed', {
+        search_id: createAnalyticsSearchId(),
+        query: businessType.trim(),
+        search_query: businessType.trim(),
+        business_type: businessType.trim(),
+        location: locationTarget,
+        filters_used: {
+          region: region.trim() || null,
+          country,
+          requested_leads: requestedLeadCount,
+        },
+        error_message: message,
+        no_results: true,
+      })
 
       clearLogStream()
       enqueueLog(`❌ ${message}`)

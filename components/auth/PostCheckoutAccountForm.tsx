@@ -90,6 +90,12 @@ export default function PostCheckoutAccountForm() {
             stripe_session_id: sessionId,
           },
         })
+        void trackEvent('payment_completed', {
+          email: data.email || storedGuestEmail || user?.email || null,
+          metadata: {
+            stripe_session_id: sessionId,
+          },
+        })
         trackGaEvent('subscription_started', {
           plan_name: 'starter',
           price: 29.99,
@@ -155,6 +161,7 @@ export default function PostCheckoutAccountForm() {
 
     try {
       const normalizedEmail = emailToUse.trim().toLowerCase()
+      void trackEvent('signup_started', { email: normalizedEmail })
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -175,6 +182,8 @@ export default function PostCheckoutAccountForm() {
         }
       }
 
+      void trackEvent('signup_completed', { email: normalizedEmail })
+      void trackEvent('email_confirmed', { email: normalizedEmail })
       await activateStarter(sessionId, true)
       clearGuestTrialMode()
       router.replace('/dashboard')

@@ -105,6 +105,10 @@ export default function SendLeadsModal({
         email: targetEmail,
         leads_count: leads.length,
       })
+      void trackEvent('email_exported', {
+        email: targetEmail,
+        leads_count: leads.length,
+      })
       trackGaEvent('email_captured', {
         capture_location: 'email_export',
         visitor_type: visitorType,

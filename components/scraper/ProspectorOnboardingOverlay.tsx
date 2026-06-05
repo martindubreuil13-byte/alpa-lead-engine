@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
+import { trackEvent } from '@/lib/track'
+
 const ONBOARDING_SEEN_KEY = 'alpa_prospector_onboarding_seen'
 
 const EXAMPLE_TYPES = ['dentists', 'law firms', 'roofing companies', 'SEO agencies']
@@ -21,6 +23,9 @@ export default function ProspectorOnboardingOverlay() {
     if (typeof window === 'undefined') return
     if (!window.sessionStorage.getItem(ONBOARDING_SEEN_KEY)) {
       setVisible(true)
+      void trackEvent('onboarding_started', {
+        metadata: { surface: 'prospector' },
+      })
     }
   }, [])
 
@@ -28,6 +33,9 @@ export default function ProspectorOnboardingOverlay() {
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem(ONBOARDING_SEEN_KEY, '1')
     }
+    void trackEvent('onboarding_completed', {
+      metadata: { surface: 'prospector' },
+    })
     setVisible(false)
   }
 

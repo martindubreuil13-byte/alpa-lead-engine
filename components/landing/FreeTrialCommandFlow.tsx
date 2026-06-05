@@ -11,7 +11,7 @@ import { getOrCreateGuestSessionId, saveGuestCaptureEmail, upsertGuestLead } fro
 import { supabase } from '@/lib/supabase'
 import { type TrialLead, FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
-import { trackEvent } from '@/lib/track'
+import { createAnalyticsSearchId, trackEvent } from '@/lib/track'
 
 type Phase = 'closed' | 'input' | 'searching' | 'reward' | 'emailCapture' | 'emailSuccess' | 'error'
 
@@ -23,6 +23,18 @@ const STEPS = [
   'Validating lead quality',
   'Preparing your lead list',
 ]
+
+function countLeadContacts(leads: TrialLead[]) {
+  return leads.reduce(
+    (acc, lead) => {
+      if (lead.email?.trim()) acc.email += 1
+      if (lead.phone?.trim()) acc.phone += 1
+      if (lead.website?.trim()) acc.website += 1
+      return acc
+    },
+    { email: 0, phone: 0, website: 0 }
+  )
+}
 
 // Steps 0-4 are scheduled; step 5 ("Preparing your lead list") revealed only on backend completion
 const STEP_DELAYS = [0, 900, 1800, 3000, 4600]
@@ -888,6 +900,7 @@ export default function FreeTrialCommandFlow() {
     }
 
     const guestId = getOrCreateGuestSessionId()
+    const analyticsSearchId = createAnalyticsSearchId()
     const effectiveCount = Math.min(leadCount, remainingFreeLeads)
     setRequestedCount(effectiveCount)
     setCardDismissed(false)
@@ -898,6 +911,7 @@ export default function FreeTrialCommandFlow() {
       lead_count: effectiveCount,
     })
     void trackEvent('trial_search_started', {
+      search_id: analyticsSearchId,
       metadata: { source: 'trial_flow', business_type: businessType, location },
     })
 
@@ -995,6 +1009,31 @@ export default function FreeTrialCommandFlow() {
     })
 
     trackGaEvent('free_trial_search_complete', { lead_count: collected.length })
+    const contactCounts = countLeadContacts(collected)
+    void trackEvent('search_performed', {
+      search_id: analyticsSearchId,
+      query: businessType.trim(),
+      search_query: businessType.trim(),
+      business_type: businessType.trim(),
+      location: location.trim(),
+      filters_used: {
+        requested_leads: effectiveCount,
+        source: 'trial_flow',
+      },
+      leads_count: collected.length,
+      number_of_results_returned: collected.length,
+      number_of_results_with_email: contactCounts.email,
+      number_of_results_with_phone: contactCounts.phone,
+      number_of_results_with_website: contactCounts.website,
+      search_duration_ms: finalElapsed * 1000,
+      no_results: collected.length === 0,
+    })
+    void trackEvent('results_viewed', {
+      search_id: analyticsSearchId,
+      query: businessType.trim(),
+      location: location.trim(),
+      leads_count: collected.length,
+    })
 
     setTimeout(() => {
       setPhase(collected.length === 0 ? 'error' : 'reward')

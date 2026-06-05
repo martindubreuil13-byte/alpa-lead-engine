@@ -8,6 +8,7 @@ import { trackEvent } from '@/lib/track'
 export default function PlansPageTracker() {
   useEffect(() => {
     void trackEvent('plans_viewed')
+    void trackEvent('pricing_page_viewed')
     trackGaEvent('plans_viewed', {
       source_page: getSourcePage(),
       visitor_type: 'unknown',

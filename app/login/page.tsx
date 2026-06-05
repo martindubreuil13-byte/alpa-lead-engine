@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
+import { trackEvent } from '@/lib/track'
 
 type GuestClaimResult = StoredGuestClaimResult
 
@@ -20,6 +21,16 @@ function getErrorMessageValue(error: unknown) {
 
 function getClaimRouteError(data: unknown) {
   return typeof data === 'object' && data && 'error' in data && typeof data.error === 'string' ? data.error : ''
+}
+
+function shouldTrackFirstLogin(email: string) {
+  if (typeof window === 'undefined') return true
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return false
+  const key = `alpa_first_login_tracked_${normalized}`
+  if (window.localStorage.getItem(key) === '1') return false
+  window.localStorage.setItem(key, '1')
+  return true
 }
 
 export default function LoginPage() {
@@ -38,6 +49,10 @@ export default function LoginPage() {
     const mode = new URLSearchParams(window.location.search).get('mode')
     setIsSignup(mode === 'signup')
   }, [])
+
+  useEffect(() => {
+    void trackEvent(isSignup ? 'signup_page_view' : 'login_page_view')
+  }, [isSignup])
 
   function getAuthErrorMessage(error: unknown, mode: 'login' | 'signup') {
     const normalizedMessage = getErrorMessageValue(error).toLowerCase()
@@ -123,10 +138,16 @@ export default function LoginPage() {
 
     try {
       if (isSignup) {
+        void trackEvent('signup_started', { email })
         const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
 
         if (data.session) {
+          void trackEvent('signup_completed', { email: data.user?.email || email })
+          void trackEvent('email_confirmed', { email: data.user?.email || email })
+          if (shouldTrackFirstLogin(data.user?.email || email)) {
+            void trackEvent('first_login', { email: data.user?.email || email })
+          }
           await claimGuestTrialIfNeeded().catch((err) => {
             console.warn('Guest claim skipped:', err)
           })
@@ -150,6 +171,11 @@ export default function LoginPage() {
           setInfoMessage('Account created successfully. You can now continue to your dashboard.')
         }
 
+        void trackEvent('signup_completed', { email })
+        void trackEvent('email_confirmed', { email })
+        if (shouldTrackFirstLogin(email)) {
+          void trackEvent('first_login', { email })
+        }
         await claimGuestTrialIfNeeded().catch((err) => {
           console.warn('Guest claim skipped:', err)
         })
@@ -161,6 +187,9 @@ export default function LoginPage() {
       const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
 
+      if (shouldTrackFirstLogin(signInData.user?.email || email)) {
+        void trackEvent('first_login', { email: signInData.user?.email || email })
+      }
       await claimGuestTrialIfNeeded().catch((err) => {
         console.warn('Guest claim skipped:', err)
       })

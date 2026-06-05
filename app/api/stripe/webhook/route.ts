@@ -1,5 +1,6 @@
 import Stripe from 'stripe'
 import { headers } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 
 import {
   getStripeCustomerId,
@@ -8,6 +9,13 @@ import {
   syncCustomerSubscriptionState,
   syncSubscriptionToDatabase,
 } from '@/lib/stripe/subscription'
+
+function createAnalyticsClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
 
 function isUUID(value: string) {
   return /^[0-9a-fA-F-]{36}$/.test(value)
@@ -22,6 +30,37 @@ async function retrieveInvoiceSubscription(invoice: Stripe.Invoice) {
   if (!subscriptionId) return null
 
   return stripe.subscriptions.retrieve(subscriptionId)
+}
+
+async function trackPaymentCompleted(session: Stripe.Checkout.Session) {
+  try {
+    const userId = String(session.metadata?.user_id || '').trim()
+    const email =
+      String(session.metadata?.email || '').trim().toLowerCase() ||
+      session.customer_details?.email?.trim().toLowerCase() ||
+      session.customer_email?.trim().toLowerCase() ||
+      null
+
+    const supabase = createAnalyticsClient()
+    const { error } = await supabase.from('activity_logs').insert({
+      session_id: session.id,
+      user_id: isUUID(userId) ? userId : null,
+      email,
+      event: 'payment_completed',
+      metadata: {
+        stripe_session_id: session.id,
+        stripe_customer_id: typeof session.customer === 'string' ? session.customer : null,
+        stripe_subscription_id: typeof session.subscription === 'string' ? session.subscription : null,
+        source: session.metadata?.source || null,
+      },
+    })
+
+    if (error) {
+      console.error('[stripe.webhook] payment analytics failed', error)
+    }
+  } catch (error) {
+    console.error('[stripe.webhook] payment analytics failed', error)
+  }
 }
 
 export async function POST(req: Request) {
@@ -64,6 +103,7 @@ export async function POST(req: Request) {
           userId: userId && isUUID(userId) ? userId : null,
           customerId,
         })
+        await trackPaymentCompleted(session)
         break
       }
 

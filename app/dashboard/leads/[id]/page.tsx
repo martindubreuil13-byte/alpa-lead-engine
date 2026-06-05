@@ -12,6 +12,7 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
+import { trackEvent } from '@/lib/track'
 
 type Lead = {
   id: string
@@ -263,6 +264,14 @@ export default function Page() {
           city: guestLead.city,
           status: guestLead.status,
         })
+        void trackEvent('lead_detail_viewed', {
+          metadata: {
+            lead_id: leadId,
+            has_email: Boolean(guestLead.email),
+            has_phone: Boolean(guestLead.phone),
+            has_website: Boolean(guestLead.website),
+          },
+        })
       }
       setLoading(false)
       return
@@ -277,6 +286,14 @@ export default function Page() {
 
     if (!error && data) {
       setLead(data)
+      void trackEvent('lead_detail_viewed', {
+        metadata: {
+          lead_id: leadId,
+          has_email: Boolean(data.email),
+          has_phone: Boolean(data.phone),
+          has_website: Boolean(data.website),
+        },
+      })
     } else if (error) {
       console.error('Lead fetch failed:', error)
     }
