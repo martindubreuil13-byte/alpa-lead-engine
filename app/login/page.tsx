@@ -349,7 +349,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="mt-2 flex min-h-[58px] w-full items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-4 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-sky-300/35 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 disabled:hover:brightness-100"
+                className="btn-primary-gold mt-2 w-full"
               >
                 {isLoading ? (isSignup ? 'Creating account...' : 'Signing in...') : isSignup ? 'Create account' : 'Continue'}
               </button>

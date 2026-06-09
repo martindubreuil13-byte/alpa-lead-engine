@@ -140,36 +140,20 @@ export default function HomePage() {
 
             {/* Command bar CTA */}
             <div className="mt-8 flex max-w-xl flex-col items-start gap-3 lg:mt-11">
-              <FreshStartCta className="group relative w-full overflow-hidden rounded-[13px] border border-white/[0.08] bg-[rgba(10,18,32,0.72)] px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.14] hover:bg-[rgba(14,24,44,0.78)] active:scale-[0.99] sm:w-auto">
-                {/* Passive shimmer sweep */}
-                <span
-                  aria-hidden="true"
-                  className="command-bar-shimmer pointer-events-none absolute inset-0 rounded-[13px] bg-[linear-gradient(105deg,transparent_30%,rgba(255,255,255,0.022)_50%,transparent_70%)]"
-                />
-                <span className="relative flex items-center gap-3">
-                  {/* System label */}
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="command-cursor-pulse h-1.5 w-1.5 rounded-full bg-blue-400/60" />
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
-                      Lead search
-                    </span>
-                  </span>
-                  {/* Divider */}
-                  <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
-                  {/* Action text */}
-                  <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
-                    Run a free lead search
-                  </span>
-                  {/* Arrow */}
-                  <span
-                    aria-hidden="true"
-                    className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400"
-                  >
-                    →
-                  </span>
+              <FreshStartCta className="btn-primary-gold group w-full sm:w-auto">
+                Get 25 Free Leads
+                <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
+                  →
                 </span>
               </FreshStartCta>
-              <p className="text-xs text-slate-600">No credit card required</p>
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500">No credit card required</p>
+                <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-500" aria-label="Free lead search benefits">
+                  <li>✓ 25 leads free</li>
+                  <li>✓ Website, email &amp; phone</li>
+                  <li>✓ Export to CSV</li>
+                </ul>
+              </div>
             </div>
           </div>
 
@@ -347,18 +331,9 @@ export default function HomePage() {
                 Test the workflow before choosing a plan.
               </p>
               <div className="mt-6 lg:mt-8">
-                <FreshStartCta className="group relative w-full overflow-hidden rounded-[11px] border border-white/[0.09] bg-[rgba(10,18,32,0.68)] px-4 py-3 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.15] hover:bg-[rgba(14,24,44,0.76)] active:scale-[0.99] sm:w-auto">
-                  <span className="relative flex items-center gap-2.5">
-                    <span className="flex shrink-0 items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400/60" />
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">Free trial</span>
-                    </span>
-                    <span className="h-3 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
-                    <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
-                      Start free
-                    </span>
-                    <span aria-hidden="true" className="ml-0.5 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400">→</span>
-                  </span>
+                <FreshStartCta className="btn-primary-gold group w-full sm:w-auto">
+                  Start free
+                  <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">→</span>
                 </FreshStartCta>
               </div>
             </div>
@@ -407,18 +382,9 @@ export default function HomePage() {
           </p>
 
           <div className="mx-auto mt-10 flex max-w-xl justify-center lg:mx-0 lg:mt-12 lg:justify-start">
-            <FreshStartCta className="group relative w-full overflow-hidden rounded-[13px] border border-white/[0.08] bg-[rgba(10,18,32,0.72)] px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 hover:border-white/[0.14] hover:bg-[rgba(14,24,44,0.78)] active:scale-[0.99] sm:w-auto">
-              <span className="relative flex items-center gap-3">
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="command-cursor-pulse h-1.5 w-1.5 rounded-full bg-blue-400/60" />
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">Free trial</span>
-                </span>
-                <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
-                <span className="text-sm font-medium tracking-[-0.01em] text-slate-300 transition-colors duration-200 group-hover:text-white">
-                  Get 25 free leads
-                </span>
-                <span aria-hidden="true" className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400">→</span>
-              </span>
+            <FreshStartCta className="btn-primary-gold group w-full sm:w-auto">
+              Get 25 free leads
+              <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">→</span>
             </FreshStartCta>
           </div>
         </div>

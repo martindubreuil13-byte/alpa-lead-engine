@@ -14,6 +14,10 @@
   --text-tertiary: rgba(255, 255, 255, 0.4);
   --accent-primary: #3b82f6;
   --accent-primary-hover: #60a5fa;
+  --action-gold: #d8c28a;
+  --action-gold-hover: #e2cf9a;
+  --action-gold-pressed: #cbb57a;
+  --action-gold-text: #081225;
 }
 
 html {
@@ -111,6 +115,62 @@ elevenlabs-convai {
 
   .btn-primary:active {
     transform: translateY(1px);
+  }
+
+  .btn-primary-gold,
+  .btn-conversion {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60px;
+    border-radius: 13px;
+    padding: 0 1.75rem;
+    background: var(--action-gold);
+    border: 1px solid rgba(226, 207, 154, 0.72);
+    color: var(--action-gold-text);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+    letter-spacing: -0.015em;
+    box-shadow:
+      0 0 24px rgba(216, 194, 138, 0.25),
+      0 14px 34px rgba(2, 8, 23, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      box-shadow 0.25s ease,
+      transform 0.25s ease;
+  }
+
+  .btn-primary-gold:hover,
+  .btn-conversion:hover {
+    background: var(--action-gold-hover);
+    border-color: rgba(240, 222, 169, 0.9);
+    box-shadow:
+      0 0 32px rgba(216, 194, 138, 0.32),
+      0 18px 42px rgba(2, 8, 23, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.42);
+    transform: translateY(-2px);
+  }
+
+  .btn-primary-gold:active,
+  .btn-conversion:active {
+    background: var(--action-gold-pressed);
+    transform: translateY(0);
+  }
+
+  .btn-primary-gold:focus-visible,
+  .btn-conversion:focus-visible {
+    outline: 2px solid rgba(226, 207, 154, 0.65);
+    outline-offset: 3px;
+  }
+
+  .btn-primary-gold:disabled,
+  .btn-conversion:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+    transform: none;
   }
 
   .btn-secondary {

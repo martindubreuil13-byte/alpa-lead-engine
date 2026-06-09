@@ -189,10 +189,10 @@ export default function SendLeadsModal({
             type="button"
             onClick={() => void handleSend()}
             disabled={sending || leads.length === 0}
-            className={`inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold transition ${
+            className={`inline-flex min-h-[60px] items-center justify-center gap-2 rounded-[13px] px-7 text-base font-semibold ${
               sending || leads.length === 0
                 ? 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'
-                : 'border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110'
+                : 'btn-primary-gold'
             }`}
           >
             <Mail className="h-4 w-4" />

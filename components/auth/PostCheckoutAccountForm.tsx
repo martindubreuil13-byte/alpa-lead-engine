@@ -263,7 +263,7 @@ export default function PostCheckoutAccountForm() {
           <button
             type="submit"
             disabled={loading}
-            className="flex min-h-[58px] w-full items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-4 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 disabled:hover:brightness-100"
+            className="btn-primary-gold w-full"
           >
             {loading ? 'Creating account...' : 'Create my account'}
           </button>

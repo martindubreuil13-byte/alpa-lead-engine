@@ -120,7 +120,7 @@ export default function ProspectorOnboardingOverlay() {
           <button
             type="button"
             onClick={dismiss}
-            className="mt-6 min-h-[48px] w-full rounded-2xl border border-cyan-200/20 bg-[linear-gradient(180deg,rgba(34,211,238,0.22),rgba(59,130,246,0.18))] px-6 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(14,165,233,0.14)] transition hover:border-cyan-100/30"
+            className="btn-primary-gold mt-6 w-full"
           >
             Start Prospecting
           </button>

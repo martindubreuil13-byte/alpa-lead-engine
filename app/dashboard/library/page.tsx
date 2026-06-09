@@ -226,7 +226,7 @@ export default function LeadLibraryPage() {
       {pipelineLocked ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
           <span>Pipeline actions unlock on Starter.</span>
-          <Link href="/plans" className="font-medium text-blue-200 transition hover:text-white">
+          <Link href="/plans" className="btn-primary-gold">
             Upgrade
           </Link>
         </div>
@@ -295,7 +295,7 @@ export default function LeadLibraryPage() {
                 type="button"
                 onClick={() => void exportSelectedCsv()}
                 disabled={selected.length === 0 || exporting}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-blue-300/24 bg-blue-500/10 px-3 font-medium text-blue-100 transition hover:bg-blue-500/16 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.03] disabled:text-slate-500"
+                className="btn-primary-gold"
               >
                 <Download className="h-4 w-4" />
                 {exporting ? 'Exporting...' : 'Export CSV'}
@@ -337,7 +337,7 @@ export default function LeadLibraryPage() {
                 type="button"
                 onClick={() => void exportSelectedCsv()}
                 disabled={exporting}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-blue-300/24 bg-blue-500/14 px-4 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="btn-primary-gold"
               >
                 <Download className="h-4 w-4" />
                 {exporting ? 'Exporting...' : 'Export CSV'}

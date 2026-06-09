@@ -1431,7 +1431,7 @@ export default function Page() {
                 <button
                   type="submit"
                   disabled={loading || hasMissingRequiredFields}
-                  className="min-h-[48px] rounded-2xl border border-cyan-200/20 bg-[linear-gradient(180deg,rgba(34,211,238,0.22),rgba(59,130,246,0.18))] px-6 text-sm font-semibold text-white shadow-[0_12px_34px_rgba(14,165,233,0.16),inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:border-cyan-100/30 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-none disabled:bg-white/[0.04] disabled:text-slate-500 disabled:shadow-none"
+                  className="btn-primary-gold w-full"
                 >
                   {loading ? 'Finding leads...' : 'Find leads'}
                 </button>
@@ -1507,7 +1507,7 @@ export default function Page() {
                   downloadPreviewLeads()
                 }
               }}
-              className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-semibold"
+              className="btn-primary-gold w-full"
             >
               Download leads
             </button>
@@ -1528,7 +1528,7 @@ export default function Page() {
                   requestInboxFocus()
                   router.push('/dashboard/leads')
                 }}
-                className="btn-primary min-h-[56px] w-full rounded-2xl px-6 text-base font-semibold"
+                className="btn-primary-gold w-full"
               >
                 View my leads
               </button>

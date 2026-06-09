@@ -907,7 +907,7 @@ export default function SendCampaignModal({
             <Link
               href="/plans"
               onClick={onClose}
-              className="btn-primary"
+              className="btn-primary-gold"
             >
               Upgrade
             </Link>

@@ -403,7 +403,7 @@ export default function DashboardShell({
             ) : (
               <Link
                 href="/plans"
-                className="btn-primary w-full"
+                className="btn-primary-gold w-full"
               >
                 Unlock full access
               </Link>
@@ -629,7 +629,7 @@ export default function DashboardShell({
                 <Link
                   href="/plans"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="btn-primary w-full"
+                  className="btn-primary-gold w-full"
                 >
                   Unlock full access
                 </Link>

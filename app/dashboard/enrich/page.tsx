@@ -112,7 +112,7 @@ export default function EnrichPage() {
       {pipelineLocked && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
           <span>Available on Starter plan</span>
-          <Link href="/plans" className="font-medium text-cyan-200 transition hover:text-white">
+          <Link href="/plans" className="btn-primary-gold">
             Upgrade
           </Link>
         </div>

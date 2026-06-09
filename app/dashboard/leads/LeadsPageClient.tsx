@@ -437,14 +437,14 @@ export default function LeadsPageClient({
                   <button
                     type="button"
                     onClick={exportGuestTrialCsv}
-                    className="btn-secondary"
+                    className="btn-primary-gold"
                   >
                     Download CSV
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowSendLeadsModal(true)}
-                    className="btn-primary"
+                    className="btn-primary-gold"
                   >
                     Send to my email
                   </button>
@@ -570,7 +570,7 @@ export default function LeadsPageClient({
                     Copy Selected
                   </button>
 
-                  <button onClick={exportCsv} className="btn-secondary">
+                  <button onClick={exportCsv} className="btn-primary-gold">
                     Export CSV
                   </button>
 

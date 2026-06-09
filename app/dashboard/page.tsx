@@ -635,7 +635,7 @@ function DailyCommandBrief({
               label="Activate command center"
               email={email}
               source="dashboard_command_center"
-              className="mt-4 inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+              className="btn-primary-gold mt-4"
             />
           ) : null}
         </div>
@@ -740,7 +740,7 @@ function LockedActionPanel({ email }: { email: string }) {
         label="Activate command center"
         email={email}
         source="dashboard_action_required"
-        className="mt-4 inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+        className="btn-primary-gold mt-4"
       />
     </div>
   )
@@ -926,7 +926,7 @@ function QuickActions({ isFreeViewer, email }: { isFreeViewer: boolean; email: s
             label="Activate command center"
             email={email}
             source="dashboard_quick_actions"
-            className="inline-flex min-h-[42px] items-center justify-center rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+            className="btn-primary-gold w-full"
           />
         ) : actions.map((action) => {
           const Icon = action.icon

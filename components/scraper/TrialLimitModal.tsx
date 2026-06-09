@@ -61,7 +61,7 @@ export default function TrialLimitModal({
               label="Start Prospecting — $9.99/mo"
               source="trial_limit_modal"
               plan="prospector"
-              className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(135deg,#1D4ED8_0%,#3B82F6_35%,#22D3EE_70%,#8B5CF6_100%)] px-6 text-sm font-semibold text-white shadow-[0_0_18px_rgba(34,211,238,0.35),0_0_40px_rgba(139,92,246,0.25),0_12px_35px_rgba(29,78,216,0.45)] transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-[0_0_25px_rgba(34,211,238,0.55)] active:scale-[0.98]"
+              className="btn-primary-gold w-full"
             />
             <button
               type="button"

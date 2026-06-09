@@ -45,7 +45,7 @@ export default function FirstRunOverlay() {
         <button
           type="button"
           onClick={dismiss}
-          className="mt-8 inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-sky-300/30 bg-[linear-gradient(to_right,#3B82F6,#06B6D4)] px-5 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:brightness-110"
+          className="btn-secondary mt-8 min-h-[52px] w-full rounded-2xl px-5 text-base font-semibold"
         >
           Got it
         </button>

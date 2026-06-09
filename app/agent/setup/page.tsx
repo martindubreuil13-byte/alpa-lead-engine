@@ -608,7 +608,7 @@ function serializeMissionCtas() {
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="flex w-full items-center justify-center gap-3 rounded-2xl border border-blue-400/25 bg-blue-500/10 px-6 py-4 text-[15px] font-semibold text-blue-100 shadow-[0_0_40px_rgba(59,130,246,0.15)] transition hover:bg-blue-500/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-primary-gold w-full gap-3"
               >
                 Build my strategy
                 <ChevronRight className="h-4 w-4" />
@@ -817,7 +817,7 @@ function serializeMissionCtas() {
                   type="button"
                   onClick={() => void handleActivate()}
                   disabled={selectedSegments.length === 0}
-                  className="flex flex-1 items-center justify-center gap-2.5 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-6 py-4 text-[15px] font-semibold text-emerald-200 shadow-[0_0_40px_rgba(16,185,129,0.12)] transition hover:bg-emerald-500/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn-primary-gold flex-1 gap-2.5"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   Activate Mission

@@ -64,12 +64,14 @@ function CmdBar({
   prefix,
   label,
   dot = 'blue',
+  conversion = false,
 }: {
   onClick?: () => void
   disabled?: boolean
   prefix: string
   label: string
   dot?: 'blue' | 'emerald' | 'slate'
+  conversion?: boolean
 }) {
   const dotClass =
     dot === 'blue'
@@ -84,24 +86,26 @@ function CmdBar({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'group relative w-full overflow-hidden rounded-[13px] border px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 active:scale-[0.99]',
+        'group relative w-full overflow-hidden text-left backdrop-blur-xl',
         disabled
-          ? 'cursor-not-allowed border-white/[0.05] bg-[rgba(10,18,32,0.40)] opacity-40'
-          : 'border-white/[0.10] bg-[rgba(10,18,32,0.72)] hover:border-white/[0.17] hover:bg-[rgba(14,24,44,0.80)]'
+          ? 'cursor-not-allowed rounded-[13px] border border-white/[0.05] bg-[rgba(10,18,32,0.40)] px-4 py-3.5 opacity-40'
+          : conversion
+            ? 'btn-primary-gold justify-start'
+            : 'rounded-[13px] border border-white/[0.10] bg-[rgba(10,18,32,0.72)] px-4 py-3.5 transition-all duration-300 hover:border-white/[0.17] hover:bg-[rgba(14,24,44,0.80)] active:scale-[0.99]'
       )}
     >
       <span className="relative flex items-center gap-3">
         <span className="flex shrink-0 items-center gap-2">
           <span className={cn('h-1.5 w-1.5 rounded-full', disabled ? 'bg-slate-700' : dotClass)} />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+          <span className={cn('text-[10px] font-semibold uppercase tracking-[0.22em]', conversion ? 'text-[#081225]/60' : 'text-slate-600')}>
             {prefix}
           </span>
         </span>
-        <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
+        <span className={cn('h-3.5 w-px shrink-0', conversion ? 'bg-[#081225]/18' : 'bg-white/[0.07]')} aria-hidden="true" />
         <span
           className={cn(
             'text-sm font-medium tracking-[-0.01em] transition-colors duration-200',
-            disabled ? 'text-slate-600' : 'text-slate-300 group-hover:text-white'
+            disabled ? 'text-slate-600' : conversion ? 'text-[#081225]' : 'text-slate-300 group-hover:text-white'
           )}
         >
           {label}
@@ -109,7 +113,10 @@ function CmdBar({
         {!disabled && (
           <span
             aria-hidden="true"
-            className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400"
+            className={cn(
+              'ml-0.5 shrink-0 transition-all duration-200 group-hover:translate-x-0.5',
+              conversion ? 'text-[#081225]/65 group-hover:text-[#081225]' : 'text-slate-600 group-hover:text-slate-400'
+            )}
           >
             →
           </span>
@@ -352,45 +359,20 @@ function InputPhase({
             onSubmit()
           }}
           className={cn(
-            'group relative w-full overflow-hidden rounded-[13px] border px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 active:scale-[0.99]',
             canSubmit
-              ? 'border-white/[0.10] bg-[rgba(10,18,32,0.72)] hover:border-white/[0.17] hover:bg-[rgba(14,24,44,0.80)]'
-              : 'cursor-not-allowed border-white/[0.05] bg-[rgba(10,18,32,0.40)] opacity-40'
+              ? 'btn-primary-gold group w-full'
+              : 'inline-flex min-h-[60px] w-full cursor-not-allowed items-center justify-center rounded-[13px] border border-white/[0.05] bg-[rgba(10,18,32,0.40)] px-7 text-base font-semibold text-slate-600 opacity-40'
           )}
         >
-          <span className="relative flex items-center gap-3">
-            <span className="flex shrink-0 items-center gap-2">
-              <span
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  canSubmit ? 'command-cursor-pulse bg-blue-400/60' : 'bg-slate-700'
-                )}
-              />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
-                Lead search
-              </span>
-            </span>
-            <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
-            <span
-              className={cn(
-                'text-sm font-medium tracking-[-0.01em] transition-colors duration-200',
-                canSubmit ? 'text-slate-300 group-hover:text-white' : 'text-slate-600'
-              )}
-            >
-              Run free lead search
-            </span>
+          Run free lead search
+          {canSubmit ? (
             <span
               aria-hidden="true"
-              className={cn(
-                'ml-0.5 shrink-0 transition-all duration-200',
-                canSubmit
-                  ? 'text-slate-600 group-hover:translate-x-0.5 group-hover:text-slate-400'
-                  : 'text-slate-800'
-              )}
+              className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5"
             >
               →
             </span>
-          </span>
+          ) : null}
         </button>
       </div>
     </>
@@ -562,13 +544,13 @@ function RewardPhase({
       <div className="mt-5 space-y-2.5">
         {isAtLimit ? (
           <>
-            <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" />
+            <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" conversion />
             <GhostBtn onClick={onEmailCapture} label="Email my leads" />
             <TextLink onClick={onViewLeads} label="View leads" />
           </>
         ) : (
           <>
-            <CmdBar onClick={onViewLeads} prefix="Your leads" label="View leads" dot="emerald" />
+            <CmdBar onClick={onViewLeads} prefix="Your leads" label="View leads" dot="emerald" conversion />
             <GhostBtn onClick={onReSearch} label="Run another free search" />
             <TextLink onClick={onEmailCapture} label="Email my leads" />
           </>
@@ -645,37 +627,17 @@ function EmailCapturePhase({
           disabled={!canSend}
           onClick={onSend}
           className={cn(
-            'group relative w-full overflow-hidden rounded-[13px] border px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 active:scale-[0.99]',
             canSend
-              ? 'border-white/[0.10] bg-[rgba(10,18,32,0.72)] hover:border-white/[0.17] hover:bg-[rgba(14,24,44,0.80)]'
-              : 'cursor-not-allowed border-white/[0.05] bg-[rgba(10,18,32,0.40)] opacity-40'
+              ? 'btn-primary-gold group w-full'
+              : 'inline-flex min-h-[60px] w-full cursor-not-allowed items-center justify-center rounded-[13px] border border-white/[0.05] bg-[rgba(10,18,32,0.40)] px-7 text-base font-semibold text-slate-600 opacity-40'
           )}
         >
-          <span className="relative flex items-center gap-3">
-            <span className="flex shrink-0 items-center gap-2">
-              <span className={cn('h-1.5 w-1.5 rounded-full', canSend ? 'bg-blue-400/60' : 'bg-slate-700')} />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
-                Email
-              </span>
+          {emailSending ? 'Sending…' : 'Send my leads'}
+          {canSend && !emailSending ? (
+            <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
+              →
             </span>
-            <span className="h-3.5 w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
-            <span
-              className={cn(
-                'text-sm font-medium tracking-[-0.01em] transition-colors duration-200',
-                canSend ? 'text-slate-300 group-hover:text-white' : 'text-slate-600'
-              )}
-            >
-              {emailSending ? 'Sending…' : 'Send my leads'}
-            </span>
-            {canSend && !emailSending && (
-              <span
-                aria-hidden="true"
-                className="ml-0.5 shrink-0 text-slate-600 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-400"
-              >
-                →
-              </span>
-            )}
-          </span>
+          ) : null}
         </button>
         <GhostBtn onClick={onSkip} label="Skip — view leads in dashboard" />
       </div>
@@ -739,12 +701,12 @@ function EmailSuccessPhase({
       <div className="mt-6 space-y-2.5">
         {isAtLimit ? (
           <>
-            <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" />
+            <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" conversion />
             <GhostBtn onClick={onViewLeads} label="View leads" />
           </>
         ) : (
           <>
-            <CmdBar onClick={onReSearch} prefix="Free trial" label="Run another free search" dot="blue" />
+            <CmdBar onClick={onReSearch} prefix="Free trial" label="Run another free search" dot="blue" conversion />
             <GhostBtn onClick={onViewLeads} label="View leads" />
           </>
         )}
