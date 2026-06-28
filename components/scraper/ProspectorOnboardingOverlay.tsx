@@ -122,7 +122,7 @@ export default function ProspectorOnboardingOverlay() {
             onClick={dismiss}
             className="btn-primary-gold mt-6 w-full"
           >
-            Start Prospecting
+            Start Discovering
           </button>
         </div>
       </div>

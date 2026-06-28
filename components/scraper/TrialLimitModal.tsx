@@ -47,7 +47,7 @@ export default function TrialLimitModal({
 
           <div className="space-y-2 text-sm leading-7 text-slate-300">
             <p>
-              Start serious prospecting with{' '}
+              Keep discovering qualified businesses with{' '}
               <span className="font-semibold text-white">120 verified leads per month</span>{' '}
               for only <span className="font-semibold text-white">$9.99</span>.
             </p>
@@ -58,7 +58,7 @@ export default function TrialLimitModal({
 
           <div className="space-y-3 pt-1">
             <StartCheckoutButton
-              label="Start Prospecting — $9.99/mo"
+              label="Start Discovering — $9.99/mo"
               source="trial_limit_modal"
               plan="prospector"
               className="btn-primary-gold w-full"

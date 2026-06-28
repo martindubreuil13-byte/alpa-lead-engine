@@ -196,7 +196,7 @@ export default function SendLeadsModal({
             }`}
           >
             <Mail className="h-4 w-4" />
-            {sending ? 'Sending...' : 'Save my leads'}
+            {sending ? 'Sending...' : 'Email CSV'}
           </button>
           <button
             type="button"

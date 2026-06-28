@@ -527,6 +527,19 @@ select:-webkit-autofill:focus {
   50%       { opacity: 0.9; }
 }
 
+/* ── Discovery Results Animations ──────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .command-bar-shimmer {
   animation: commandShimmer 7s ease-in-out infinite;
   animation-delay: 2s;

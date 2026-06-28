@@ -418,7 +418,7 @@ export default function LeadsPageClient({
             ) : (
               <>
                 No leads in this view yet. <br />
-                <span className="text-sm">Run Prospector to add new session results.</span>
+                <span className="text-sm">Run Discover to add new session results.</span>
               </>
             )}
           </div>

@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Building2, MapPin } from 'lucide-react'
+import { Building2, Globe, Mail, MapPin, Phone } from 'lucide-react'
 import LeadCard from '@/components/leads/LeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
@@ -69,14 +69,14 @@ function translateActivity(msg: string) {
   if (msg === 'Checking websites') return 'Enriching contacts...'
   if (msg === 'Extracting contacts') return 'Enriching contacts...'
   if (msg === 'Improving results') return 'Validating leads...'
-  if (msg.includes('starting scraper')) return 'Launching prospecting engines…'
+  if (msg.includes('starting scraper')) return 'Starting discovery...'
   if (msg.includes('Google') || msg.includes('Serper')) return 'Scanning business sources…'
   if (msg.includes('🔎')) return 'Exploring search patterns…'
   if (msg.includes('🔬')) return 'Inspecting business websites…'
   if (msg.includes('📥')) return 'Business discovered…'
   if (msg.includes('✨')) return 'Contact signal discovered…'
   if (msg.includes('🛑 discovery complete')) return 'Deep enrichment in progress...'
-  if (msg.includes('🎉 Prospecting complete')) return 'Prospecting mission complete.'
+  if (msg.includes('🎉 Prospecting complete')) return 'Discovery complete.'
   if (msg.includes('⚠️ no leads found')) return 'No leads found. Try another query.'
   return null
 }
@@ -104,32 +104,6 @@ function formatLeadDiscoveryLine(lead: TrialLead, fallbackLocation: string) {
 
   const base = city ? `✓ ${name} — ${city}` : `✓ ${name}`
   return website ? `${base} (${website})` : base
-}
-
-function formatReadableLog(msg: string) {
-  if (!msg || isHiddenSystemLog(msg) || msg === '🟢 stream started') return null
-
-  if (msg.startsWith('✓ ')) return msg
-
-  const translated = translateActivity(msg)
-  if (translated) return translated
-
-  const discoveredMatch = msg.match(/^📦 discovered: (\d+)/)
-  if (discoveredMatch) {
-    return `${discoveredMatch[1]} businesses found`
-  }
-
-  const enrichedMatch = msg.match(/^📦 enriched: (\d+)/)
-  if (enrichedMatch) {
-    return `${enrichedMatch[1]} contacts enriched`
-  }
-
-  if (msg.includes('📥')) return null
-  if (msg.includes('✨')) return null
-  if (msg.includes('🛑 Mission aborted')) return 'Search stopped'
-  if (msg.startsWith('❌')) return msg.replace(/^❌\s*/, '')
-
-  return null
 }
 
 function formatLocationSegment(segment: string) {
@@ -201,6 +175,187 @@ function countLeadContacts(leads: TrialLead[]) {
   )
 }
 
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function getLogName(msg: string, prefix: string) {
+  return msg.slice(prefix.length).split('|')[0].trim()
+}
+
+function parseSavedSummary(logs: string[]) {
+  const savedLog = [...logs].reverse().find((log) => log.startsWith('💾 saved:'))
+  if (!savedLog) {
+    return { saved: 0, duplicates: 0, invalid: 0, dbErrors: 0 }
+  }
+
+  const saved = Number(savedLog.match(/saved:\s*(\d+)/)?.[1] || 0)
+  const duplicates = Number(savedLog.match(/duplicates:\s*(\d+)/)?.[1] || 0)
+  const invalid = Number(savedLog.match(/invalid:\s*(\d+)/)?.[1] || 0)
+  const dbErrors = Number(savedLog.match(/db errors:\s*(\d+)/)?.[1] || 0)
+
+  return { saved, duplicates, invalid, dbErrors }
+}
+
+function parseFilteredWithoutContactCount(logs: string[]) {
+  return logs.reduce((total, log) => {
+    const match = log.match(/^Filtered out (\d+) leads without contact info/)
+    return total + Number(match?.[1] || 0)
+  }, 0)
+}
+
+function formatSearchDescription(query: string, location: string) {
+  const trimmedQuery = query.trim()
+  const trimmedLocation = location.trim()
+
+  if (trimmedQuery && trimmedLocation) {
+    return `Searching ${trimmedQuery} in ${trimmedLocation}...`
+  }
+
+  if (trimmedQuery) return `Searching for ${trimmedQuery}...`
+  if (trimmedLocation) return `Searching businesses in ${trimmedLocation}...`
+
+  return 'ALPA will prepare a focused list based on your search criteria.'
+}
+
+type LiveActivityItem = {
+  label: string
+  detail?: string
+  tone?: 'default' | 'success' | 'warning' | 'error'
+}
+
+type DiscoveryReportItem = {
+  label: string
+  value: string | number
+}
+
+function formatLiveActivity(msg: string): LiveActivityItem | null {
+  if (!msg || isHiddenSystemLog(msg) || msg === '🟢 stream started') return null
+
+  if (msg.startsWith('✓ Contact found for ')) {
+    return {
+      label: 'Contact information extracted',
+      detail: getLogName(msg, '✓ Contact found for '),
+      tone: 'success',
+    }
+  }
+
+  if (msg.startsWith('✓ Verified contact — ')) {
+    return {
+      label: 'Lead validated',
+      detail: getLogName(msg, '✓ Verified contact — '),
+      tone: 'success',
+    }
+  }
+
+  if (msg.startsWith('✓ ')) {
+    return { label: 'Found', detail: getLogName(msg, '✓ '), tone: 'success' }
+  }
+
+  if (msg.startsWith('🔎 ')) {
+    return { label: 'Searching', detail: getLogName(msg, '🔎 ') }
+  }
+
+  if (msg === '🛰️ Serper priority pass') {
+    return { label: 'Searching map results' }
+  }
+
+  if (msg.startsWith('🛰️ Google improvement pass')) {
+    return { label: 'Searching Google for stronger matches' }
+  }
+
+  if (msg.startsWith('📥 ')) {
+    return { label: 'Found', detail: getLogName(msg, '📥 '), tone: 'success' }
+  }
+
+  if (msg.startsWith('🔬 ')) {
+    return { label: 'Checking website', detail: getLogName(msg, '🔬 ') }
+  }
+
+  if (msg.startsWith('✨ ')) {
+    return { label: 'Email found', detail: getLogName(msg, '✨ '), tone: 'success' }
+  }
+
+  if (msg.startsWith('⛔ no website: ')) {
+    return { label: 'No website found', detail: getLogName(msg, '⛔ no website: '), tone: 'warning' }
+  }
+
+  if (msg.startsWith('⛔ no email: ')) {
+    return { label: 'No email found', detail: getLogName(msg, '⛔ no email: '), tone: 'warning' }
+  }
+
+  if (msg.startsWith('🧩 improved ')) {
+    return { label: 'Lead improved', detail: getLogName(msg, '🧩 improved '), tone: 'success' }
+  }
+
+  const discoveredMatch = msg.match(/^📦 discovered: (\d+)/)
+  if (discoveredMatch) {
+    return {
+      label: 'Businesses discovered',
+      detail: pluralize(Number(discoveredMatch[1]), 'business', 'businesses'),
+      tone: 'success',
+    }
+  }
+
+  const enrichedMatch = msg.match(/^📦 enriched: (\d+)/)
+  if (enrichedMatch) {
+    return { label: 'Businesses validated', detail: pluralize(Number(enrichedMatch[1]), 'business'), tone: 'success' }
+  }
+
+  const metricsMatch = msg.match(/^📊(?: improved)? websites: (\d+), valid emails: (\d+), enrichment rate: ([\d.]+%?)/)
+  if (metricsMatch) {
+    return {
+      label: 'ALPA Quality Check',
+      detail: `${metricsMatch[1]} websites checked, ${metricsMatch[2]} valid emails`,
+      tone: 'success',
+    }
+  }
+
+  const savedMatch = msg.match(/^💾 saved: (\d+), duplicates: (\d+), invalid: (\d+), db errors: (\d+)/)
+  if (savedMatch) {
+    return {
+      label: 'Added to My Leads',
+      detail: `${savedMatch[1]} saved, ${savedMatch[2]} duplicates removed, ${savedMatch[3]} invalid filtered`,
+      tone: 'success',
+    }
+  }
+
+  if (msg.startsWith('⚠️ duplicate skipped: ')) {
+    return { label: 'Duplicate removed', detail: getLogName(msg, '⚠️ duplicate skipped: '), tone: 'warning' }
+  }
+
+  if (msg.startsWith('⚠️ invalid lead skipped: ')) {
+    return { label: 'Invalid business filtered', detail: getLogName(msg, '⚠️ invalid lead skipped: '), tone: 'warning' }
+  }
+
+  const filteredMatch = msg.match(/^Filtered out (\d+) leads without contact info/)
+  if (filteredMatch) {
+    return {
+      label: 'Invalid businesses filtered',
+      detail: pluralize(Number(filteredMatch[1]), 'lead'),
+      tone: 'warning',
+    }
+  }
+
+  if (msg === '⚡ Improving results with Google...') {
+    return { label: 'Searching for stronger contact signals' }
+  }
+
+  if (msg === '✅ early stop: enrichment target reached') {
+    return { label: 'Quality target reached', tone: 'success' }
+  }
+
+  if (msg === '✅ Serper satisfied quality targets') {
+    return { label: 'Quality target satisfied', tone: 'success' }
+  }
+
+  if (msg.includes('🛑 Mission aborted')) return { label: 'Search stopped', tone: 'warning' }
+  if (msg.includes('🎉 Prospecting complete')) return { label: 'Discovery complete', tone: 'success' }
+  if (msg.startsWith('❌')) return { label: msg.replace(/^❌\s*/, ''), tone: 'error' }
+
+  return null
+}
+
 type ScrapeResultPayload = {
   summaryLine: string
   detailLine: string | null
@@ -213,6 +368,21 @@ type ScrapeResultPayload = {
 }
 
 type ViewerMode = 'resolving' | 'guest_trial' | 'authenticated_free' | 'authenticated_paid'
+
+type RecentSearch = {
+  id: string
+  businessType: string
+  location: string
+  leadCount: string | null
+}
+
+type SearchCriteria = {
+  businessType: string
+  location: string
+  leadCount: string
+  region?: string
+  country?: string
+}
 
 type InputProps = {
   label: string
@@ -269,6 +439,50 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   )
 })
 
+async function fetchRecentSearches(userId: string): Promise<RecentSearch[]> {
+  const { data, error } = await supabase
+    .from('search_analytics')
+    .select('id, search_query, business_type, location, filters_used, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(4)
+
+  if (error) {
+    console.warn('[discover] recent searches unavailable:', error.message)
+    return []
+  }
+
+  return (data || [])
+    .map((row) => {
+      const filters = row.filters_used as Record<string, unknown> | null
+      const requestedLeads = filters && typeof filters.requested_leads !== 'undefined'
+        ? String(filters.requested_leads)
+        : null
+
+      return {
+        id: row.id,
+        businessType: row.business_type || row.search_query || '',
+        location: row.location || '',
+        leadCount: LEAD_OPTIONS.includes(requestedLeads || '') ? requestedLeads : null,
+      }
+    })
+    .filter((row) => row.businessType.trim() && row.location.trim())
+}
+
+function getMetricIcon(label: string) {
+  switch (label.toLowerCase()) {
+    case 'websites':
+      return <Globe className="h-5 w-5" strokeWidth={1.5} />
+    case 'emails':
+      return <Mail className="h-5 w-5" strokeWidth={1.5} />
+    case 'phones':
+      return <Phone className="h-5 w-5" strokeWidth={1.5} />
+    case 'businesses':
+    default:
+      return <Building2 className="h-5 w-5" strokeWidth={1.5} />
+  }
+}
+
 export default function Page() {
   const router = useRouter()
   const { user, loading: userLoading } = useCurrentUser()
@@ -294,6 +508,7 @@ export default function Page() {
   const [activity, setActivity] = useState('Idle')
   const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
   const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([])
   const [guestClaimResult, setGuestClaimResult] = useState<StoredGuestClaimResult | null>(null)
   const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
   const [showPartialCompletionModal, setShowPartialCompletionModal] = useState(false)
@@ -385,7 +600,7 @@ export default function Page() {
   const locationTarget = city.trim() || region.trim() || country.trim()
   const missingLocation = !locationTarget
   const hasMissingRequiredFields = missingBusinessType || missingLocation
-  const isFinalizing = Boolean(completionResult) || activity === 'Prospecting mission complete.'
+  const isFinalizing = Boolean(completionResult) || activity === 'Discovery complete.'
   const isEnriching =
     loading &&
     !isFinalizing &&
@@ -399,11 +614,21 @@ export default function Page() {
   const skippedInvalidCount = guestClaimResult?.skipped_invalid ?? 0
   const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
   const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
-  const liveLogLines = displayedLogs
-    .map((entry) => formatReadableLog(entry))
-    .filter((entry): entry is string => Boolean(entry))
-    .filter((entry, index, entries) => entry !== entries[index - 1])
+  const liveActivityItems = displayedLogs
+    .map((entry) => formatLiveActivity(entry))
+    .filter((entry): entry is LiveActivityItem => Boolean(entry))
+    .filter((entry, index, entries) => {
+      const previous = entries[index - 1]
+      return !previous || entry.label !== previous.label || entry.detail !== previous.detail
+    })
     .slice(-25)
+  const websiteScanCount = logs.filter((entry) => entry.startsWith('🔬 ')).length
+  const emailFoundCount = logs.filter((entry) => entry.startsWith('✨ ')).length
+  const noWebsiteCount = logs.filter((entry) => entry.startsWith('⛔ no website: ')).length
+  const noEmailCount = logs.filter((entry) => entry.startsWith('⛔ no email: ')).length
+  const savedSummary = parseSavedSummary(logs)
+  const filteredWithoutContactCount = parseFilteredWithoutContactCount(logs)
+  const invalidFilteredCount = savedSummary.invalid + filteredWithoutContactCount
   const discoveryPercent = Math.min((displayedDiscovered / progressTarget) * 100, 100)
   const enrichmentPercent = Math.min((enriched / progressTarget) * 100, 100)
   const liveFoundCount = Math.min(requestedLeadCount, Math.max(displayedDiscovered, enriched))
@@ -428,27 +653,71 @@ export default function Page() {
   const stageItems = [
     {
       label: 'Finding businesses',
+      detail:
+        discovered > 0
+          ? pluralize(discovered, 'business', 'businesses') + ' discovered'
+          : 'Searching live business sources',
       active: loading && !isEnriching && !isValidating && !isFinalizing,
       complete: displayedDiscovered > 0 || enriched > 0 || Boolean(completionResult),
       progress: findingProgressPercent,
     },
     {
       label: 'Enriching contacts',
+      detail:
+        websiteScanCount > 0
+          ? pluralize(websiteScanCount, 'website') + ' analyzed'
+          : enriched > 0
+            ? pluralize(enriched, 'contact') + ' enriched'
+            : 'Checking websites and contact pages',
       active: isEnriching && !isValidating && !isFinalizing,
       complete: enriched > 0 || Boolean(completionResult),
       progress: enrichingProgressPercent,
     },
     {
       label: 'Validating leads',
+      detail:
+        enriched > 0
+          ? pluralize(enriched, 'business', 'businesses') + ' validated'
+          : 'Filtering for contact-ready leads',
       active: isValidating || isFinalizing,
       complete: Boolean(completionResult),
       progress: validatingProgressPercent,
     },
   ]
+  const canShowRecentSearches = !loading && !completionResult && recentSearches.length > 0
+  const completionSubtext = isGuest
+    ? 'Added to your trial lead list.'
+    : 'Saved to My Leads.'
+  const completionContactCounts = completionResult ? countLeadContacts(completionResult.addedLeads) : null
+  const averageTimePerValidatedLead =
+    completionResult && completionResult.enrichedCount > 0 && finalElapsed !== null
+      ? Math.max(1, Math.round(finalElapsed / completionResult.enrichedCount))
+      : null
+  const discoveryReportCandidates: Array<DiscoveryReportItem | null> = completionResult
+    ? [
+        { label: 'Businesses', value: completionResult.discoveredCount },
+        completionContactCounts
+          ? { label: 'Websites', value: completionContactCounts.website }
+          : null,
+        completionContactCounts
+          ? { label: 'Emails', value: completionContactCounts.email }
+          : null,
+        completionContactCounts
+          ? { label: 'Phones', value: completionContactCounts.phone }
+          : null,
+      ]
+    : []
+  const discoveryReportItems = discoveryReportCandidates.filter(
+    (item): item is DiscoveryReportItem => item !== null
+  )
+  const qualityCheckItems = [
+    savedSummary.duplicates > 0 ? 'Duplicate businesses removed' : null,
+    invalidFilteredCount > 0 || noWebsiteCount > 0 || noEmailCount > 0 ? 'Weak contacts filtered' : null,
+    completionResult && completionResult.addedCount > 0 ? 'Contact information verified' : null,
+    completionResult && !isGuest && completionResult.addedCount > 0 ? 'Saved to My Leads' : null,
+  ].filter((item): item is string => Boolean(item))
   const hasSearchCriteria = Boolean(businessType.trim() || city.trim())
-  const searchHelperLine = hasSearchCriteria
-    ? 'Searching businesses with publicly available contact information.'
-    : 'ALPA will prepare a focused list based on your search criteria.'
+  const searchHelperLine = formatSearchDescription(businessType, locationTarget)
 
   useEffect(() => {
     if (loading) {
@@ -493,6 +762,15 @@ export default function Page() {
     if (!isAuthenticated || !profile?.id) return
     void refreshAuthenticatedUsage(profile.id, profile.plan)
   }, [isAuthenticated, profile?.id, profile?.plan])
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRecentSearches([])
+      return
+    }
+
+    void fetchRecentSearches(user.id).then(setRecentSearches)
+  }, [user?.id])
 
   useEffect(() => {
     if (userLoading) return
@@ -788,18 +1066,36 @@ export default function Page() {
     if (customActivity) setActivity(customActivity)
   }
 
-  async function runScrape() {
+  async function runScrape(criteria?: SearchCriteria) {
+    const activeBusinessType = criteria?.businessType ?? businessType
+    const activeRegion = criteria?.region ?? region
+    const activeCountry = criteria?.country ?? country
+    const activeLeadCount = criteria?.leadCount ?? maxLeads
+    const activeRequestedLeadCount = Number(activeLeadCount)
+    const activeLocationTarget =
+      criteria?.location?.trim() || city.trim() || activeRegion.trim() || activeCountry.trim()
+    const activeMissingBusinessType = !activeBusinessType.trim()
+    const activeMissingLocation = !activeLocationTarget
+
     try {
-      if (hasMissingRequiredFields) {
+      if (criteria) {
+        setBusinessType(activeBusinessType)
+        setCity(criteria.location)
+        setRegion(activeRegion)
+        setCountry(activeCountry)
+        setMaxLeads(activeLeadCount)
+      }
+
+      if (activeMissingBusinessType || activeMissingLocation) {
         setShowValidation(true)
         setValidationMessage(
-          missingBusinessType
+          activeMissingBusinessType
             ? 'Please enter business type'
             : 'Please add a city, province/state, or country'
         )
         clearLogStream()
         setActivity('Missing required fields.')
-        if (missingBusinessType) {
+        if (activeMissingBusinessType) {
           businessTypeRef.current?.focus()
         } else {
           cityRef.current?.focus()
@@ -835,11 +1131,11 @@ export default function Page() {
       runStartUsageRef.current = resolvedUsageCount
 
       const payload = {
-        query: businessType.trim(),
-        region: region.trim(),
-        defaultCity: locationTarget,
-        country,
-        maxLeads: requestedLeadCount,
+        query: activeBusinessType.trim(),
+        region: activeRegion.trim(),
+        defaultCity: activeLocationTarget,
+        country: activeCountry,
+        maxLeads: activeRequestedLeadCount,
         existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
       }
@@ -851,13 +1147,13 @@ export default function Page() {
         query: payload.query,
         location: payload.defaultCity,
         metadata: {
-          target: requestedLeadCount,
+          target: activeRequestedLeadCount,
         },
       })
       trackGaEvent('lead_search_started', {
         query: payload.query,
         location: payload.defaultCity,
-        requested_leads: requestedLeadCount,
+        requested_leads: activeRequestedLeadCount,
         visitor_type: visitorType,
         session_id: payload.guestSessionId || undefined,
       })
@@ -910,7 +1206,7 @@ export default function Page() {
         }
 
         if (msg.includes('🎉 Prospecting complete')) {
-          finish('Prospecting mission complete.')
+          finish('Discovery complete.')
         }
 
         if (
@@ -931,7 +1227,7 @@ export default function Page() {
 
       const handleLead = (lead: TrialLead) => {
         upsertGuestLead(lead)
-        enqueueLog(formatLeadDiscoveryLine(lead, locationTarget))
+        enqueueLog(formatLeadDiscoveryLine(lead, activeLocationTarget))
 
         if (lead.email || lead.phone) {
           enqueueLog(`✓ Contact found for ${lead.company_name || 'business'}`)
@@ -1018,12 +1314,12 @@ export default function Page() {
           search_id: analyticsSearchId,
           query: payload.query,
           search_query: payload.query,
-          business_type: businessType.trim(),
+          business_type: activeBusinessType.trim(),
           location: payload.defaultCity,
           filters_used: {
-            region: region.trim() || null,
-            country,
-            requested_leads: requestedLeadCount,
+            region: activeRegion.trim() || null,
+            country: activeCountry,
+            requested_leads: activeRequestedLeadCount,
           },
           leads_count: finalResult.addedCount,
           number_of_results_returned: finalResult.addedCount,
@@ -1048,7 +1344,7 @@ export default function Page() {
         trackGaEvent('lead_search_completed', {
           query: payload.query,
           location: payload.defaultCity,
-          requested_leads: requestedLeadCount,
+          requested_leads: activeRequestedLeadCount,
           leads_found: finalResult.addedCount,
           duration_seconds: elapsed || undefined,
           visitor_type: visitorType,
@@ -1112,14 +1408,14 @@ export default function Page() {
         error instanceof Error ? error.message : 'Scrape failed'
       void trackEvent('search_performed', {
         search_id: createAnalyticsSearchId(),
-        query: businessType.trim(),
-        search_query: businessType.trim(),
-        business_type: businessType.trim(),
-        location: locationTarget,
+        query: activeBusinessType.trim(),
+        search_query: activeBusinessType.trim(),
+        business_type: activeBusinessType.trim(),
+        location: activeLocationTarget,
         filters_used: {
-          region: region.trim() || null,
-          country,
-          requested_leads: requestedLeadCount,
+          region: activeRegion.trim() || null,
+          country: activeCountry,
+          requested_leads: activeRequestedLeadCount,
         },
         error_message: message,
         no_results: true,
@@ -1217,18 +1513,32 @@ export default function Page() {
     setSessionSavedLeads([])
   }
 
-  const liveLogPanel = (
-    <section className="space-y-6 rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,20,38,0.94),rgba(8,15,29,0.96))] p-5 shadow-[0_0_0_1px_rgba(59,130,246,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
+  function runRecentSearch(search: RecentSearch) {
+    // TODO: If search analytics stops storing requested_leads, restore lead count
+    // from backend-supported search metadata instead of guessing in the UI.
+    const leadCount = search.leadCount || '25'
+    void runScrape({
+      businessType: search.businessType,
+      location: search.location,
+      leadCount,
+      region: '',
+      country: '',
+    })
+  }
+
+  const liveDiscoveryPanel = (
+    <section className="space-y-6 rounded-[30px] border border-cyan-200/12 bg-[linear-gradient(180deg,rgba(11,20,38,0.96),rgba(8,15,29,0.98))] p-5 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_24px_80px_rgba(2,8,23,0.42)] sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-white/60">
-            Processing your leads
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200/65">
+            Live discovery
           </div>
-          <div className="mt-2 text-lg font-semibold text-white">
-            {loading || completionResult
-              ? `${liveFoundCount} / ${requestedLeadCount} leads found`
-              : 'Ready when you are'}
-          </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-white">
+            Finding your leads
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+            Searching businesses, checking websites, and validating contact details.
+          </p>
         </div>
 
         <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
@@ -1236,70 +1546,101 @@ export default function Page() {
         </div>
       </div>
 
-      <div className="space-y-3">
-        {stageItems.map((item) => (
-          <div key={item.label} className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-4">
-            <div className="mb-3 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    item.complete
-                      ? 'bg-blue-400'
-                      : item.active
-                        ? 'animate-pulse bg-blue-300'
-                        : 'bg-white/15'
-                  }`}
-                />
-                <span
-                  className={`text-sm ${
-                    item.complete || item.active ? 'text-white' : 'text-slate-500'
-                  }`}
-                >
-                  {item.label}
-                </span>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="space-y-3">
+          {stageItems.map((item) => (
+            <div key={item.label} className="rounded-2xl border border-white/7 bg-white/[0.025] px-4 py-4">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      item.complete
+                        ? 'bg-emerald-300'
+                        : item.active
+                          ? 'animate-pulse bg-cyan-200'
+                          : 'bg-white/15'
+                    }`}
+                  />
+                  <span
+                    className={`text-sm ${
+                      item.complete || item.active ? 'text-white' : 'text-slate-500'
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-500">{Math.round(item.progress)}%</span>
               </div>
-              <span className="text-xs text-slate-500">{Math.round(item.progress)}%</span>
-            </div>
 
-            <div className="h-2 overflow-hidden rounded-full bg-white/10 shadow-[inset_0_1px_2px_rgba(15,23,42,0.4)]">
-              <div
-                className="h-full bg-[linear-gradient(90deg,#3B82F6_0%,#60A5FA_100%)] shadow-[0_0_14px_rgba(59,130,246,0.28)] transition-all duration-500"
-                style={{ width: `${item.progress}%` }}
-              />
+              <div className="mb-3 text-xs leading-5 text-slate-400">{item.detail}</div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-white/10 shadow-[inset_0_1px_2px_rgba(15,23,42,0.4)]">
+                <div
+                  className="h-full rounded-full bg-[linear-gradient(90deg,#67E8F9_0%,#A7F3D0_100%)] shadow-[0_0_14px_rgba(34,211,238,0.24)] transition-all duration-500"
+                  style={{ width: `${item.progress}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Live activity
+            </div>
+            <div className="text-xs text-slate-500">
+              {logs.length > 0 ? `${logs.length} events` : activity}
             </div>
           </div>
-        ))}
-      </div>
-    </section>
-  )
 
-  const activityFeedSection = (
-    <section className="w-full rounded-[30px] border border-white/8 bg-white/[0.03] p-5 sm:p-6">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-          Activity feed
-        </div>
-        <div className="text-xs text-slate-500">
-          {logs.length > 0 ? `${logs.length} events` : activity}
+          <div
+            ref={activityFeedRef}
+            className="max-h-[260px] space-y-2 overflow-y-auto scroll-smooth pr-2 select-text lg:max-h-[330px]"
+          >
+            {(liveActivityItems.length > 0
+              ? liveActivityItems
+              : [{ label: searchHelperLine || 'Preparing discovery...' }]).map(
+              (entry, index) => (
+                <div
+                  key={`${entry.label}-${entry.detail || ''}-${index}`}
+                  className="rounded-xl border border-white/6 bg-white/[0.025] px-3 py-2 text-sm leading-6 text-slate-200 transition-all duration-300"
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                        entry.tone === 'success'
+                          ? 'bg-emerald-300'
+                          : entry.tone === 'warning'
+                            ? 'bg-amber-300'
+                            : entry.tone === 'error'
+                              ? 'bg-rose-300'
+                              : 'bg-cyan-200'
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-slate-200">{entry.label}</div>
+                      {entry.detail ? (
+                        <div className="truncate text-xs leading-5 text-slate-500">{entry.detail}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
         </div>
       </div>
 
-      <div
-        ref={activityFeedRef}
-        className="max-h-[220px] space-y-2 overflow-y-auto scroll-smooth rounded-2xl border border-white/8 bg-black/20 p-4 pr-3 select-text shadow-[0_0_0_1px_rgba(59,130,246,0.04)] sm:max-h-[260px] lg:max-h-[360px]"
-      >
-        {(liveLogLines.length > 0 ? liveLogLines : ['No activity yet']).map(
-          (entry, index) => (
-            <div
-              key={`${entry}-${index}`}
-              className="font-mono text-sm leading-6 text-slate-200 transition-all duration-300"
-            >
-              <span className="mr-2 text-blue-300">▸</span>
-              {entry}
-            </div>
-          )
-        )}
-      </div>
+      {loading ? (
+        <button
+          type="button"
+          onClick={abortMission}
+          className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.07] hover:text-white"
+        >
+          Stop search
+        </button>
+      ) : null}
     </section>
   )
 
@@ -1324,24 +1665,24 @@ export default function Page() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-2xl">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">
-                  PROSPECTOR
+                  DISCOVER
                 </div>
                 <h1 className="mt-2 text-[2rem] font-semibold leading-[1.04] tracking-[-0.04em] text-white sm:text-[2.6rem]">
-                  Find contact-ready businesses
+                  Find new business leads
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:hidden">
-                  Choose who to target, where to search, and how many leads you want.
+                  Tell ALPA who you want to find. We&apos;ll search, verify, and prepare leads.
                 </p>
                 <p className="mt-2 hidden max-w-2xl text-[15px] leading-7 text-slate-400 sm:block">
-                  Choose a business type, location, and lead count. ALPA will prepare a focused
-                  list with available contact details.
+                  Tell ALPA who you want to find. We&apos;ll search, verify, and prepare
+                  contact-ready leads in seconds.
                 </p>
               </div>
 
               <div className="rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
                 {isPlanLoading || usageLoading
                   ? 'Preparing your workspace...'
-                  : `Usage: ${resolvedUsageCount} / ${formatLeadLimit(resolvedLeadLimit)} leads this month`}
+                  : `${resolvedUsageCount} of ${formatLeadLimit(resolvedLeadLimit)} leads used this month`}
               </div>
             </div>
 
@@ -1435,55 +1776,140 @@ export default function Page() {
                 >
                   {loading ? 'Finding leads...' : 'Find leads'}
                 </button>
-
-                {loading ? (
-                  <button
-                    type="button"
-                    onClick={abortMission}
-                    className="btn-ghost rounded-2xl px-5 py-3 text-sm font-medium"
-                  >
-                    Stop search
-                  </button>
-                ) : null}
               </div>
             </div>
           </form>
         </section>
 
-        <div className="w-full">{liveLogPanel}</div>
+        {canShowRecentSearches ? (
+          <section className="rounded-[28px] border border-white/8 bg-white/[0.025] p-5 sm:p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold tracking-[-0.025em] text-white">
+                  Recent searches
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Run a previous discovery again with the same criteria.
+                </p>
+              </div>
+            </div>
 
-        {activityFeedSection}
+            <div className="grid gap-3 md:grid-cols-2">
+              {recentSearches.map((search) => (
+                <div
+                  key={search.id}
+                  className="flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/[0.03] p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-white">
+                      {search.businessType}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span>{search.location}</span>
+                      {search.leadCount ? <span>{search.leadCount} leads</span> : null}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => runRecentSearch(search)}
+                    disabled={loading}
+                    className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-2xl border border-cyan-200/14 bg-cyan-200/[0.06] px-4 text-sm font-medium text-cyan-50 transition hover:bg-cyan-200/[0.1] disabled:opacity-60"
+                  >
+                    Run again
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {loading ? <div className="w-full">{liveDiscoveryPanel}</div> : null}
 
         {completionResult ? (
-          <section className="w-full space-y-5 rounded-[30px] border border-white/8 bg-white/[0.03] p-5 sm:p-6">
-            <div>
-              <div className="text-2xl font-semibold text-white">{requestedLeadCount} leads found</div>
-              <div className="mt-2 text-sm leading-6 text-slate-400">
-                {normalizeSummaryLine(completionResult.summaryLine)}
+          <section className="w-full space-y-8 rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(16,25,45,0.85),rgba(11,18,35,0.88))] p-5 shadow-[0_24px_64px_rgba(2,8,23,0.35)] sm:p-8">
+            {completionResult.limitMessage ? (
+              <div className="text-sm text-amber-200">{completionResult.limitMessage}</div>
+            ) : null}
+
+            <div className="space-y-3 opacity-0 animate-[fadeInUp_0.5s_ease-out_0.1s_forwards]">
+              <div className="flex items-end gap-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.15em] text-emerald-300/80">Discovery complete</p>
+                  <div className="flex items-baseline gap-3">
+                    <h2 className="text-5xl font-semibold tracking-[-0.02em] text-white sm:text-6xl">
+                      {completionResult.addedCount}
+                    </h2>
+                    <span className="text-base font-medium text-slate-300">contact-ready leads</span>
+                  </div>
+                </div>
               </div>
-              {completionResult.limitMessage ? (
-                <div className="mt-3 text-sm text-amber-200">{completionResult.limitMessage}</div>
+              {averageTimePerValidatedLead !== null ? (
+                <p className="text-sm text-slate-400">
+                  Validated in {formatTime(averageTimePerValidatedLead)} average per lead
+                </p>
               ) : null}
             </div>
 
-            {(completionResult || guestClaimResult) && previewLeads.length > 0 ? (
-              <div className="space-y-3">
-                {previewLeads.map((lead) => (
-                  <LeadCard
-                    key={lead.id}
-                    id={lead.id}
-                    name={lead.company_name}
-                    location={formatLeadPreviewLocation(lead) || 'Verified business lead'}
-                    email={lead.email}
-                    phone={lead.phone}
-                    inPipeline={lead.status === 'pipeline'}
-                    contacted={lead.status === 'contacted'}
-                    isNew
-                    context="prospector"
-                    sourceUrl={lead.website}
-                    onAddToPipeline={() => void addPreviewLeadToPipeline(lead.id)}
-                  />
+            {qualityCheckItems.length > 0 ? (
+              <div className="flex flex-wrap gap-2 opacity-0 animate-[fadeInUp_0.5s_ease-out_0.25s_forwards]">
+                {qualityCheckItems.map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-200 transition-all duration-300 hover:bg-emerald-500/15"
+                  >
+                    <span className="text-emerald-300 text-sm">✓</span>
+                    <span className="text-slate-200">{item}</span>
+                  </span>
                 ))}
+              </div>
+            ) : null}
+
+            {discoveryReportItems.length > 0 ? (
+              <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 opacity-0 animate-[fadeInUp_0.5s_ease-out_0.4s_forwards]">
+                {discoveryReportItems.map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all duration-300 hover:bg-white/[0.04] hover:border-white/12"
+                  >
+                    <div className="mb-2 text-slate-400">
+                      {getMetricIcon(item.label)}
+                    </div>
+                    <div className="text-2xl font-semibold tabular-nums tracking-[-0.02em] text-white">
+                      {item.value}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-slate-400 capitalize">
+                      {item.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {(completionResult || guestClaimResult) && previewLeads.length > 0 ? (
+              <div className="space-y-3 pt-4 opacity-0 animate-[fadeInUp_0.5s_ease-out_0.55s_forwards]">
+                <h3 className="text-sm font-medium tracking-[0.05em] text-slate-400">
+                  Preview ({previewLeads.length} of {sessionSavedLeads.length})
+                </h3>
+                <div className="space-y-2">
+                  {previewLeads.map((lead) => (
+                    <div key={lead.id} className="opacity-0 animate-[fadeInUp_0.4s_ease-out_0.6s_forwards]">
+                      <LeadCard
+                        id={lead.id}
+                        name={lead.company_name}
+                        location={formatLeadPreviewLocation(lead) || 'Verified business lead'}
+                        email={lead.email}
+                        phone={lead.phone}
+                        inPipeline={lead.status === 'pipeline'}
+                        contacted={lead.status === 'contacted'}
+                        isNew
+                        context="prospector"
+                        sourceUrl={lead.website}
+                        onAddToPipeline={() => void addPreviewLeadToPipeline(lead.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -1498,45 +1924,42 @@ export default function Page() {
               </div>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => {
-                if (!viewerEmail) {
-                  setShowSendLeadsModal(true)
-                } else {
-                  downloadPreviewLeads()
-                }
-              }}
-              className="btn-primary-gold w-full"
-            >
-              Download leads
-            </button>
-
-            <div className="space-y-4 rounded-[26px] border border-white/10 bg-white/[0.04] p-5">
-              <div>
-                <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">
-                  Your leads are ready
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
-                  You can review, download, or start outreach from your inbox.
-                </p>
-              </div>
-
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <button
                 type="button"
                 onClick={() => {
                   requestInboxFocus()
                   router.push('/dashboard/leads')
                 }}
-                className="btn-primary-gold w-full"
+                className="btn-primary-gold w-full lg:col-span-2"
               >
-                View my leads
+                View in My Leads
               </button>
 
               <button
                 type="button"
+                onClick={downloadPreviewLeads}
+                disabled={!previewLeads.length}
+                className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Export CSV
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowSendLeadsModal(true)}
+                disabled={!sessionSavedLeads.length}
+                className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Email CSV
+              </button>
+            </div>
+
+            <div>
+              <button
+                type="button"
                 onClick={resetSearchFlow}
-                className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl px-4 text-sm font-medium text-slate-500 transition hover:text-slate-300"
               >
                 Run another search
               </button>

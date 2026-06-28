@@ -62,7 +62,7 @@ const NAV_ITEMS: NavItem[] = [
     description: 'Track every lead through outreach stages, follow-ups, and outcomes.',
     benefit: 'Pipeline turns lead generation into a repeatable sales system instead of a list that goes stale.',
   },
-  { href: '/dashboard/scraper', label: 'Prospector', icon: Rocket },
+  { href: '/dashboard/scraper', label: 'Discover', icon: Rocket },
   {
     href: '/dashboard/library',
     label: 'Lead Library',
