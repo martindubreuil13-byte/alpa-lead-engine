@@ -22,6 +22,7 @@ import {
   Settings,
   Sparkles,
   Users,
+  UserRoundSearch,
   X,
   Zap,
 } from 'lucide-react'
@@ -53,6 +54,15 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
+  {
+    href: '/dashboard/my-leads',
+    label: 'My Leads',
+    icon: UserRoundSearch,
+    adminOnly: true,
+    accent: true,
+    description: 'A unified workspace for reviewing, filtering, and managing every lead.',
+    benefit: 'My Leads brings the inbox, library, and lifecycle view into one future-ready workspace.',
+  },
   { href: '/dashboard/leads', label: 'Leads Inbox', icon: Inbox },
   {
     href: '/dashboard/kanban',
@@ -130,6 +140,7 @@ const ADMIN_ACTIVE_ICON_STYLE = {
 const HOME_BACK_ROUTES = new Set([
   '/dashboard/kanban',
   '/dashboard/leads',
+  '/dashboard/my-leads',
   '/dashboard/library',
   '/dashboard/outreach',
   '/dashboard/scraper',
