@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check } from 'lucide-react'
+import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X } from 'lucide-react'
 
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import { type Lead as LifecycleLead } from '@/lib/pipeline/lifecycle'
 import { cn } from '@/lib/utils'
+import { archiveLeads, restoreLeads, deleteLead, deleteLeads } from './actions'
 
 export type MyLeadsLead = LifecycleLead & {
   id: string
@@ -341,6 +342,9 @@ export default function MyLeadsWorkspaceClient({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('active')
   const [deleteConfirmingId, setDeleteConfirmingId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [archivedLeadIds, setArchivedLeadIds] = useState<Set<string>>(new Set())
+  const [deletedLeadIds, setDeletedLeadIds] = useState<Set<string>>(new Set())
 
   const campaignLeadIds = useMemo(
     () => new Set(campaignSignals.map((signal) => signal.lead_id).filter(Boolean) as string[]),
@@ -353,23 +357,38 @@ export default function MyLeadsWorkspaceClient({
   )
 
   const priorities = useMemo(() => {
-    const active = leadsWithMetadata.filter((l) => l.metadata.priority !== 'archived')
+    const visibleLeads = leadsWithMetadata.filter((l) => !deletedLeadIds.has(l.id))
+    const active = visibleLeads.filter((l) => {
+      const isCurrentlyArchived = archivedLeadIds.has(l.id) || l.metadata.priority === 'archived'
+      return !isCurrentlyArchived
+    })
     return {
       ready: active.filter((l) => l.metadata.priority === 'ready').length,
       overdue: active.filter((l) => l.metadata.priority === 'overdue').length,
       reply: active.filter((l) => l.metadata.priority === 'reply').length,
       review: active.filter((l) => l.metadata.priority === 'review').length,
-      archived: leadsWithMetadata.filter((l) => l.metadata.priority === 'archived').length,
+      archived: visibleLeads.filter((l) => archivedLeadIds.has(l.id) || l.metadata.priority === 'archived').length,
     }
-  }, [leadsWithMetadata])
+  }, [leadsWithMetadata, archivedLeadIds, deletedLeadIds])
 
   const totalPriority = priorities.ready + priorities.overdue + priorities.reply + priorities.review
 
   const filteredLeads = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
-    const byView = leadsWithMetadata.filter((lead) =>
-      viewMode === 'active' ? lead.metadata.priority !== 'archived' : lead.metadata.priority === 'archived'
-    )
+    const byView = leadsWithMetadata.filter((lead) => {
+      // Hide deleted leads
+      if (deletedLeadIds.has(lead.id)) return false
+
+      // Handle archived state with optimistic updates
+      const isCurrentlyArchived =
+        archivedLeadIds.has(lead.id) || lead.metadata.priority === 'archived'
+
+      if (viewMode === 'active') {
+        return !isCurrentlyArchived
+      } else {
+        return isCurrentlyArchived
+      }
+    })
 
     if (!normalizedSearch) return byView
 
@@ -380,7 +399,7 @@ export default function MyLeadsWorkspaceClient({
         .toLowerCase()
         .includes(normalizedSearch)
     )
-  }, [search, leadsWithMetadata, viewMode])
+  }, [search, leadsWithMetadata, viewMode, archivedLeadIds, deletedLeadIds])
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const selectedLeads = useMemo(
@@ -406,6 +425,115 @@ export default function MyLeadsWorkspaceClient({
   function exportSelected() {
     if (selectedLeads.length > 0) {
       downloadLeadCsv(selectedLeads, getLeadCsvFilename('my-leads'))
+    }
+  }
+
+  function showToast(message: string, type: 'success' | 'error') {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  async function handleArchive(leadId: string) {
+    // Optimistic update
+    setArchivedLeadIds((prev) => new Set([...prev, leadId]))
+
+    const result = await archiveLeads([leadId])
+    if (!result.success) {
+      // Rollback on error
+      setArchivedLeadIds((prev) => {
+        const next = new Set(prev)
+        next.delete(leadId)
+        return next
+      })
+      showToast("Couldn't archive lead.", 'error')
+    }
+  }
+
+  async function handleRestore(leadId: string) {
+    // Optimistic update
+    setArchivedLeadIds((prev) => {
+      const next = new Set(prev)
+      next.delete(leadId)
+      return next
+    })
+
+    const result = await restoreLeads([leadId])
+    if (!result.success) {
+      // Rollback on error
+      setArchivedLeadIds((prev) => new Set([...prev, leadId]))
+      showToast("Couldn't restore lead.", 'error')
+    }
+  }
+
+  async function handleDeletePermanently(leadId: string) {
+    setDeleteConfirmingId(null)
+
+    // Optimistic update
+    setDeletedLeadIds((prev) => new Set([...prev, leadId]))
+
+    const result = await deleteLead(leadId)
+    if (!result.success) {
+      // Rollback on error
+      setDeletedLeadIds((prev) => {
+        const next = new Set(prev)
+        next.delete(leadId)
+        return next
+      })
+      showToast("Couldn't delete lead.", 'error')
+    }
+  }
+
+  async function handleBulkArchive() {
+    const ids = selectedIds
+    // Optimistic update
+    setArchivedLeadIds((prev) => new Set([...prev, ...ids]))
+    setSelectedIds([])
+
+    const result = await archiveLeads(ids)
+    if (!result.success) {
+      // Rollback on error
+      setArchivedLeadIds((prev) => {
+        const next = new Set(prev)
+        ids.forEach((id) => next.delete(id))
+        return next
+      })
+      showToast(`Couldn't archive ${ids.length} leads.`, 'error')
+    }
+  }
+
+  async function handleBulkRestore() {
+    const ids = selectedIds
+    // Optimistic update
+    setArchivedLeadIds((prev) => {
+      const next = new Set(prev)
+      ids.forEach((id) => next.delete(id))
+      return next
+    })
+    setSelectedIds([])
+
+    const result = await restoreLeads(ids)
+    if (!result.success) {
+      // Rollback on error
+      setArchivedLeadIds((prev) => new Set([...prev, ...ids]))
+      showToast(`Couldn't restore ${ids.length} leads.`, 'error')
+    }
+  }
+
+  async function handleBulkDelete() {
+    const ids = selectedIds
+    // Optimistic update
+    setDeletedLeadIds((prev) => new Set([...prev, ...ids]))
+    setSelectedIds([])
+
+    const result = await deleteLeads(ids)
+    if (!result.success) {
+      // Rollback on error
+      setDeletedLeadIds((prev) => {
+        const next = new Set(prev)
+        ids.forEach((id) => next.delete(id))
+        return next
+      })
+      showToast(`Couldn't delete ${ids.length} leads.`, 'error')
     }
   }
 
@@ -787,7 +915,10 @@ export default function MyLeadsWorkspaceClient({
                                 Start outreach
                               </button>
                               <button
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleArchive(lead.id)
+                                }}
                                 className="flex-1 px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-300 hover:bg-white/[0.05] rounded-lg transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                               >
                                 Archive
@@ -797,7 +928,10 @@ export default function MyLeadsWorkspaceClient({
                           {viewMode === 'archived' && (
                             <>
                               <button
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleRestore(lead.id)
+                                }}
                                 className="flex-1 px-3 py-2 text-xs font-medium text-slate-300 hover:text-slate-100 hover:bg-white/[0.08] rounded-lg transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                               >
                                 Restore
@@ -842,19 +976,37 @@ export default function MyLeadsWorkspaceClient({
                 </button>
                 {viewMode === 'active' && (
                   <button
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleBulkArchive()
+                    }}
                     className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-slate-300 transition hover:text-white hover:bg-white/[0.1] outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
                     Archive all
                   </button>
                 )}
                 {viewMode === 'archived' && (
-                  <button
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-slate-300 transition hover:text-white hover:bg-white/[0.1] outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  >
-                    Restore all
-                  </button>
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleBulkRestore()
+                      }}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-slate-300 transition hover:text-white hover:bg-white/[0.1] outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      Restore all
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleBulkDelete()
+                      }}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-rose-300 transition hover:text-rose-200 hover:bg-rose-500/[0.15] outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete all
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -883,7 +1035,9 @@ export default function MyLeadsWorkspaceClient({
                 </button>
                 <button
                   onClick={() => {
-                    setDeleteConfirmingId(null)
+                    if (deleteConfirmingId) {
+                      handleDeletePermanently(deleteConfirmingId)
+                    }
                   }}
                   className="flex-1 px-3 py-2.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/[0.12] rounded-lg transition outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 >
@@ -891,6 +1045,22 @@ export default function MyLeadsWorkspaceClient({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-150">
+          <div
+            className={cn(
+              'rounded-lg px-4 py-3 text-sm font-medium backdrop-blur-lg border',
+              toast.type === 'error'
+                ? 'bg-rose-500/[0.1] border-rose-500/20 text-rose-300'
+                : 'bg-blue-500/[0.1] border-blue-500/20 text-blue-300'
+            )}
+          >
+            {toast.message}
           </div>
         </div>
       )}
