@@ -50,13 +50,11 @@ CREATE TABLE IF NOT EXISTS commercial_intelligence_jobs (
   total_cost NUMERIC DEFAULT 0,
 
   created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now(),
-
-  UNIQUE(lead_id, status) WHERE status IN ('pending', 'processing', 'retrying')
+  updated_at TIMESTAMP DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ci_jobs_user_id ON commercial_intelligence_jobs(user_id);
-CREATE INDEX IF NOT EXISTS idx_ci_jobs_lead_id ON commercial_intelligence_jobs(lead_id);
+CREATE INDEX IF NOT EXISTS idx_ci_jobs_lead_id_active ON commercial_intelligence_jobs(lead_id) WHERE status IN ('pending', 'processing', 'retrying');
 CREATE INDEX IF NOT EXISTS idx_ci_jobs_status ON commercial_intelligence_jobs(status) WHERE status IN ('pending', 'processing', 'retrying');
 CREATE INDEX IF NOT EXISTS idx_ci_jobs_next_retry ON commercial_intelligence_jobs(next_retry_at) WHERE status = 'retrying';
 
@@ -80,13 +78,20 @@ FOR EACH ROW
 EXECUTE FUNCTION mark_lead_for_enrichment();
 
 -- Trigger to create job record when lead is inserted
+-- Prevents duplicate active jobs using EXISTS check
 CREATE OR REPLACE FUNCTION enqueue_commercial_intelligence_job()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.ci_enrichment_status = 'pending' THEN
-    INSERT INTO commercial_intelligence_jobs (user_id, lead_id, status, created_at, updated_at)
-    VALUES (NEW.user_id, NEW.id, 'pending', now(), now())
-    ON CONFLICT (lead_id, status) WHERE status IN ('pending', 'processing', 'retrying') DO NOTHING;
+    -- Only enqueue if no active job exists for this lead
+    IF NOT EXISTS (
+      SELECT 1 FROM commercial_intelligence_jobs
+      WHERE lead_id = NEW.id
+      AND status IN ('pending', 'processing', 'retrying')
+    ) THEN
+      INSERT INTO commercial_intelligence_jobs (user_id, lead_id, status, created_at, updated_at)
+      VALUES (NEW.user_id, NEW.id, 'pending', now(), now());
+    END IF;
   END IF;
   RETURN NEW;
 END;
