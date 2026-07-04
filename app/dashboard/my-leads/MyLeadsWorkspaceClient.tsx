@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X } from 'lucide-react'
+import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X, Loader2, Sparkles } from 'lucide-react'
 
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import { type Lead as LifecycleLead } from '@/lib/pipeline/lifecycle'
@@ -20,6 +20,17 @@ export type MyLeadsLead = LifecycleLead & {
   status: string
   created_at?: string | null
   date_added?: string | null
+  website_snapshot: any | null
+  business_signals: any | null
+  commercial_profile: any | null
+  ci_enrichment_status: string | null
+  ci_started_at: string | null
+  ci_completed_at: string | null
+  ci_last_error: string | null
+  ci_retry_count: number | null
+  ci_processing_duration_ms: number | null
+  ci_cost_estimate: number | null
+  ci_model_versions: any | null
 }
 
 export type MyLeadsCampaignSignal = {
@@ -345,6 +356,8 @@ export default function MyLeadsWorkspaceClient({
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [archivedLeadIds, setArchivedLeadIds] = useState<Set<string>>(new Set())
   const [deletedLeadIds, setDeletedLeadIds] = useState<Set<string>>(new Set())
+  const [enrichingId, setEnrichingId] = useState<string | null>(null)
+  const [enrichedLeads, setEnrichedLeads] = useState<Map<string, MyLeadsLead>>(new Map())
 
   const campaignLeadIds = useMemo(
     () => new Set(campaignSignals.map((signal) => signal.lead_id).filter(Boolean) as string[]),
@@ -534,6 +547,68 @@ export default function MyLeadsWorkspaceClient({
         return next
       })
       showToast(`Couldn't delete ${ids.length} leads.`, 'error')
+    }
+  }
+
+  async function handleEnrichCommercialIntelligence(leadId: string) {
+    setEnrichingId(leadId)
+    try {
+      const response = await fetch(`/api/leads/${leadId}/enrich-commercial-intelligence`, {
+        method: 'POST',
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        // Ensure error message is a string
+        const errorMessage =
+          typeof result?.error?.message === 'string'
+            ? result.error.message
+            : typeof result?.message === 'string'
+              ? result.message
+              : result?.error
+                ? typeof result.error === 'string'
+                  ? result.error
+                  : 'Enrichment failed'
+                : 'Failed to enrich lead'
+        showToast(errorMessage, 'error')
+        return
+      }
+
+      if (result.ok && result.data) {
+        // Update the lead data with enrichment results
+        const enrichedLead = leadsWithMetadata.find((l) => l.id === leadId)
+        if (enrichedLead) {
+          const updated = {
+            ...enrichedLead,
+            website_snapshot: result.data.website_snapshot,
+            business_signals: result.data.business_signals,
+            commercial_profile: result.data.commercial_profile,
+            ci_enrichment_status: result.data.ci_enrichment_status,
+            ci_started_at: result.data.ci_started_at,
+            ci_completed_at: result.data.ci_completed_at,
+            ci_last_error: result.data.ci_last_error,
+            ci_retry_count: result.data.ci_retry_count,
+            ci_processing_duration_ms: result.data.ci_processing_duration_ms,
+            ci_cost_estimate: result.data.ci_cost_estimate,
+            ci_model_versions: result.data.ci_model_versions,
+          }
+          setEnrichedLeads((prev) => new Map(prev).set(leadId, updated))
+          showToast('Commercial Intelligence refreshed successfully', 'success')
+        }
+      } else {
+        // Partial success or failure - extract message safely
+        const errorMessage =
+          typeof result?.error?.message === 'string'
+            ? result.error.message
+            : 'Enrichment completed with errors'
+        showToast(errorMessage, 'error')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error enriching lead'
+      showToast(errorMessage, 'error')
+    } finally {
+      setEnrichingId(null)
     }
   }
 
@@ -887,6 +962,128 @@ export default function MyLeadsWorkspaceClient({
                             <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{lead.notes}</p>
                           </div>
                         )}
+
+                        {/* COMMERCIAL INTELLIGENCE SECTION */}
+                        {(() => {
+                          const currentLead = enrichedLeads.get(lead.id) || lead
+                          const ciStatus = currentLead.ci_enrichment_status || 'not_generated'
+                          const profile = currentLead.commercial_profile
+                          const isEnriching = enrichingId === lead.id
+
+                          return (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs font-medium text-slate-400 tracking-wide">
+                                  Commercial Intelligence
+                                </div>
+                                <span className="text-xs text-slate-500">
+                                  {ciStatus === 'not_generated' || !ciStatus
+                                    ? 'Not Generated'
+                                    : ciStatus === 'completed'
+                                      ? 'Generated'
+                                      : ciStatus === 'processing'
+                                        ? 'Processing...'
+                                        : ciStatus === 'failed'
+                                          ? 'Failed'
+                                          : 'Pending'}
+                                </span>
+                              </div>
+
+                              {profile ? (
+                                <div className="space-y-3">
+                                  <div className="space-y-2 text-sm text-slate-300">
+                                    {profile.summary && (
+                                      <div>
+                                        <p className="text-xs text-slate-500 mb-1">Summary</p>
+                                        <p className="text-slate-300">{profile.summary}</p>
+                                      </div>
+                                    )}
+                                    {profile.industry && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Industry</p>
+                                        <p className="text-slate-300">{profile.industry}</p>
+                                      </div>
+                                    )}
+                                    {profile.primary_service && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Primary Service</p>
+                                        <p className="text-slate-300">{profile.primary_service}</p>
+                                      </div>
+                                    )}
+                                    {profile.target_customer && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Target Customer</p>
+                                        <p className="text-slate-300">{profile.target_customer}</p>
+                                      </div>
+                                    )}
+                                    {profile.core_services && profile.core_services.length > 0 && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Core Services</p>
+                                        <p className="text-slate-300">{profile.core_services.join(', ')}</p>
+                                      </div>
+                                    )}
+                                    {profile.keywords && profile.keywords.length > 0 && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Keywords</p>
+                                        <p className="text-slate-300">{profile.keywords.slice(0, 5).join(', ')}</p>
+                                      </div>
+                                    )}
+                                    {currentLead.ci_completed_at && (
+                                      <div>
+                                        <p className="text-xs text-slate-500">Last Updated</p>
+                                        <p className="text-slate-400 text-xs">
+                                          {new Date(currentLead.ci_completed_at).toLocaleDateString()}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleEnrichCommercialIntelligence(lead.id)
+                                    }}
+                                    disabled={isEnriching}
+                                    className="w-full px-3 py-2 text-xs font-medium text-slate-300 hover:text-slate-200 hover:bg-white/[0.05] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                  >
+                                    {isEnriching ? (
+                                      <span className="flex items-center justify-center gap-2">
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        Refreshing...
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center justify-center gap-2">
+                                        <Sparkles className="h-3 w-3" />
+                                        Refresh Commercial Intelligence
+                                      </span>
+                                    )}
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleEnrichCommercialIntelligence(lead.id)
+                                  }}
+                                  disabled={isEnriching}
+                                  className="w-full px-3 py-2.5 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                >
+                                  {isEnriching ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Generating...
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center justify-center gap-2">
+                                      <Sparkles className="h-3 w-3" />
+                                      Generate Commercial Intelligence
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })()}
 
                         {/* NEXT RECOMMENDATION - MOST VALUABLE SECTION */}
                         {(() => {
