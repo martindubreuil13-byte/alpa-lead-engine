@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Commercial Intelligence enrichment is now powered by a durable Supabase-backed queue, ensuring reliable background processing in serverless environments.
+The Commercial Intelligence enrichment is powered by a durable Supabase-backed queue. On Vercel Hobby, authenticated discovery requests enqueue leads, return discovered leads, and then trigger a bounded queue drain with Next.js `after()`.
 
 ```
 Lead Discovery
@@ -13,7 +13,7 @@ Queue Record Inserted ✓
     ↓
 Response Returned to User ✓
     ↓
-(Background - Guaranteed Completion)
+Shared Queue Processor Runs
     ↓
 Worker Retrieves Pending Items
     ↓
@@ -48,28 +48,29 @@ Queue Record Marked Completed
 
 Functions:
 - `enqueueLeadEnrichment(leadId)` — Insert queue record
-- `getPendingQueueItems(limit)` — Retrieve pending items
-- `markQueueItemProcessing(queueId)` — Mark as started
-- `markQueueItemCompleted(queueId)` — Mark as done
-- `markQueueItemFailed(queueId, error, shouldRetry)` — Mark as failed with retry option
+- `claimPendingQueueItems(limit)` — Atomically claim pending items
+- `resetStaleProcessingItems(timeoutSeconds)` — Recover stale processing items
+- `completeEnrichment(queueId, ...)` — Atomically update queue + lead
 - `getQueueStats()` — Monitoring helper
 
 **Key principle**: The queue only manages persistence and status. It never calls the enrichment engine directly.
 
-### The Worker
+### The Shared Processor
+
+**File**: `lib/commercial-intelligence/process-queue.ts`
+
+- Calls queue claim/recovery helpers
+- Calls `enrichLeadDirect(leadId)` for claimed jobs
+- Calls `completeEnrichment()` to update the queue and lead
+- Used by both authenticated discovery requests and the admin worker route
+
+### The Worker Route
 
 **File**: `app/api/admin/ci-queue-worker/route.ts`
 
 - **Endpoint**: `POST /api/admin/ci-queue-worker` (admin-only)
 - **Max duration**: 5 minutes (configurable)
-- **Flow**:
-  1. Get up to 10 pending queue items
-  2. For each item:
-     - Mark as processing
-     - Call `enrichLeadDirect(leadId)`
-     - Mark as completed or failed
-     - Retry on failure (up to 2 retries)
-  3. Return stats and results
+- **Flow**: calls `processCommercialIntelligenceQueue({ limit: 10 })`
 
 **Key principle**: The worker is a simple dispatcher. All enrichment logic stays in `enrichLeadDirect()`.
 
@@ -112,14 +113,16 @@ If successful:
     └─ INSERT into commercial_intelligence_queue
        status='pending'
   ↓
-Response returned immediately
-(No wait for enrichment)
+Response returned
+  ↓
+after(): drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 5 })
 ```
 
 **User experience**:
-- Search results appear instantly (~2-3 seconds)
-- Lead shows `ci_enrichment_status = 'pending'` or `'processing'`
-- No blocking, no enrichment delay
+- Search results are returned immediately after discovery/enqueue
+- Queue processing starts after the response path completes
+- Queue draining is capped at 5 batches of 5 items, or 55 seconds
+- Queue failures are logged and do not fail discovery
 
 ### 2. Manual Refresh
 
@@ -138,13 +141,15 @@ Lead updated, UI shows results
 - No queue involved
 - Same engine as automatic enrichment
 
-### 3. Queue Processing (Background Worker)
+### 3. Queue Processing
 
 ```
-Worker started (manually or via cron):
-  POST /api/admin/ci-queue-worker
+Worker started by scrape request or manual admin POST:
+  processCommercialIntelligenceQueue(limit)
   ↓
-Retrieve pending items (limit 10)
+Reset stale processing items
+  ↓
+Claim pending items
   ↓
 For each item:
   ├─ Mark as 'processing'
@@ -221,39 +226,14 @@ curl -X POST https://your-api.com/api/admin/ci-queue-worker \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### Cron Worker Authentication
+### Request-Bound Queue Processing
 
-The production queue worker is scheduled by Vercel Cron:
+Production queue processing does not depend on Vercel Cron. After authenticated discovery finishes saving, enqueueing leads, and emitting the scrape result, the route schedules `drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 5, maxRuntimeMs: 55000 })` with Next.js `after()`.
 
-```json
-{
-  "path": "/api/admin/ci-queue-worker",
-  "schedule": "*/5 * * * *"
-}
-```
-
-Required environment variable:
+Manual local test with authenticated admin cookies/session:
 
 ```bash
-CI_QUEUE_WORKER_SECRET=your-secret-value
-```
-
-Set `CI_QUEUE_WORKER_SECRET` in Vercel under Project Settings → Environment Variables for Production. The worker accepts `x-ci-worker-secret: <secret>` and `Authorization: Bearer <secret>` for cron-compatible invocation. Authenticated admins can still run the worker manually.
-
-Vercel Cron sends its built-in secret as an `Authorization` header when `CRON_SECRET` is set. Set `CRON_SECRET` to the same value as `CI_QUEUE_WORKER_SECRET`, or keep both configured; the worker accepts either `Authorization: Bearer $CI_QUEUE_WORKER_SECRET` or `Authorization: Bearer $CRON_SECRET`.
-
-Manual local test:
-
-```bash
-curl -X GET http://localhost:3000/api/admin/ci-queue-worker \
-  -H "x-ci-worker-secret: $CI_QUEUE_WORKER_SECRET"
-```
-
-Manual production test:
-
-```bash
-curl -X GET https://your-api.com/api/admin/ci-queue-worker \
-  -H "x-ci-worker-secret: $CI_QUEUE_WORKER_SECRET"
+curl -X POST http://localhost:3000/api/admin/ci-queue-worker
 ```
 
 Verify queue movement in Supabase:
@@ -287,50 +267,13 @@ LIMIT 20;
 
 ### Ongoing Operations
 
-#### Option 1: Manual Trigger (Development)
+#### Automatic Processing
 
-```bash
-# Trigger worker manually
-curl -X POST https://your-api.com/api/admin/ci-queue-worker \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+Authenticated discovery requests enqueue leads and then schedule a bounded drain after the final result has been emitted. The drain calls the shared queue processor in batches, so processing still uses `reset_stale_ci_processing()`, `claim_ci_queue_items()`, and `complete_ci_enrichment()`.
 
-#### Option 2: Scheduled via Vercel Cron (Production)
+#### Manual Trigger
 
-Create `app/api/cron/enrich-ci-queue/route.ts`:
-
-```typescript
-import { NextRequest, NextResponse } from 'next/server'
-import { enrichCIQueue } from '@/lib/commercial-intelligence/process-queue'
-
-export const runtime = 'nodejs'
-
-export async function POST(request: NextRequest) {
-  // Verify cron secret
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const result = await enrichCIQueue()
-  return NextResponse.json(result)
-}
-```
-
-In `vercel.json`:
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/enrich-ci-queue",
-      "schedule": "*/5 * * * *"
-    }
-  ]
-}
-```
-
-#### Option 3: Supabase Scheduled Query (Alternative)
-
-Set up a scheduled SQL query in Supabase to call a webhook every 5 minutes.
+Admins can still process the queue manually with `POST /api/admin/ci-queue-worker`.
 
 ## Code Reuse
 

@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/admin/ci-queue-worker",
-      "schedule": "*/5 * * * *"
-    }
-  ]
-}
+{}

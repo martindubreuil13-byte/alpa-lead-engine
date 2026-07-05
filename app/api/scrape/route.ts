@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { after } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import * as cheerio from 'cheerio'
 
@@ -19,6 +20,7 @@ import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
+import { drainCommercialIntelligenceQueue } from '@/lib/commercial-intelligence/process-queue'
 
 export const runtime = 'nodejs'
 
@@ -1294,8 +1296,10 @@ export async function POST(req: Request) {
         },
       })
 
-      if (latestResult) {
-        const finalResult = latestResult as ScrapeResultPayload
+      const completedResult = latestResult as ScrapeResultPayload | null
+
+      if (completedResult) {
+        const finalResult = completedResult
         let resultPayload: ScrapeResultPayload = finalResult
 
         if (trackedUsageRow) {
@@ -1330,6 +1334,22 @@ export async function POST(req: Request) {
         }
 
         emit({ type: 'result', payload: resultPayload })
+
+        if (!isGuestMode && finalResult.addedCount > 0) {
+          after(async () => {
+            try {
+              const drainResult = await drainCommercialIntelligenceQueue({
+                batchLimit: 5,
+                maxBatches: 5,
+                maxRuntimeMs: 55_000,
+                source: 'scrape-request',
+              })
+              console.log('[CI-DRAIN] scrape-trigger result:', drainResult)
+            } catch (ciError) {
+              console.error('[CI-DRAIN] scrape-trigger failed:', ciError)
+            }
+          })
+        }
       }
 
       controller.close()

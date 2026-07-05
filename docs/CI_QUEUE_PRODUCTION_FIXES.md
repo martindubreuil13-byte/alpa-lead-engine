@@ -314,19 +314,10 @@ WHERE status = 'processing'
 ```
 
 ### Step 4: Resume Queue Processing
-Worker can be triggered manually or via cron:
+Worker is scheduled with Next.js `after()` after authenticated discovery enqueues leads and emits the scrape result. It can also be triggered manually by an admin:
 ```bash
-# Manual
 curl -X POST https://your-api/api/admin/ci-queue-worker \
   -H "Authorization: Bearer TOKEN"
-
-# Or via Vercel cron (existing)
-{
-  "crons": [{
-    "path": "/api/cron/enrich-ci-queue",
-    "schedule": "*/5 * * * *"
-  }]
-}
 ```
 
 ---
