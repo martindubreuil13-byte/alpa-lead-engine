@@ -1,17 +1,27 @@
 'use client'
 
-import { Eye, RotateCcw, Sparkles, X } from 'lucide-react'
+import { Sparkles, X } from 'lucide-react'
+
+function formatTime(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  if (secs === 0) return `${minutes}m`
+  return `${minutes}m ${secs}s`
+}
 
 export default function PartialCompletionModal({
   isOpen,
   count,
   onClose,
   onViewLeads,
+  elapsedSeconds = 0,
 }: {
   isOpen: boolean
   count: number
   onClose: () => void
   onViewLeads: () => void
+  elapsedSeconds?: number
 }) {
   if (!isOpen) return null
 
@@ -34,32 +44,33 @@ export default function PartialCompletionModal({
         </div>
 
         <h2 className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-white">
-          We found {count} {count === 1 ? 'lead' : 'leads'} for you
+          ✓ {count} verified {count === 1 ? 'business' : 'businesses'} found
         </h2>
 
-        <div className="mt-5 space-y-3 text-base leading-7 text-slate-300">
-          <p>
-            These businesses are ready to contact right now. You can refine your search or
-            start working with them immediately.
-          </p>
+        <p className="mt-3 text-base text-slate-300">
+          Completed in {formatTime(elapsedSeconds)}.
+        </p>
+
+        <div className="mt-5 space-y-2 text-base leading-7 text-slate-300">
+          <p>Business Profiles are now being built automatically.</p>
+          <p>ALPA is reading each company's website and preparing a reusable Business Profile.</p>
+          <p>You can start working immediately. Profiles will appear automatically inside My Leads as they finish.</p>
         </div>
 
-        <div className="mt-8 mx-auto grid w-full max-w-lg grid-cols-2 gap-3">
+        <div className="mt-8 flex flex-col gap-3">
           <button
             type="button"
             onClick={onViewLeads}
-            className="btn-primary-gold w-full gap-2"
+            className="btn-primary-gold w-full justify-center"
           >
-            <Eye className="h-4 w-4" />
-            View my leads
+            View My Leads
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/[0.03] px-6 text-base font-medium tracking-[-0.01em] text-slate-100 transition-all duration-200 hover:bg-white/[0.08]"
+            className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.03] px-6 text-base font-medium tracking-[-0.01em] text-slate-100 transition-all duration-200 hover:bg-white/[0.08]"
           >
-            <RotateCcw className="h-4 w-4" />
-            Refine search
+            Start Another Search
           </button>
         </div>
       </div>

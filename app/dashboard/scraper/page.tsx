@@ -1975,8 +1975,9 @@ export default function Page() {
         onViewLeads={() => {
           requestInboxFocus()
           setShowPartialCompletionModal(false)
-          router.push('/dashboard/leads')
+          router.push('/dashboard/my-leads')
         }}
+        elapsedSeconds={finalElapsed || 0}
       />
 
       <FirstSuccessModal

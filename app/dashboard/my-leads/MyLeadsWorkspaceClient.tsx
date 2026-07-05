@@ -963,7 +963,7 @@ export default function MyLeadsWorkspaceClient({
                           </div>
                         )}
 
-                        {/* COMMERCIAL INTELLIGENCE SECTION */}
+                        {/* BUSINESS PROFILE SECTION */}
                         {(() => {
                           const currentLead = enrichedLeads.get(lead.id) || lead
                           const ciStatus = currentLead.ci_enrichment_status || 'not_generated'
@@ -974,23 +974,15 @@ export default function MyLeadsWorkspaceClient({
                             <div className="space-y-3">
                               <div className="flex items-center justify-between">
                                 <div className="text-xs font-medium text-slate-400 tracking-wide">
-                                  Commercial Intelligence
+                                  Business Profile
                                 </div>
-                                <span className="text-xs text-slate-500">
-                                  {ciStatus === 'not_generated' || !ciStatus
-                                    ? 'Not Generated'
-                                    : ciStatus === 'completed'
-                                      ? 'Generated'
-                                      : ciStatus === 'processing'
-                                        ? 'Processing...'
-                                        : ciStatus === 'failed'
-                                          ? 'Failed'
-                                          : 'Pending'}
-                                </span>
                               </div>
 
-                              {profile ? (
+                              <p className="text-xs text-slate-500">Business Profiles help you understand each company before reaching out.</p>
+
+                              {profile && ciStatus === 'completed' ? (
                                 <div className="space-y-3">
+                                  <div className="text-xs text-slate-500 font-medium">Business Profile Ready</div>
                                   <div className="space-y-2 text-sm text-slate-300">
                                     {profile.summary && (
                                       <div>
@@ -1054,10 +1046,15 @@ export default function MyLeadsWorkspaceClient({
                                     ) : (
                                       <span className="flex items-center justify-center gap-2">
                                         <Sparkles className="h-3 w-3" />
-                                        Refresh Commercial Intelligence
+                                        Refresh Business Profile
                                       </span>
                                     )}
                                   </button>
+                                </div>
+                              ) : ciStatus === 'pending' || ciStatus === 'processing' ? (
+                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Building Business Profile...
                                 </div>
                               ) : (
                                 <button
@@ -1076,7 +1073,7 @@ export default function MyLeadsWorkspaceClient({
                                   ) : (
                                     <span className="flex items-center justify-center gap-2">
                                       <Sparkles className="h-3 w-3" />
-                                      Generate Commercial Intelligence
+                                      Generate Business Profile
                                     </span>
                                   )}
                                 </button>

@@ -18,6 +18,7 @@ import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 
 export const runtime = 'nodejs'
 
@@ -917,9 +918,11 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
     } satisfies SaveLeadResult
   }
 
-  console.log('DB INSERT OK:', data[0]?.id || payload.company_name)
+  const insertedLeadId = data[0].id
+  console.log('DB INSERT OK:', insertedLeadId || payload.company_name)
+  console.log('[FORENSIC] saveLead returning id:', insertedLeadId)
 
-  return { ok: true, reason: 'saved', id: data[0].id } satisfies SaveLeadResult
+  return { ok: true, reason: 'saved', id: insertedLeadId } satisfies SaveLeadResult
 }
 
 function isMissingOptionalActivityColumn(error: any) {
@@ -1043,14 +1046,31 @@ async function runScraper(
           break
         }
 
+        console.log('[FORENSIC] About to call saveLead')
         const saved = await saveLead(supabase, lead, userId)
+        console.log('[FORENSIC] saveLead returned, ok:', saved.ok, 'id:', saved.ok ? saved.id : 'N/A')
 
         if (saved.ok) {
+          console.log(`[CI-SCRAPER] saveLead returned id: ${saved.id}, userId: ${userId}`)
+          console.log('[FORENSIC] saved.id exists:', Boolean(saved.id), 'value:', saved.id)
+
           addedLeads.push({
             ...createGuestLead(lead),
             id: saved.id,
           })
           addedCount += 1
+
+          // Enqueue for background enrichment via durable queue
+          console.log('[FORENSIC] About to call enqueueLeadEnrichment with leadId:', saved.id)
+          const enqueueResult = await enqueueLeadEnrichment(saved.id, supabase)
+          console.log('[FORENSIC] enqueueLeadEnrichment returned, ok:', enqueueResult.ok)
+
+          if (enqueueResult.ok) {
+            console.log(`[CI-SCRAPER] Queue: ${enqueueResult.data?.id || saved.id} queued successfully`)
+          } else {
+            console.error(`[CI-SCRAPER] Queue: Failed to enqueue ${saved.id} - ${enqueueResult.error}`)
+          }
+
           continue
         }
 
