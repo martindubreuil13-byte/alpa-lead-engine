@@ -383,25 +383,74 @@ export default function MyLeadsWorkspaceClient({
       }
     )
 
-    // Polling fallback: Check every 30 seconds if any leads are still processing
-    // This ensures UI refreshes even if webhook fails
-    const pollInterval = setInterval(() => {
-      const hasPending = initialLeads.some((l) => ['pending', 'processing'].includes(l.ci_enrichment_status || ''))
-      if (hasPending) {
-        // Revalidate server cache and refresh client
-        fetch('/api/revalidate?path=/dashboard/my-leads', { method: 'POST' })
-          .then(() => {
-            // Server cache invalidated, now refresh client to refetch data
-            router.refresh()
-          })
-          .catch(() => {
-            // Silently fail - user will see stale data but nothing is broken
-          })
-      }
-    }, 30000) // 30 second polling interval
+    // Self-driving queue worker: processes batches while page is active
+    let isActive = true
+    const maxRuntimeMs = 5 * 60 * 1000 // 5 minutes max
+    const startedAt = Date.now()
 
-    return () => clearInterval(pollInterval)
-  }, [initialLeads, loadedCount, totalCount])
+    const runWorker = async () => {
+      console.log('[CI-WORKER] Started queue worker')
+
+      try {
+        while (isActive && Date.now() - startedAt < maxRuntimeMs) {
+          try {
+            const batchStartedAt = Date.now()
+            const response = await fetch('/api/leads/process-ci-queue-batch', {
+              method: 'POST',
+            })
+
+            if (!response.ok) {
+              console.error('[CI-WORKER] Batch processing failed with status:', response.status)
+              break
+            }
+
+            const result = await response.json()
+            const batchElapsedMs = Date.now() - batchStartedAt
+
+            console.log(
+              `[CI-WORKER] Batch complete: processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} elapsed_ms=${batchElapsedMs}`
+            )
+
+            // Stop if no items were processed
+            if (result.processed === 0) {
+              console.log('[CI-WORKER] Queue empty, stopping worker')
+              break
+            }
+
+            // Refresh UI to show updated lead statuses
+            router.refresh()
+          } catch (err) {
+            console.error('[CI-WORKER] Error processing batch:', err)
+            break
+          }
+        }
+      } finally {
+        const totalElapsedMs = Date.now() - startedAt
+        console.log(`[CI-WORKER] Stopped: runtime=${totalElapsedMs}ms, active=${isActive}`)
+      }
+    }
+
+    // Start worker (fire and forget, no await)
+    runWorker()
+
+    // Handle page visibility changes
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[CI-WORKER] Page hidden, stopping worker')
+        isActive = false
+      } else {
+        console.log('[CI-WORKER] Page visible, worker continues if still running')
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      isActive = false
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      console.log('[CI-WORKER] Component unmounted, cleaned up')
+    }
+  }, [router])
 
   const campaignLeadIds = useMemo(
     () => new Set(campaignSignals.map((signal) => signal.lead_id).filter(Boolean) as string[]),

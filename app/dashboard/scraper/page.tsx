@@ -179,36 +179,6 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`
 }
 
-async function triggerCommercialIntelligenceQueue(searchId: string | null, addedCount: number) {
-  console.log('[CI-CLIENT-TRIGGER] started', { searchId, addedCount })
-
-  try {
-    const response = await fetch('/api/leads/process-commercial-intelligence-queue', {
-      method: 'POST',
-    })
-    const result = await response.json().catch(() => null)
-
-    if (!response.ok || !result?.ok) {
-      console.error('[CI-CLIENT-TRIGGER] failed', {
-        searchId,
-        status: response.status,
-        result,
-      })
-      return
-    }
-
-    console.log('[CI-CLIENT-TRIGGER] success', {
-      searchId,
-      processed: result.processed,
-      succeeded: result.succeeded,
-      failed: result.failed,
-      batches: result.batches,
-      stoppingReason: result.stoppingReason,
-    })
-  } catch (error) {
-    console.error('[CI-CLIENT-TRIGGER] failed', { searchId, error })
-  }
-}
 
 function getLogName(msg: string, prefix: string) {
   return msg.slice(prefix.length).split('|')[0].trim()
@@ -1208,7 +1178,6 @@ export default function Page() {
       const decoder = new TextDecoder()
       let buffer = ''
       let latestResult: ScrapeResultPayload | null = null
-      let ciQueueTriggerStarted = false
 
       const handleMessage = (msg: string) => {
         if (!msg || msg === '🟢 stream started') return
@@ -1427,10 +1396,8 @@ export default function Page() {
           }, 4800)
         }
 
-        if (isAuthenticated && finalResult.addedCount > 0 && !ciQueueTriggerStarted) {
-          ciQueueTriggerStarted = true
-          void triggerCommercialIntelligenceQueue(analyticsSearchId, finalResult.addedCount)
-        }
+        // Commercial Intelligence queue processing now handled by self-driving worker in My Leads
+        // When user navigates to My Leads, worker will automatically process pending items
       }
 
       if (abortRef.current === controller) {

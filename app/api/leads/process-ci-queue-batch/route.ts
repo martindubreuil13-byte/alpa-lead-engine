@@ -1,45 +1,38 @@
 import { NextResponse } from 'next/server'
 import { processCommercialIntelligenceQueue } from '@/lib/commercial-intelligence/process-queue'
+import { getUserProfile } from '@/lib/auth/get-user-profile'
 
 export const runtime = 'nodejs'
+export const maxDuration = 300 // 5 minutes
 
-function isAuthorized(req: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) return false
-
-  const authHeader = req.headers.get('authorization')
-  const headerSecret = req.headers.get('x-cron-secret')
-
-  return authHeader === `Bearer ${secret}` || headerSecret === secret
-}
-
-export async function GET(request: Request) {
+export async function POST() {
   const startedAt = Date.now()
 
   try {
-    if (!isAuthorized(request)) {
-      console.error('[CI-CRON] Unauthorized: invalid token')
+    const profile = await getUserProfile()
+    if (!profile) {
+      console.log('[CI-BATCH] Unauthorized: no authenticated user')
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { ok: false, error: 'Authentication required' },
         { status: 401 }
       )
     }
 
-    console.log('[CI-CRON] Processing queue...')
+    console.log(`[CI-BATCH] Processing batch for user: ${profile.id}`)
 
+    // Process one batch of items
     const result = await processCommercialIntelligenceQueue({
-      limit: 20,
-      source: 'vercel-cron',
+      limit: 10,
+      source: 'worker-batch',
     })
 
     const elapsedMs = Date.now() - startedAt
     console.log(
-      `[CI-CRON] Complete: processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed} recovered=${result.recovered} elapsed_ms=${elapsedMs}`
+      `[CI-BATCH] Complete: processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed} elapsed_ms=${elapsedMs}`
     )
 
     return NextResponse.json({
       ok: result.ok,
-      message: result.message,
       processed: result.processed,
       succeeded: result.succeeded,
       retrying: result.retrying,
@@ -47,10 +40,11 @@ export async function GET(request: Request) {
       recovered: result.recovered,
       stats: result.stats,
       elapsedMs,
+      message: result.message,
     })
   } catch (err) {
     const elapsedMs = Date.now() - startedAt
-    console.error('[CI-CRON] Error:', err)
+    console.error('[CI-BATCH] Error:', err)
     return NextResponse.json(
       {
         ok: false,
