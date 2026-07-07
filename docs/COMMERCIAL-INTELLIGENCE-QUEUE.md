@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Commercial Intelligence enrichment is powered by a durable Supabase-backed queue. On Vercel Hobby, authenticated discovery requests enqueue leads, return discovered leads, and then trigger a bounded queue drain with Next.js `after()`.
+The Commercial Intelligence enrichment is powered by a durable Supabase-backed queue. On Vercel Hobby, authenticated discovery requests enqueue leads and return discovered leads immediately. After the browser receives the final scrape result, it triggers a bounded queue drain through an authenticated endpoint.
 
 ```
 Lead Discovery
@@ -62,7 +62,16 @@ Functions:
 - Calls queue claim/recovery helpers
 - Calls `enrichLeadDirect(leadId)` for claimed jobs
 - Calls `completeEnrichment()` to update the queue and lead
-- Used by both authenticated discovery requests and the admin worker route
+- Used by both the authenticated client trigger and the admin worker route
+
+### The Client Trigger Route
+
+**File**: `app/api/leads/process-commercial-intelligence-queue/route.ts`
+
+- **Endpoint**: `POST /api/leads/process-commercial-intelligence-queue`
+- **Auth**: requires the current authenticated user
+- **Flow**: calls `drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 10, maxRuntimeMs: 55000 })`
+- **Safety**: queue claiming runs through the authenticated Supabase client and queue RLS, so only the current user's queue rows can be claimed
 
 ### The Worker Route
 
@@ -115,13 +124,15 @@ If successful:
   ↓
 Response returned
   ↓
-after(): drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 5 })
+Browser calls POST /api/leads/process-commercial-intelligence-queue
+  ↓
+drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 10 })
 ```
 
 **User experience**:
 - Search results are returned immediately after discovery/enqueue
-- Queue processing starts after the response path completes
-- Queue draining is capped at 5 batches of 5 items, or 55 seconds
+- Queue processing starts after the browser receives the final result
+- Queue draining is capped at 10 batches of 5 items, or 55 seconds
 - Queue failures are logged and do not fail discovery
 
 ### 2. Manual Refresh
@@ -144,7 +155,7 @@ Lead updated, UI shows results
 ### 3. Queue Processing
 
 ```
-Worker started by scrape request or manual admin POST:
+Worker started by client trigger or manual admin POST:
   processCommercialIntelligenceQueue(limit)
   ↓
 Reset stale processing items
@@ -226,14 +237,16 @@ curl -X POST https://your-api.com/api/admin/ci-queue-worker \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### Request-Bound Queue Processing
+### Client-Triggered Queue Processing
 
-Production queue processing does not depend on Vercel Cron. After authenticated discovery finishes saving, enqueueing leads, and emitting the scrape result, the route schedules `drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 5, maxRuntimeMs: 55000 })` with Next.js `after()`.
+Production queue processing does not depend on Vercel Cron. After authenticated discovery finishes saving, enqueueing leads, and returning the final scrape result, the browser starts a detached `fetch()` to `POST /api/leads/process-commercial-intelligence-queue`.
 
-Manual local test with authenticated admin cookies/session:
+The endpoint requires authentication and runs `drainCommercialIntelligenceQueue({ batchLimit: 5, maxBatches: 10, maxRuntimeMs: 55000 })`. The drain calls the shared queue processor in batches, so processing still uses `reset_stale_ci_processing()`, `claim_ci_queue_items()`, and `complete_ci_enrichment()`.
+
+Manual local test with authenticated user cookies/session:
 
 ```bash
-curl -X POST http://localhost:3000/api/admin/ci-queue-worker
+curl -X POST http://localhost:3000/api/leads/process-commercial-intelligence-queue
 ```
 
 Verify queue movement in Supabase:
@@ -269,7 +282,7 @@ LIMIT 20;
 
 #### Automatic Processing
 
-Authenticated discovery requests enqueue leads and then schedule a bounded drain after the final result has been emitted. The drain calls the shared queue processor in batches, so processing still uses `reset_stale_ci_processing()`, `claim_ci_queue_items()`, and `complete_ci_enrichment()`.
+Authenticated discovery requests enqueue leads and return the final result immediately. The scraper page then starts a background `fetch()` to the client trigger endpoint, which runs a bounded drain through the shared queue processor.
 
 #### Manual Trigger
 

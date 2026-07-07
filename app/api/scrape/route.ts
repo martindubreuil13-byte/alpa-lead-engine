@@ -1,5 +1,4 @@
 import { cookies } from 'next/headers'
-import { after } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import * as cheerio from 'cheerio'
 
@@ -20,7 +19,6 @@ import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
-import { drainCommercialIntelligenceQueue } from '@/lib/commercial-intelligence/process-queue'
 
 export const runtime = 'nodejs'
 
@@ -825,9 +823,14 @@ async function enrichEmail(website: string | null) {
 }
 
 async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: DiscoveryLead, userId: string) {
+  const startedAt = Date.now()
+  console.log(
+    `[CI-TRACE] STEP 1 ENTER saveLead company="${lead.company_name}" user_id=${userId} website=${lead.website || 'N/A'}`
+  )
   console.log('SCRAPER INSERT USER_ID:', userId)
 
   if (!userId) {
+    console.log('[CI-TRACE] STEP 1 EARLY_RETURN saveLead reason=missing_user_id')
     console.warn('INVALID LEAD SKIPPED:', { user_id: userId, company_name: lead.company_name })
     return {
       ok: false,
@@ -842,6 +845,7 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
   }
 
   if (!lead.company_name) {
+    console.log(`[CI-TRACE] STEP 1 EARLY_RETURN saveLead reason=missing_company_name user_id=${userId}`)
     console.warn('INVALID LEAD SKIPPED:', { user_id: userId, company_name: lead.company_name })
     return {
       ok: false,
@@ -879,21 +883,39 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
   console.log('INSERT PAYLOAD:', payload)
   console.log('FINAL CLEAN PAYLOAD:', JSON.stringify(payload, null, 2))
 
+  const insertStartedAt = Date.now()
+  console.log(
+    `[CI-TRACE] STEP 1 BEFORE leads.insert company="${payload.company_name}" user_id=${payload.user_id} website=${payload.website || 'N/A'}`
+  )
   let { data, error } = await supabase
     .from('leads')
     .insert(payload)
     .select()
+  console.log(
+    `[CI-TRACE] STEP 1 AFTER leads.insert company="${payload.company_name}" returned_count=${data?.length || 0} lead_id=${data?.[0]?.id || 'N/A'} has_error=${Boolean(error)} elapsed_ms=${Date.now() - insertStartedAt}`
+  )
 
   if (error && isMissingOptionalActivityColumn(error)) {
+    console.log(
+      `[CI-TRACE] STEP 1 EARLY_SIGNAL saveLead retrying_without_last_activity_at company="${payload.company_name}" code=${error.code || 'unknown'} message=${error.message}`
+    )
     const legacyPayload = { ...payload }
     delete legacyPayload.last_activity_at
+    const legacyInsertStartedAt = Date.now()
+    console.log(
+      `[CI-TRACE] STEP 1 BEFORE leads.insert legacy company="${legacyPayload.company_name}" user_id=${legacyPayload.user_id}`
+    )
     ;({ data, error } = await supabase
       .from('leads')
       .insert(legacyPayload)
       .select())
+    console.log(
+      `[CI-TRACE] STEP 1 AFTER leads.insert legacy company="${legacyPayload.company_name}" returned_count=${data?.length || 0} lead_id=${data?.[0]?.id || 'N/A'} has_error=${Boolean(error)} elapsed_ms=${Date.now() - legacyInsertStartedAt}`
+    )
   }
 
   if (error) {
+    console.error('[CI-TRACE] STEP 1 ERROR saveLead insert failed', error, (error as any)?.stack)
     console.error('DB ERROR:', JSON.stringify(error, null, 2))
 
     const described = describeDbError(error)
@@ -906,6 +928,9 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
   }
 
   if (!data || data.length === 0) {
+    console.error(
+      `[CI-TRACE] STEP 1 EARLY_RETURN saveLead reason=no_inserted_row company="${payload.company_name}" elapsed_ms=${Date.now() - startedAt}`
+    )
     console.error('DB INSERT FAILED: no data returned', payload)
 
     return {
@@ -923,6 +948,9 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
   const insertedLeadId = data[0].id
   console.log('DB INSERT OK:', insertedLeadId || payload.company_name)
   console.log('[FORENSIC] saveLead returning id:', insertedLeadId)
+  console.log(
+    `[CI-TRACE] STEP 1 PASS saveLead lead_id=${insertedLeadId} company="${payload.company_name}" elapsed_ms=${Date.now() - startedAt}`
+  )
 
   return { ok: true, reason: 'saved', id: insertedLeadId } satisfies SaveLeadResult
 }
@@ -1044,13 +1072,19 @@ async function runScraper(
         }
 
         if (!userId) {
+          console.log('[CI-TRACE] STEP 1 EARLY_RETURN saveLead skipped reason=missing_authenticated_user')
           send('❌ missing authenticated user')
           break
         }
 
-        console.log('[FORENSIC] About to call saveLead')
+        const saveStartedAt = Date.now()
+        console.log(
+          `[CI-TRACE] STEP 1 BEFORE saveLead lead_company="${lead.company_name}" user_id=${userId}`
+        )
         const saved = await saveLead(supabase, lead, userId)
-        console.log('[FORENSIC] saveLead returned, ok:', saved.ok, 'id:', saved.ok ? saved.id : 'N/A')
+        console.log(
+          `[CI-TRACE] STEP 1 AFTER saveLead ok=${saved.ok} lead_id=${saved.ok ? saved.id : 'N/A'} elapsed_ms=${Date.now() - saveStartedAt}`
+        )
 
         if (saved.ok) {
           console.log(`[CI-SCRAPER] saveLead returned id: ${saved.id}, userId: ${userId}`)
@@ -1063,18 +1097,27 @@ async function runScraper(
           addedCount += 1
 
           // Enqueue for background enrichment via durable queue
-          console.log('[FORENSIC] About to call enqueueLeadEnrichment with leadId:', saved.id)
+          const enqueueStartedAt = Date.now()
+          console.log(`[CI-TRACE] STEP 2 BEFORE enqueueLeadEnrichment lead_id=${saved.id}`)
           const enqueueResult = await enqueueLeadEnrichment(saved.id, supabase)
-          console.log('[FORENSIC] enqueueLeadEnrichment returned, ok:', enqueueResult.ok)
+          console.log(
+            `[CI-TRACE] STEP 2 AFTER enqueueLeadEnrichment lead_id=${saved.id} ok=${enqueueResult.ok} queue_id=${enqueueResult.ok ? enqueueResult.data?.id || 'unknown' : 'N/A'} queue_status=${enqueueResult.ok ? enqueueResult.data?.status || 'unknown' : 'N/A'} elapsed_ms=${Date.now() - enqueueStartedAt}`
+          )
 
           if (enqueueResult.ok) {
             console.log(`[CI-SCRAPER] Queue: ${enqueueResult.data?.id || saved.id} queued successfully`)
           } else {
+            console.error(
+              `[CI-TRACE] STEP 2 FAIL enqueueLeadEnrichment lead_id=${saved.id} error=${enqueueResult.error}`
+            )
             console.error(`[CI-SCRAPER] Queue: Failed to enqueue ${saved.id} - ${enqueueResult.error}`)
           }
 
           continue
         }
+        console.log(
+          `[CI-TRACE] STEP 1 EARLY_RETURN saveLead failed reason=${saved.reason} code=${saved.error.code || 'unknown'} message=${saved.error.message}`
+        )
 
         const errorSummary = [
           `code=${saved.error.code || 'unknown'}`,
@@ -1336,19 +1379,13 @@ export async function POST(req: Request) {
         emit({ type: 'result', payload: resultPayload })
 
         if (!isGuestMode && finalResult.addedCount > 0) {
-          after(async () => {
-            try {
-              const drainResult = await drainCommercialIntelligenceQueue({
-                batchLimit: 5,
-                maxBatches: 5,
-                maxRuntimeMs: 55_000,
-                source: 'scrape-request',
-              })
-              console.log('[CI-DRAIN] scrape-trigger result:', drainResult)
-            } catch (ciError) {
-              console.error('[CI-DRAIN] scrape-trigger failed:', ciError)
-            }
-          })
+          console.log(
+            `[CI-TRACE] STEP 3 HANDOFF client_trigger_expected added_count=${finalResult.addedCount}`
+          )
+        } else {
+          console.log(
+            `[CI-TRACE] STEP 3 EARLY_RETURN client_trigger_not_expected is_guest=${isGuestMode} added_count=${finalResult.addedCount}`
+          )
         }
       }
 

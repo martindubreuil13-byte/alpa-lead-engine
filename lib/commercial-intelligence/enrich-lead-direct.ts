@@ -32,23 +32,33 @@ export interface EnrichLeadDirectResult {
 
 export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirectResult> {
   const startTime = Date.now()
+  console.log(`[CI-TRACE] STEP 6 ENTER enrichLeadDirect lead_id=${leadId}`)
+  console.log(`[CI-TRACE] STEP 6 BEFORE enrichLeadDirect.createServerClient lead_id=${leadId}`)
   const supabase = await createServerClient()
+  console.log(`[CI-TRACE] STEP 6 AFTER enrichLeadDirect.createServerClient lead_id=${leadId} elapsed_ms=${Date.now() - startTime}`)
 
   try {
     // Stage: Load lead
     console.log(`[CI] Loading lead: ${leadId}`)
+    const loadStartedAt = Date.now()
+    console.log(`[CI-TRACE] STEP 6 BEFORE leads.select load lead_id=${leadId}`)
     const { data: lead, error: leadError } = await supabase
       .from('leads')
       .select('id, user_id, website, company_name')
       .eq('id', leadId)
       .single()
+    console.log(
+      `[CI-TRACE] STEP 6 AFTER leads.select load lead_id=${leadId} found=${Boolean(lead)} has_error=${Boolean(leadError)} elapsed_ms=${Date.now() - loadStartedAt}`
+    )
 
     if (leadError) {
+      console.error('[CI-TRACE] STEP 6 ERROR enrichLeadDirect lead load failed', leadError, (leadError as any)?.stack)
       console.error(`[CI] Lead fetch error: ${leadError.message}`, leadError)
       throw new Error(`Load lead failed: ${leadError.message}`)
     }
 
     if (!lead) {
+      console.error(`[CI-TRACE] STEP 6 EARLY_RETURN enrichLeadDirect reason=lead_not_found lead_id=${leadId}`)
       console.error(`[CI] Lead not found: ${leadId}`)
       throw new Error(`Lead not found: ${leadId}`)
     }
@@ -60,6 +70,9 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
       const duration = Date.now() - startTime
       const startedAt = new Date().toISOString()
 
+      console.log(`[CI-TRACE] STEP 6 EARLY_RETURN enrichLeadDirect reason=no_website lead_id=${leadId}`)
+      const skipUpdateStartedAt = Date.now()
+      console.log(`[CI-TRACE] STEP 8 BEFORE leads.update skipped lead_id=${lead.id}`)
       const { error: updateError } = await supabase
         .from('leads')
         .update({
@@ -70,8 +83,12 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
           ci_retry_count: 0,
         })
         .eq('id', lead.id)
+      console.log(
+        `[CI-TRACE] STEP 8 AFTER leads.update skipped lead_id=${lead.id} has_error=${Boolean(updateError)} elapsed_ms=${Date.now() - skipUpdateStartedAt}`
+      )
 
       if (updateError) {
+        console.error('[CI-TRACE] STEP 8 ERROR leads.update skipped failed', updateError, (updateError as any)?.stack)
         console.error(`[CI] Failed to update lead as skipped: ${updateError.message}`)
       }
 
@@ -99,6 +116,8 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
     const startedAt = new Date().toISOString()
 
     console.log(`[CI] Marking lead as processing: ${leadId}`)
+    const processingStartedAt = Date.now()
+    console.log(`[CI-TRACE] STEP 6 BEFORE leads.update processing lead_id=${lead.id}`)
     const { error: processingError } = await supabase
       .from('leads')
       .update({
@@ -106,8 +125,12 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
         ci_started_at: startedAt,
       })
       .eq('id', lead.id)
+    console.log(
+      `[CI-TRACE] STEP 6 AFTER leads.update processing lead_id=${lead.id} has_error=${Boolean(processingError)} elapsed_ms=${Date.now() - processingStartedAt}`
+    )
 
     if (processingError) {
+      console.error('[CI-TRACE] STEP 6 ERROR leads.update processing failed', processingError, (processingError as any)?.stack)
       console.error(`[CI] Failed to mark lead as processing: ${processingError.message}`)
       throw new Error(`Failed to mark lead as processing: ${processingError.message}`)
     }
@@ -119,15 +142,24 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
     console.log(`[CI] Stage 1: Extracting website snapshot from ${lead.website}`)
     let snapshotResult
     try {
+      const snapshotStartedAt = Date.now()
+      console.log(`[CI-TRACE] STEP 6 BEFORE extractWebsiteSnapshot lead_id=${lead.id} website=${lead.website}`)
       snapshotResult = await extractWebsiteSnapshot(lead.website)
+      console.log(
+        `[CI-TRACE] STEP 6 AFTER extractWebsiteSnapshot lead_id=${lead.id} ok=${snapshotResult.ok} elapsed_ms=${Date.now() - snapshotStartedAt}`
+      )
       totalCost += snapshotResult.cost
       console.log(`[CI] Stage 1 result: ok=${snapshotResult.ok}, cost=${snapshotResult.cost}`)
       if (!snapshotResult.ok) {
+        console.error(
+          `[CI-TRACE] STEP 6 EARLY_SIGNAL extractWebsiteSnapshot returned_not_ok lead_id=${lead.id} message=${snapshotResult.error?.message || 'unknown'}`
+        )
         console.error(`[CI] Stage 1 error: ${snapshotResult.error?.message}`)
         errors.push(snapshotResult.error?.message || 'Failed to extract website snapshot')
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[CI-TRACE] STEP 6 ERROR extractWebsiteSnapshot caught', err, err instanceof Error ? err.stack : undefined)
       console.error(`[CI] Stage 1 exception: ${msg}`, err)
       errors.push(`Website snapshot extraction failed: ${msg}`)
       snapshotResult = { ok: false, error: { code: 'SNAPSHOT_ERROR', message: msg }, duration_ms: 0, cost: 0 }
@@ -137,15 +169,24 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
     console.log(`[CI] Stage 2: Generating business signals for ${lead.website}`)
     let signalsResult
     try {
+      const signalsStartedAt = Date.now()
+      console.log(`[CI-TRACE] STEP 6 BEFORE generateBusinessSignals lead_id=${lead.id} website=${lead.website}`)
       signalsResult = await generateBusinessSignals(lead.website)
+      console.log(
+        `[CI-TRACE] STEP 6 AFTER generateBusinessSignals lead_id=${lead.id} ok=${signalsResult.ok} elapsed_ms=${Date.now() - signalsStartedAt}`
+      )
       totalCost += signalsResult.cost
       console.log(`[CI] Stage 2 result: ok=${signalsResult.ok}, cost=${signalsResult.cost}`)
       if (!signalsResult.ok) {
+        console.error(
+          `[CI-TRACE] STEP 6 EARLY_SIGNAL generateBusinessSignals returned_not_ok lead_id=${lead.id} message=${signalsResult.error?.message || 'unknown'}`
+        )
         console.error(`[CI] Stage 2 error: ${signalsResult.error?.message}`)
         errors.push(signalsResult.error?.message || 'Failed to generate business signals')
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[CI-TRACE] STEP 6 ERROR generateBusinessSignals caught', err, err instanceof Error ? err.stack : undefined)
       console.error(`[CI] Stage 2 exception: ${msg}`, err)
       errors.push(`Business signals generation failed: ${msg}`)
       signalsResult = { ok: false, error: { code: 'SIGNALS_ERROR', message: msg }, duration_ms: 0, cost: 0 }
@@ -162,24 +203,36 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
 
     if (snapshotResult.ok && signalsResult.ok) {
       try {
+        const profileStartedAt = Date.now()
+        console.log(`[CI-TRACE] STEP 6 BEFORE generateCommercialProfile lead_id=${lead.id} website=${lead.website}`)
         profileResult = await generateCommercialProfile(
           lead.website,
           snapshotResult.data,
           signalsResult.data
         )
+        console.log(
+          `[CI-TRACE] STEP 6 AFTER generateCommercialProfile lead_id=${lead.id} ok=${profileResult.ok} elapsed_ms=${Date.now() - profileStartedAt}`
+        )
         totalCost += profileResult.cost
         console.log(`[CI] Stage 3 result: ok=${profileResult.ok}, cost=${profileResult.cost}`)
         if (!profileResult.ok) {
+          console.error(
+            `[CI-TRACE] STEP 6 EARLY_SIGNAL generateCommercialProfile returned_not_ok lead_id=${lead.id} message=${profileResult.error?.message || 'unknown'}`
+          )
           console.error(`[CI] Stage 3 error: ${profileResult.error?.message}`)
           errors.push(profileResult.error?.message || 'Failed to generate commercial profile')
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
+        console.error('[CI-TRACE] STEP 6 ERROR generateCommercialProfile caught', err, err instanceof Error ? err.stack : undefined)
         console.error(`[CI] Stage 3 exception: ${msg}`, err)
         errors.push(`Commercial profile generation failed: ${msg}`)
         profileResult = { ok: false, error: { code: 'PROFILE_ERROR', message: msg }, duration_ms: 0, cost: 0 }
       }
     } else {
+      console.log(
+        `[CI-TRACE] STEP 6 EARLY_SIGNAL generateCommercialProfile skipped lead_id=${lead.id} snapshot_ok=${snapshotResult.ok} signals_ok=${signalsResult.ok}`
+      )
       console.log(`[CI] Stage 3 skipped: snapshot.ok=${snapshotResult.ok}, signals.ok=${signalsResult.ok}`)
       errors.push('Commercial profile generation skipped due to snapshot or signals failure')
     }
@@ -217,17 +270,28 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
       ci_cost_estimate: totalCost,
     }
 
+    const persistStartedAt = Date.now()
+    console.log(
+      `[CI-TRACE] STEP 8 BEFORE leads.update enrichment lead_id=${lead.id} next_status=${hasErrors ? 'failed' : 'completed'} has_profile=${Boolean(profileResult.ok ? profileResult.data : null)}`
+    )
     const { error: updateError } = await supabase
       .from('leads')
       .update(updatePayload)
       .eq('id', lead.id)
+    console.log(
+      `[CI-TRACE] STEP 8 AFTER leads.update enrichment lead_id=${lead.id} has_error=${Boolean(updateError)} elapsed_ms=${Date.now() - persistStartedAt}`
+    )
 
     if (updateError) {
+      console.error('[CI-TRACE] STEP 8 ERROR leads.update enrichment failed', updateError, (updateError as any)?.stack)
       console.error(`[CI] Failed to persist enrichment: ${updateError.message}`, updateError)
       throw new Error(`Failed to persist enrichment: ${updateError.message}`)
     }
 
     console.log(`[CI] Enrichment saved successfully`)
+    console.log(
+      `[CI-TRACE] STEP 6 PASS enrichLeadDirect lead_id=${lead.id} success=${!hasErrors} ci_status=${hasErrors ? 'failed' : 'completed'} has_profile=${Boolean(profileResult.ok ? profileResult.data : null)} elapsed_ms=${Date.now() - startTime}`
+    )
 
     return {
       success: !hasErrors,
@@ -260,9 +324,12 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
     const startedAt = new Date().toISOString()
 
     console.error(`[CI] Fatal enrichment error: ${errorMessage}`, err)
+    console.error('[CI-TRACE] STEP 6 ERROR enrichLeadDirect fatal', err, err instanceof Error ? err.stack : undefined)
 
     try {
       console.log(`[CI] Updating lead with fatal error status`)
+      const fatalUpdateStartedAt = Date.now()
+      console.log(`[CI-TRACE] STEP 8 BEFORE leads.update fatal_error lead_id=${leadId}`)
       const { error: updateError } = await supabase
         .from('leads')
         .update({
@@ -274,11 +341,16 @@ export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirect
           ci_processing_duration_ms: duration,
         })
         .eq('id', leadId)
+      console.log(
+        `[CI-TRACE] STEP 8 AFTER leads.update fatal_error lead_id=${leadId} has_error=${Boolean(updateError)} elapsed_ms=${Date.now() - fatalUpdateStartedAt}`
+      )
 
       if (updateError) {
+        console.error('[CI-TRACE] STEP 8 ERROR leads.update fatal_error failed', updateError, (updateError as any)?.stack)
         console.error(`[CI] Failed to update lead with error: ${updateError.message}`)
       }
     } catch (updateErr) {
+      console.error('[CI-TRACE] STEP 8 ERROR leads.update fatal_error caught', updateErr, updateErr instanceof Error ? updateErr.stack : undefined)
       console.error(`[CI] Exception while updating lead after error`, updateErr)
     }
 

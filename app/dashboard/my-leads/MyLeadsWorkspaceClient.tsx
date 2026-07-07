@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X, Loader2, Sparkles } from 'lucide-react'
 
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
@@ -348,16 +349,59 @@ export default function MyLeadsWorkspaceClient({
   initialLeads: MyLeadsLead[]
   campaignSignals: MyLeadsCampaignSignal[]
 }) {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('active')
+  const [showCompletedOnly, setShowCompletedOnly] = useState(false)
   const [deleteConfirmingId, setDeleteConfirmingId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [archivedLeadIds, setArchivedLeadIds] = useState<Set<string>>(new Set())
   const [deletedLeadIds, setDeletedLeadIds] = useState<Set<string>>(new Set())
-  const [enrichingId, setEnrichingId] = useState<string | null>(null)
-  const [enrichedLeads, setEnrichedLeads] = useState<Map<string, MyLeadsLead>>(new Map())
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const ciSummary = initialLeads.reduce((acc: Record<string, number>, lead) => {
+      const status = lead.ci_enrichment_status || 'not_generated'
+      acc[status] = (acc[status] || 0) + 1
+      return acc
+    }, {})
+
+    console.log(
+      '[CI-TRACE] STEP 10 AFTER MyLeadsWorkspaceClient.mount',
+      {
+        loadedCount,
+        totalCount,
+        ciSummary,
+        sample: initialLeads.slice(0, 5).map((lead) => ({
+          lead_id: lead.id,
+          status: lead.ci_enrichment_status || 'not_generated',
+          has_profile: Boolean(lead.commercial_profile),
+          completed_at: lead.ci_completed_at || null,
+        })),
+      }
+    )
+
+    // Polling fallback: Check every 30 seconds if any leads are still processing
+    // This ensures UI refreshes even if webhook fails
+    const pollInterval = setInterval(() => {
+      const hasPending = initialLeads.some((l) => ['pending', 'processing'].includes(l.ci_enrichment_status || ''))
+      if (hasPending) {
+        // Revalidate server cache and refresh client
+        fetch('/api/revalidate?path=/dashboard/my-leads', { method: 'POST' })
+          .then(() => {
+            // Server cache invalidated, now refresh client to refetch data
+            router.refresh()
+          })
+          .catch(() => {
+            // Silently fail - user will see stale data but nothing is broken
+          })
+      }
+    }, 30000) // 30 second polling interval
+
+    return () => clearInterval(pollInterval)
+  }, [initialLeads, loadedCount, totalCount])
 
   const campaignLeadIds = useMemo(
     () => new Set(campaignSignals.map((signal) => signal.lead_id).filter(Boolean) as string[]),
@@ -403,16 +447,21 @@ export default function MyLeadsWorkspaceClient({
       }
     })
 
-    if (!normalizedSearch) return byView
+    // Apply CI filter
+    const withCiFilter = showCompletedOnly
+      ? byView.filter((lead) => lead.ci_enrichment_status === 'completed')
+      : byView
 
-    return byView.filter((lead) =>
+    if (!normalizedSearch) return withCiFilter
+
+    return withCiFilter.filter((lead) =>
       [lead.company_name, lead.city, lead.industry, lead.email, lead.phone, lead.website]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
         .includes(normalizedSearch)
     )
-  }, [search, leadsWithMetadata, viewMode, archivedLeadIds, deletedLeadIds])
+  }, [search, leadsWithMetadata, viewMode, archivedLeadIds, deletedLeadIds, showCompletedOnly])
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const selectedLeads = useMemo(
@@ -551,7 +600,7 @@ export default function MyLeadsWorkspaceClient({
   }
 
   async function handleEnrichCommercialIntelligence(leadId: string) {
-    setEnrichingId(leadId)
+    setRefreshingId(leadId)
     try {
       const response = await fetch(`/api/leads/${leadId}/enrich-commercial-intelligence`, {
         method: 'POST',
@@ -560,7 +609,6 @@ export default function MyLeadsWorkspaceClient({
       const result = await response.json()
 
       if (!response.ok) {
-        // Ensure error message is a string
         const errorMessage =
           typeof result?.error?.message === 'string'
             ? result.error.message
@@ -575,29 +623,12 @@ export default function MyLeadsWorkspaceClient({
         return
       }
 
-      if (result.ok && result.data) {
-        // Update the lead data with enrichment results
-        const enrichedLead = leadsWithMetadata.find((l) => l.id === leadId)
-        if (enrichedLead) {
-          const updated = {
-            ...enrichedLead,
-            website_snapshot: result.data.website_snapshot,
-            business_signals: result.data.business_signals,
-            commercial_profile: result.data.commercial_profile,
-            ci_enrichment_status: result.data.ci_enrichment_status,
-            ci_started_at: result.data.ci_started_at,
-            ci_completed_at: result.data.ci_completed_at,
-            ci_last_error: result.data.ci_last_error,
-            ci_retry_count: result.data.ci_retry_count,
-            ci_processing_duration_ms: result.data.ci_processing_duration_ms,
-            ci_cost_estimate: result.data.ci_cost_estimate,
-            ci_model_versions: result.data.ci_model_versions,
-          }
-          setEnrichedLeads((prev) => new Map(prev).set(leadId, updated))
-          showToast('Commercial Intelligence refreshed successfully', 'success')
-        }
+      if (result.ok) {
+        showToast('Commercial Intelligence analysis started', 'success')
+        // Revalidate server cache and refresh client
+        await fetch('/api/revalidate?path=/dashboard/my-leads', { method: 'POST' })
+        router.refresh()
       } else {
-        // Partial success or failure - extract message safely
         const errorMessage =
           typeof result?.error?.message === 'string'
             ? result.error.message
@@ -608,7 +639,7 @@ export default function MyLeadsWorkspaceClient({
       const errorMessage = err instanceof Error ? err.message : 'Error enriching lead'
       showToast(errorMessage, 'error')
     } finally {
-      setEnrichingId(null)
+      setRefreshingId(null)
     }
   }
 
@@ -716,6 +747,19 @@ export default function MyLeadsWorkspaceClient({
           >
             Archived {priorities.archived > 0 && `(${priorities.archived})`}
           </button>
+          {viewMode === 'active' && (
+            <button
+              onClick={() => setShowCompletedOnly(!showCompletedOnly)}
+              className={cn(
+                'px-3 py-1.5 text-sm font-medium transition ml-2 pl-2 border-l border-white/10',
+                showCompletedOnly
+                  ? 'text-emerald-400 border-b-2 border-emerald-400 -mb-px'
+                  : 'text-slate-400 hover:text-slate-300'
+              )}
+            >
+              ✓ Analyzed
+            </button>
+          )}
         </div>
       </div>
 
@@ -963,26 +1007,49 @@ export default function MyLeadsWorkspaceClient({
                           </div>
                         )}
 
-                        {/* BUSINESS PROFILE SECTION */}
+                        {/* COMMERCIAL INTELLIGENCE SECTION */}
                         {(() => {
-                          const currentLead = enrichedLeads.get(lead.id) || lead
-                          const ciStatus = currentLead.ci_enrichment_status || 'not_generated'
-                          const profile = currentLead.commercial_profile
-                          const isEnriching = enrichingId === lead.id
+                          const ciStatus = lead.ci_enrichment_status || 'not_generated'
+                          const profile = lead.commercial_profile
+                          const snapshot = lead.website_snapshot
+                          const signals = lead.business_signals
+                          const isRefreshing = refreshingId === lead.id
+                          const hasWebsite = !!lead.website?.trim()
+
+                          const getStateLabel = (status: string) => {
+                            switch (status) {
+                              case 'completed':
+                                return '✓ Complete'
+                              case 'processing':
+                                return '⚙️ Generating Profile'
+                              case 'pending':
+                                return '⏳ Waiting in Queue'
+                              case 'failed':
+                                return '✗ Failed'
+                              default:
+                                return 'Not Started'
+                            }
+                          }
 
                           return (
                             <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs font-medium text-slate-400 tracking-wide">
-                                  Business Profile
-                                </div>
+                              <div className="text-xs font-medium text-slate-400 tracking-wide">
+                                Commercial Intelligence
                               </div>
 
-                              <p className="text-xs text-slate-500">Business Profiles help you understand each company before reaching out.</p>
+                              <p className="text-xs text-slate-500">AI-powered analysis: website research, business signals, and commercial insights.</p>
 
-                              {profile && ciStatus === 'completed' ? (
+                              {ciStatus === 'completed' && profile ? (
                                 <div className="space-y-3">
-                                  <div className="text-xs text-slate-500 font-medium">Business Profile Ready</div>
+                                  <div className="space-y-1.5">
+                                    <p className="text-xs font-semibold text-emerald-400">✓ Analysis Complete</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {snapshot && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Website Snapshot</span>}
+                                      {signals && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Business Signals</span>}
+                                      {profile && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Commercial Profile</span>}
+                                    </div>
+                                  </div>
+
                                   <div className="space-y-2 text-sm text-slate-300">
                                     {profile.summary && (
                                       <div>
@@ -1020,11 +1087,11 @@ export default function MyLeadsWorkspaceClient({
                                         <p className="text-slate-300">{profile.keywords.slice(0, 5).join(', ')}</p>
                                       </div>
                                     )}
-                                    {currentLead.ci_completed_at && (
+                                    {lead.ci_completed_at && (
                                       <div>
-                                        <p className="text-xs text-slate-500">Last Updated</p>
+                                        <p className="text-xs text-slate-500">Analyzed</p>
                                         <p className="text-slate-400 text-xs">
-                                          {new Date(currentLead.ci_completed_at).toLocaleDateString()}
+                                          {new Date(lead.ci_completed_at).toLocaleDateString()}
                                         </p>
                                       </div>
                                     )}
@@ -1035,48 +1102,82 @@ export default function MyLeadsWorkspaceClient({
                                       e.stopPropagation()
                                       handleEnrichCommercialIntelligence(lead.id)
                                     }}
-                                    disabled={isEnriching}
+                                    disabled={isRefreshing}
                                     className="w-full px-3 py-2 text-xs font-medium text-slate-300 hover:text-slate-200 hover:bg-white/[0.05] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                   >
-                                    {isEnriching ? (
+                                    {isRefreshing ? (
                                       <span className="flex items-center justify-center gap-2">
                                         <Loader2 className="h-3 w-3 animate-spin" />
-                                        Refreshing...
+                                        Re-analyzing...
                                       </span>
                                     ) : (
                                       <span className="flex items-center justify-center gap-2">
                                         <Sparkles className="h-3 w-3" />
-                                        Refresh Business Profile
+                                        Re-analyze
                                       </span>
                                     )}
                                   </button>
                                 </div>
-                              ) : ciStatus === 'pending' || ciStatus === 'processing' ? (
+                              ) : ciStatus === 'processing' ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-500">
                                   <Loader2 className="h-3 w-3 animate-spin" />
-                                  Building Business Profile...
+                                  Generating profile...
                                 </div>
-                              ) : (
+                              ) : ciStatus === 'pending' ? (
+                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                  <Sparkles className="h-3 w-3" />
+                                  Waiting in queue
+                                </div>
+                              ) : ciStatus === 'failed' ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-xs text-rose-500">
+                                    <X className="h-3 w-3" />
+                                    {lead.ci_last_error || 'Analysis failed'}
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleEnrichCommercialIntelligence(lead.id)
+                                    }}
+                                    disabled={isRefreshing}
+                                    className="w-full px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                  >
+                                    {isRefreshing ? (
+                                      <span className="flex items-center justify-center gap-2">
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        Retrying...
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center justify-center gap-2">
+                                        <Sparkles className="h-3 w-3" />
+                                        Retry Analysis
+                                      </span>
+                                    )}
+                                  </button>
+                                </div>
+                              ) : hasWebsite ? (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     handleEnrichCommercialIntelligence(lead.id)
                                   }}
-                                  disabled={isEnriching}
+                                  disabled={isRefreshing}
                                   className="w-full px-3 py-2.5 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                 >
-                                  {isEnriching ? (
+                                  {isRefreshing ? (
                                     <span className="flex items-center justify-center gap-2">
                                       <Loader2 className="h-3 w-3 animate-spin" />
-                                      Generating...
+                                      Analyzing...
                                     </span>
                                   ) : (
                                     <span className="flex items-center justify-center gap-2">
                                       <Sparkles className="h-3 w-3" />
-                                      Generate Business Profile
+                                      Start Analysis
                                     </span>
                                   )}
                                 </button>
+                              ) : (
+                                <div className="text-xs text-slate-500">Add website to enable Commercial Intelligence.</div>
                               )}
                             </div>
                           )

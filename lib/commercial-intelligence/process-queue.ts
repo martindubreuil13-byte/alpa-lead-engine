@@ -8,29 +8,24 @@ import {
 
 export interface ProcessCommercialIntelligenceQueueOptions {
   limit?: number
-  source?: 'admin-route' | 'scrape-request'
+  source?: 'admin-route' | 'scrape-request' | 'client-trigger'
 }
 
 export interface DrainCommercialIntelligenceQueueOptions {
   batchLimit?: number
   maxBatches?: number
   maxRuntimeMs?: number
-  source?: 'scrape-request'
+  source?: 'scrape-request' | 'client-trigger'
 }
 
 export async function processCommercialIntelligenceQueue(
   options: ProcessCommercialIntelligenceQueueOptions = {}
 ) {
+  const startedAt = Date.now()
   const limit = options.limit ?? 10
   const source = options.source ?? 'admin-route'
 
-  console.log('[CI-WORKER] worker invoked')
-  console.log(`[CI-WORKER] source: ${source}`)
-
   const { resetCount } = await resetStaleProcessingItems(300)
-  if (resetCount > 0) {
-    console.log(`[CI-WORKER] reset stale count: ${resetCount}`)
-  }
 
   const claimedItems = await claimPendingQueueItems(limit)
   console.log(`[CI-WORKER] claimed count: ${claimedItems.length}`)
@@ -59,10 +54,6 @@ export async function processCommercialIntelligenceQueue(
   const results = []
 
   for (const queueItem of claimedItems) {
-    console.log(
-      `[CI-WORKER] processing lead ${queueItem.lead_id} (queue ${queueItem.id}, attempt ${queueItem.retry_count + 1}/${queueItem.max_retries})`
-    )
-
     try {
       const enrichResult = await enrichLeadDirect(queueItem.lead_id)
 
@@ -77,7 +68,6 @@ export async function processCommercialIntelligenceQueue(
       )
 
       if (!completeResult.ok) {
-        console.error(`[CI-WORKER] Failed to complete enrichment for queue ${queueItem.id}`)
         failureCount++
         results.push({
           queueId: queueItem.id,
@@ -156,10 +146,8 @@ export async function processCommercialIntelligenceQueue(
 
   const stats = await getQueueStats()
 
-  console.log(
-    `[CI-WORKER] processing complete. Claimed: ${claimedItems.length}, Completed: ${successCount}, Retrying: ${retryCount}, Failed: ${failureCount}`
-  )
   console.log(`[CI-WORKER] completed count: ${successCount}`)
+  console.log(`[CI-WORKER] retrying count: ${retryCount}`)
   console.log(`[CI-WORKER] failed count: ${failureCount}`)
 
   return {
@@ -184,10 +172,6 @@ export async function drainCommercialIntelligenceQueue(
   const source = options.source ?? 'scrape-request'
   const startedAt = Date.now()
 
-  console.log(
-    `[CI-DRAIN] started source=${source} batchLimit=${batchLimit} maxBatches=${maxBatches} maxRuntimeMs=${maxRuntimeMs}`
-  )
-
   let batches = 0
   let totalProcessed = 0
   let totalSucceeded = 0
@@ -200,13 +184,18 @@ export async function drainCommercialIntelligenceQueue(
       const elapsedMs = Date.now() - startedAt
       if (elapsedMs >= maxRuntimeMs) {
         stoppingReason = 'max_runtime_reached'
+        console.log(
+          `[CI-DRAIN] stopping reason: max_runtime_reached (elapsed ${elapsedMs}ms >= ${maxRuntimeMs}ms)`
+        )
         break
       }
 
+      const batchStartedAt = Date.now()
       const result = await processCommercialIntelligenceQueue({
         limit: batchLimit,
         source,
       })
+      const batchElapsedMs = Date.now() - batchStartedAt
 
       batches += 1
       totalProcessed += result.processed
@@ -215,16 +204,24 @@ export async function drainCommercialIntelligenceQueue(
       totalFailed += result.failed
 
       console.log(
-        `[CI-DRAIN] batch completed batch=${batches} processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed}`
+        `[CI-DRAIN] batch=${batches} processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed} elapsed_ms=${batchElapsedMs}`
       )
 
       if (result.processed === 0) {
         stoppingReason = 'queue_empty'
+        console.log(
+          `[CI-DRAIN] stopping reason: queue_empty (no items claimed in batch ${batches})`
+        )
         break
       }
     }
 
-    console.log(`[CI-DRAIN] stopping reason: ${stoppingReason}`)
+    if (batches >= maxBatches) {
+      stoppingReason = 'max_batches_reached'
+      console.log(
+        `[CI-DRAIN] stopping reason: max_batches_reached (${batches} batches completed)`
+      )
+    }
 
     const summary = {
       ok: true,
@@ -237,11 +234,11 @@ export async function drainCommercialIntelligenceQueue(
       stoppingReason,
     }
 
-    console.log('[CI-DRAIN] finished', summary)
+    console.log(`[CI-DRAIN] stopping reason: ${stoppingReason}`)
     return summary
   } catch (err) {
     stoppingReason = 'error'
-    console.error('[CI-DRAIN] stopping reason: error', err)
+    console.error('[CI-DRAIN] error:', err)
 
     const summary = {
       ok: false,
@@ -255,7 +252,6 @@ export async function drainCommercialIntelligenceQueue(
       error: err instanceof Error ? err.message : 'Unknown error',
     }
 
-    console.log('[CI-DRAIN] finished', summary)
     return summary
   }
 }
