@@ -311,21 +311,7 @@ export async function completeEnrichment(
     const result = data?.[0]
     if (result?.success) {
       const nextStatus = result.message || (success ? 'completed' : 'pending')
-
-      // Trigger webhook to revalidate UI (fire and forget)
-      try {
-        const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/commercial-intelligence/webhook/complete`
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queueId, leadId, status: nextStatus }),
-        }).catch((err) => {
-          console.error(`[CI-Queue] Webhook call failed: ${err.message}`)
-        })
-      } catch (webhookErr) {
-        console.error(`[CI-Queue] Webhook error: ${webhookErr}`)
-      }
-
+      // UI updates via worker polling /api/leads/ci-stats, webhook no longer needed
       return { ok: true, nextStatus }
     }
 

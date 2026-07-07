@@ -383,12 +383,21 @@ export default function MyLeadsWorkspaceClient({
       }
     )
 
+    // Guard against duplicate workers (React strict mode mounts components twice)
+    const workerKey = `ci-worker-${Math.random()}`
+    const existingWorker = (window as any).__ciWorkerRunning
+    if (existingWorker) {
+      console.log('[CI-WORKER] already running, skipping duplicate')
+      return
+    }
+    ;(window as any).__ciWorkerRunning = true
+
     // Self-driving queue worker: runs while page is active and items remain
     let isActive = true
     let refreshInterval: NodeJS.Timeout | null = null
 
     const runWorker = async () => {
-      console.log('[CI-WORKER] Started, will continue until queue empty or page closed')
+      console.log('[CI-WORKER] Started')
 
       try {
         while (isActive && !document.hidden) {
@@ -476,7 +485,8 @@ export default function MyLeadsWorkspaceClient({
       isActive = false
       if (refreshInterval) clearInterval(refreshInterval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      console.log('[CI-WORKER] Component unmounted, cleaned up')
+      ;(window as any).__ciWorkerRunning = false
+      console.log('[CI-WORKER] Stopped')
     }
   }, [router])
 
