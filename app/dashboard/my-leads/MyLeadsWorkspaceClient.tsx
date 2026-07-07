@@ -383,21 +383,27 @@ export default function MyLeadsWorkspaceClient({
       }
     )
 
-    // Self-driving queue worker: processes batches while page is active
+    // Self-driving queue worker: runs while page is active and items remain
     let isActive = true
-    const maxRuntimeMs = 5 * 60 * 1000 // 5 minutes max
-    const startedAt = Date.now()
+    let refreshInterval: NodeJS.Timeout | null = null
 
     const runWorker = async () => {
-      console.log('[CI-WORKER] Started queue worker')
+      console.log('[CI-WORKER] Started, will continue until queue empty or page closed')
 
       try {
-        while (isActive && Date.now() - startedAt < maxRuntimeMs) {
+        while (isActive && !document.hidden) {
           try {
             const batchStartedAt = Date.now()
             const response = await fetch('/api/leads/process-ci-queue-batch', {
               method: 'POST',
             })
+
+            // Auth lost or server error
+            if (response.status === 401) {
+              console.log('[CI-WORKER] Authentication lost, stopping worker')
+              isActive = false
+              break
+            }
 
             if (!response.ok) {
               console.error('[CI-WORKER] Batch processing failed with status:', response.status)
@@ -408,38 +414,59 @@ export default function MyLeadsWorkspaceClient({
             const batchElapsedMs = Date.now() - batchStartedAt
 
             console.log(
-              `[CI-WORKER] Batch complete: processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} elapsed_ms=${batchElapsedMs}`
+              `[CI-WORKER] Batch complete: processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} batch_size=${result.batchSize} elapsed_ms=${batchElapsedMs}`
             )
 
-            // Stop if no items were processed
+            // Stop if no items were processed (queue is empty)
             if (result.processed === 0) {
-              console.log('[CI-WORKER] Queue empty, stopping worker')
+              console.log('[CI-WORKER] Commercial Intelligence is up to date')
+              isActive = false
               break
             }
-
-            // Refresh UI to show updated lead statuses
-            router.refresh()
           } catch (err) {
             console.error('[CI-WORKER] Error processing batch:', err)
             break
           }
         }
       } finally {
-        const totalElapsedMs = Date.now() - startedAt
-        console.log(`[CI-WORKER] Stopped: runtime=${totalElapsedMs}ms, active=${isActive}`)
+        if (refreshInterval) clearInterval(refreshInterval)
+        console.log('[CI-WORKER] Stopped')
       }
     }
 
     // Start worker (fire and forget, no await)
     runWorker()
 
+    // Lightweight stats refresh: only update dashboard widget, not entire page
+    refreshInterval = setInterval(() => {
+      if (!isActive || document.hidden) return
+
+      fetch('/api/leads/ci-stats')
+        .then((res) => {
+          if (!res.ok) return
+          return res.json()
+        })
+        .then((data) => {
+          if (data?.ok && data?.data) {
+            // Dispatch event so CommercialIntelligenceStatus can pick up new stats
+            // This avoids a full page refresh and only updates the widget
+            window.dispatchEvent(
+              new CustomEvent('ci-stats-updated', {
+                detail: data.data,
+              })
+            )
+          }
+        })
+        .catch((err) => {
+          // Silently fail - don't break the worker if stats fetch fails
+        })
+    }, 3000) // Refresh stats every 3 seconds
+
     // Handle page visibility changes
     const handleVisibilityChange = () => {
       if (document.hidden) {
         console.log('[CI-WORKER] Page hidden, stopping worker')
         isActive = false
-      } else {
-        console.log('[CI-WORKER] Page visible, worker continues if still running')
       }
     }
 
@@ -447,6 +474,7 @@ export default function MyLeadsWorkspaceClient({
 
     return () => {
       isActive = false
+      if (refreshInterval) clearInterval(refreshInterval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       console.log('[CI-WORKER] Component unmounted, cleaned up')
     }
