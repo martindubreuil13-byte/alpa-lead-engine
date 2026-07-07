@@ -8,14 +8,14 @@ import {
 
 export interface ProcessCommercialIntelligenceQueueOptions {
   limit?: number
-  source?: 'admin-route' | 'scrape-request' | 'client-trigger'
+  source?: 'admin-route' | 'scrape-request' | 'client-trigger' | 'worker-batch'
 }
 
 export interface DrainCommercialIntelligenceQueueOptions {
   batchLimit?: number
   maxBatches?: number
   maxRuntimeMs?: number
-  source?: 'scrape-request' | 'client-trigger'
+  source?: 'scrape-request' | 'client-trigger' | 'worker-batch'
 }
 
 export async function processCommercialIntelligenceQueue(
@@ -28,12 +28,12 @@ export async function processCommercialIntelligenceQueue(
   const { resetCount } = await resetStaleProcessingItems(300)
 
   const claimedItems = await claimPendingQueueItems(limit)
-  console.log(`[CI-WORKER] claimed count: ${claimedItems.length}`)
+  console.log(`[CI-WORKER] source=${source} claimed count: ${claimedItems.length}`)
 
   if (claimedItems.length === 0) {
     const stats = await getQueueStats()
-    console.log('[CI-WORKER] completed count: 0')
-    console.log('[CI-WORKER] failed count: 0')
+    console.log(`[CI-WORKER] source=${source} completed count: 0`)
+    console.log(`[CI-WORKER] source=${source} failed count: 0`)
 
     return {
       ok: true,
@@ -110,7 +110,7 @@ export async function processCommercialIntelligenceQueue(
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`[CI-WORKER] Exception processing queue ${queueItem.id}:`, err)
+      console.error(`[CI-WORKER] source=${source} Exception processing queue ${queueItem.id}:`, err)
 
       const completeResult = await completeEnrichment(
         queueItem.id,
@@ -146,9 +146,9 @@ export async function processCommercialIntelligenceQueue(
 
   const stats = await getQueueStats()
 
-  console.log(`[CI-WORKER] completed count: ${successCount}`)
-  console.log(`[CI-WORKER] retrying count: ${retryCount}`)
-  console.log(`[CI-WORKER] failed count: ${failureCount}`)
+  console.log(`[CI-WORKER] source=${source} completed count: ${successCount}`)
+  console.log(`[CI-WORKER] source=${source} retrying count: ${retryCount}`)
+  console.log(`[CI-WORKER] source=${source} failed count: ${failureCount}`)
 
   return {
     ok: true,
@@ -185,7 +185,7 @@ export async function drainCommercialIntelligenceQueue(
       if (elapsedMs >= maxRuntimeMs) {
         stoppingReason = 'max_runtime_reached'
         console.log(
-          `[CI-DRAIN] stopping reason: max_runtime_reached (elapsed ${elapsedMs}ms >= ${maxRuntimeMs}ms)`
+          `[CI-DRAIN] source=${source} stopping reason: max_runtime_reached (elapsed ${elapsedMs}ms >= ${maxRuntimeMs}ms)`
         )
         break
       }
@@ -204,13 +204,13 @@ export async function drainCommercialIntelligenceQueue(
       totalFailed += result.failed
 
       console.log(
-        `[CI-DRAIN] batch=${batches} processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed} elapsed_ms=${batchElapsedMs}`
+        `[CI-DRAIN] source=${source} batch=${batches} processed=${result.processed} succeeded=${result.succeeded} retrying=${result.retrying} failed=${result.failed} elapsed_ms=${batchElapsedMs}`
       )
 
       if (result.processed === 0) {
         stoppingReason = 'queue_empty'
         console.log(
-          `[CI-DRAIN] stopping reason: queue_empty (no items claimed in batch ${batches})`
+          `[CI-DRAIN] source=${source} stopping reason: queue_empty (no items claimed in batch ${batches})`
         )
         break
       }
@@ -219,7 +219,7 @@ export async function drainCommercialIntelligenceQueue(
     if (batches >= maxBatches) {
       stoppingReason = 'max_batches_reached'
       console.log(
-        `[CI-DRAIN] stopping reason: max_batches_reached (${batches} batches completed)`
+        `[CI-DRAIN] source=${source} stopping reason: max_batches_reached (${batches} batches completed)`
       )
     }
 
@@ -234,11 +234,11 @@ export async function drainCommercialIntelligenceQueue(
       stoppingReason,
     }
 
-    console.log(`[CI-DRAIN] stopping reason: ${stoppingReason}`)
+    console.log(`[CI-DRAIN] source=${source} stopping reason: ${stoppingReason}`)
     return summary
   } catch (err) {
     stoppingReason = 'error'
-    console.error('[CI-DRAIN] error:', err)
+    console.error(`[CI-DRAIN] source=${source} error:`, err)
 
     const summary = {
       ok: false,

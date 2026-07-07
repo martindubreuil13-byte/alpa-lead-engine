@@ -1,0 +1,123 @@
+
+> quebec-prospecting-desk@0.1.0 build
+> next build
+
+▲ Next.js 16.2.1 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 4.0s
+  Running TypeScript ...
+  Finished TypeScript in 5.2s ...
+  Collecting page data using 7 workers ...
+⚠ Using edge runtime on a page currently disables static generation for that page
+  Generating static pages using 7 workers (0/83) ...
+  Generating static pages using 7 workers (20/83) 
+  Generating static pages using 7 workers (41/83) 
+  Generating static pages using 7 workers (62/83) 
+✓ Generating static pages using 7 workers (83/83) in 262ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /about
+├ ƒ /admin/activity
+├ ○ /admin/commercial-intelligence-test
+├ ○ /admin/follow-ups
+├ ƒ /admin/lead-capture
+├ ƒ /admin/system
+├ ƒ /admin/users
+├ ○ /agent
+├ ○ /agent-mode
+├ ƒ /agent/dashboard/[missionId]
+├ ○ /agent/missions
+├ ○ /agent/setup
+├ ƒ /api/admin/activity-followup
+├ ƒ /api/admin/enrich-lead
+├ ƒ /api/admin/follow-up-settings
+├ ƒ /api/admin/lead-follow-ups/run
+├ ƒ /api/admin/lead-follow-ups/test
+├ ƒ /api/admin/process-ci-jobs
+├ ƒ /api/admin/recent-leads
+├ ƒ /api/agent/confirm
+├ ƒ /api/agent/icp
+├ ƒ /api/agent/icp/activate
+├ ƒ /api/agent/icp/delete
+├ ƒ /api/agent/mission-status
+├ ƒ /api/agent/missions/create
+├ ƒ /api/agent/missions/delete
+├ ƒ /api/agent/missions/update
+├ ƒ /api/agent/outreach-queue/delete
+├ ƒ /api/agent/outreach-queue/send
+├ ƒ /api/agent/outreach-queue/send-test
+├ ƒ /api/agent/outreach-queue/update
+├ ƒ /api/agent/prepare-outreach
+├ ƒ /api/agent/run-mission
+├ ƒ /api/agent/setup
+├ ƒ /api/agent/stop-mission
+├ ƒ /api/auth/subscription
+├ ƒ /api/billing/cancel
+├ ƒ /api/billing/resume
+├ ƒ /api/checkout
+├ ƒ /api/checkout/session
+├ ƒ /api/debug-email
+├ ƒ /api/guest/claim
+├ ƒ /api/internal/cron/agent-missions
+├ ƒ /api/leads/[id]
+├ ƒ /api/leads/[id]/enrich-commercial-intelligence
+├ ƒ /api/leads/ci-stats
+├ ƒ /api/leads/process-ci-queue-batch
+├ ƒ /api/outreach/batch-approve
+├ ƒ /api/pipeline-automation/data-check
+├ ƒ /api/pipeline-automation/generate-drafts
+├ ƒ /api/pipeline-automation/settings
+├ ƒ /api/post-checkout/activate
+├ ƒ /api/results-email
+├ ƒ /api/revalidate
+├ ƒ /api/scrape
+├ ƒ /api/send-email
+├ ƒ /api/stripe/webhook
+├ ƒ /api/track
+├ ○ /apple-icon.png
+├ ○ /dashboard
+├ ƒ /dashboard/billing
+├ ○ /dashboard/enrich
+├ ○ /dashboard/kanban
+├ ƒ /dashboard/leads
+├ ƒ /dashboard/leads/[id]
+├ ○ /dashboard/library
+├ ƒ /dashboard/my-leads
+├ ○ /dashboard/outreach
+├ ○ /dashboard/scraper
+├ ○ /dashboard/settings
+├ ○ /dashboard/templates
+├ ○ /icon.png
+├ ○ /login
+├ ƒ /opengraph-image
+├ ○ /plans
+├ ○ /post-checkout
+├ ○ /resources
+├ ○ /resources/alpa-vs-apollo
+├ ○ /resources/b2b-lead-generation
+├ ○ /resources/best-lead-generation-tools
+├ ○ /resources/cold-outreach-for-lead-generation
+├ ○ /resources/cost-of-lead-generation
+├ ○ /resources/find-local-business-leads
+├ ○ /resources/how-many-leads-do-you-need
+├ ○ /resources/how-to-find-business-leads
+├ ○ /resources/how-to-qualify-leads
+├ ○ /resources/lead-generation-for-agencies
+├ ○ /resources/lead-generation-for-freelancers
+├ ○ /resources/lead-generation-system
+├ ○ /resources/lead-generation-tools
+├ ○ /resources/manual-vs-lead-generation-tools
+├ ○ /robots.txt
+└ ○ /sitemap.xml
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
