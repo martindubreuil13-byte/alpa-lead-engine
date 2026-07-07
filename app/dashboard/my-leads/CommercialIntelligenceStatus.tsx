@@ -11,24 +11,26 @@ interface CIStatsData {
   last_completed_at: string | null
 }
 
-function getRecentActivityText(lastCompletedAt: string | null): string {
+function getActivityMessage(lastCompletedAt: string | null): string {
   if (!lastCompletedAt) return ''
 
   const lastCompleted = new Date(lastCompletedAt)
   const now = new Date()
   const secondsAgo = Math.floor((now.getTime() - lastCompleted.getTime()) / 1000)
 
-  if (secondsAgo < 60) return 'Last profile completed moments ago'
+  if (secondsAgo < 5) return 'New business analyzed just now'
+  if (secondsAgo < 60) return `Intelligence updated ${secondsAgo}s ago`
   const minutesAgo = Math.floor(secondsAgo / 60)
-  if (minutesAgo < 60) return `Last profile completed ${minutesAgo}m ago`
+  if (minutesAgo < 60) return `Last profile analyzed ${minutesAgo}m ago`
   const hoursAgo = Math.floor(minutesAgo / 60)
-  if (hoursAgo < 24) return `Last profile completed ${hoursAgo}h ago`
-  return `Recently completed: ${lastCompleted.toLocaleDateString()}`
+  if (hoursAgo < 24) return `Recently analyzed: ${hoursAgo}h ago`
+  return `Last analyzed: ${lastCompleted.toLocaleDateString()}`
 }
 
 export default function CommercialIntelligenceStatus() {
   const [stats, setStats] = useState<CIStatsData | null>(null)
-  const [activityText, setActivityText] = useState('')
+  const [prevCompleted, setPrevCompleted] = useState(0)
+  const [isAnimating, setIsAnimating] = useState(false)
 
   // Fetch initial stats and listen for updates
   useEffect(() => {
@@ -39,7 +41,7 @@ export default function CommercialIntelligenceStatus() {
           const data = await response.json()
           if (data.ok && data.data) {
             setStats(data.data)
-            setActivityText(getRecentActivityText(data.data.last_completed_at))
+            setPrevCompleted(data.data.completed)
           }
         }
       } catch (err) {
@@ -54,14 +56,19 @@ export default function CommercialIntelligenceStatus() {
     const handleStatsUpdate = (event: Event) => {
       const customEvent = event as CustomEvent
       if (customEvent.detail) {
+        // Trigger animation if count increased
+        if (customEvent.detail.completed > (stats?.completed || 0)) {
+          setIsAnimating(true)
+          setTimeout(() => setIsAnimating(false), 600)
+        }
         setStats(customEvent.detail)
-        setActivityText(getRecentActivityText(customEvent.detail.last_completed_at))
+        setPrevCompleted(customEvent.detail.completed)
       }
     }
 
     window.addEventListener('ci-stats-updated', handleStatsUpdate)
     return () => window.removeEventListener('ci-stats-updated', handleStatsUpdate)
-  }, [])
+  }, [stats?.completed])
 
   if (!stats || stats.total_leads === 0) return null
 
@@ -70,79 +77,76 @@ export default function CommercialIntelligenceStatus() {
   const completionPercentage = stats.total_leads > 0
     ? Math.round((stats.completed / stats.total_leads) * 100)
     : 0
+  const activityMessage = getActivityMessage(stats.last_completed_at)
 
   // Complete state: show premium completion message
   if (allComplete) {
     return (
       <div className="mb-8 rounded-lg border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-emerald-600/5 p-8 backdrop-blur-sm">
-        <div className="space-y-3 text-center">
+        <div className="space-y-4 text-center">
           <div>
-            <p className="text-sm font-semibold text-emerald-300 mb-1">✓ Commercial Intelligence Complete</p>
-            <p className="text-xs text-slate-400">
-              All {stats.total_leads} discovered {stats.total_leads === 1 ? 'business' : 'businesses'} have been analyzed and are ready for outreach.
+            <p className="text-sm font-semibold text-emerald-300 mb-2">✓ Commercial Intelligence Complete</p>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              Your entire lead database has been analyzed. All {stats.total_leads} {stats.total_leads === 1 ? 'business' : 'businesses'} are ready for outreach.
             </p>
           </div>
-          {activityText && (
-            <p className="text-xs text-slate-500">{activityText}</p>
+          {activityMessage && (
+            <p className="text-xs text-slate-500">{activityMessage}</p>
           )}
         </div>
       </div>
     )
   }
 
-  // In-progress state: show active research
+  // In-progress state: focus on value and momentum
   return (
-    <div className="mb-8 rounded-lg border border-white/10 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-slate-500/5 p-6 backdrop-blur-sm">
-      <div className="space-y-5">
-        {/* HEADER */}
+    <div className="mb-8 rounded-lg border border-white/10 bg-gradient-to-br from-slate-500/5 to-slate-600/5 p-8 backdrop-blur-sm">
+      <div className="space-y-6">
+        {/* HEADER - Minimal, value-focused */}
         <div>
-          <h3 className="text-sm font-semibold text-white mb-1">Commercial Intelligence</h3>
-          <p className="text-xs text-slate-400">🔬 Researching your businesses…</p>
+          <h3 className="text-sm font-semibold text-white">Your Lead Database Is Getting Smarter</h3>
+          <p className="text-xs text-slate-400 mt-1">Analyzing businesses to help you sell smarter</p>
         </div>
 
-        {/* PROGRESS BAR - More prominent */}
+        {/* PRIMARY METRIC: Analyzed Count with Animation */}
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl font-bold text-emerald-300 tabular-nums transition-all duration-500"
+            style={{ transform: isAnimating ? 'scale(1.1)' : 'scale(1)' }}>
+            {stats.completed}
+          </span>
+          <span className="text-sm text-slate-400">
+            {stats.completed === 1 ? 'business analyzed' : 'businesses analyzed'}
+          </span>
+        </div>
+
+        {/* PROGRESS INDICATOR - Understated, secondary */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">Progress</span>
-            <span className="text-sm font-semibold text-white">{completionPercentage}%</span>
-          </div>
-          <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400 transition-all duration-700 shadow-lg shadow-blue-500/20"
+              className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700 ease-out"
               style={{ width: `${completionPercentage}%` }}
             />
           </div>
-        </div>
-
-        {/* KEY METRICS */}
-        <div className="grid grid-cols-2 gap-3">
-          {/* COMPLETED */}
-          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2.5">
-            <p className="text-xs text-emerald-300 mb-0.5">Ready</p>
-            <p className="text-lg font-bold text-emerald-300">{stats.completed}</p>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-slate-500">{completionPercentage}% of {stats.total_leads}</span>
           </div>
-
-          {/* BUSINESSES TO ANALYZE - Only show if > 0 */}
-          {waiting > 0 && (
-            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-2.5">
-              <p className="text-xs text-blue-300 mb-0.5">To Analyze</p>
-              <p className="text-lg font-bold text-blue-300">{waiting}</p>
-            </div>
-          )}
         </div>
 
-        {/* FAILURES - Only show if > 0 */}
-        {stats.failed > 0 && (
-          <div className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-3 py-2.5">
-            <p className="text-xs text-rose-300">Failed ({stats.failed})</p>
+        {/* TO ANALYZE - Outcome focused, only if > 0 */}
+        {waiting > 0 && (
+          <div className="pt-2 border-t border-white/5">
+            <p className="text-xs text-slate-500 mb-1">Waiting to analyze</p>
+            <p className="text-xl font-semibold text-slate-300">{waiting}</p>
           </div>
         )}
 
-        {/* ACTIVITY */}
-        {activityText && (
-          <p className="text-xs text-slate-500 border-t border-white/5 pt-3">
-            {activityText}
-          </p>
+        {/* MOMENTUM - Active, rewarding */}
+        {activityMessage && (
+          <div className="pt-2 border-t border-white/5">
+            <p className="text-xs text-emerald-400 font-medium">
+              ✨ {activityMessage}
+            </p>
+          </div>
         )}
       </div>
     </div>
