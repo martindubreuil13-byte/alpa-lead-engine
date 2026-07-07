@@ -752,50 +752,14 @@ export default function MyLeadsWorkspaceClient({
 
   return (
     <div className="space-y-12 pb-28">
-      {/* HEADER */}
-      <div className="space-y-6">
+      {/* HEADER - SIMPLIFIED */}
+      <div className="space-y-4">
         {viewMode === 'active' && (
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-white">Today's priorities</h1>
-            <p className="mt-2 text-sm text-slate-400">{totalCount.toLocaleString()} leads</p>
-          </div>
+          <p className="text-sm text-slate-400">{totalCount.toLocaleString()} leads</p>
         )}
 
         {viewMode === 'archived' && (
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-white">Archived</h1>
-            <p className="mt-2 text-sm text-slate-400">{priorities.archived} leads</p>
-          </div>
-        )}
-
-        {/* PRIORITY SUMMARY - ACTIVE VIEW ONLY */}
-        {viewMode === 'active' && totalPriority > 0 && (
-          <div className="flex flex-wrap gap-4">
-            {priorities.ready > 0 && (
-              <div className="text-sm">
-                <p className="font-semibold text-white">{priorities.ready}</p>
-                <p className="text-xs text-slate-400">Ready to contact</p>
-              </div>
-            )}
-            {priorities.overdue > 0 && (
-              <div className="text-sm">
-                <p className="font-semibold text-rose-300">{priorities.overdue}</p>
-                <p className="text-xs text-slate-400">Overdue follow-ups</p>
-              </div>
-            )}
-            {priorities.reply > 0 && (
-              <div className="text-sm">
-                <p className="font-semibold text-blue-300">{priorities.reply}</p>
-                <p className="text-xs text-slate-400">Waiting for reply</p>
-              </div>
-            )}
-            {priorities.review > 0 && (
-              <div className="text-sm">
-                <p className="font-semibold text-amber-300">{priorities.review}</p>
-                <p className="text-xs text-slate-400">Need review</p>
-              </div>
-            )}
-          </div>
+          <p className="text-sm text-slate-400">{priorities.archived} archived leads</p>
         )}
       </div>
 
