@@ -1094,7 +1094,7 @@ export default function MyLeadsWorkspaceClient({
                           </div>
                         )}
 
-                        {/* COMMERCIAL INTELLIGENCE SECTION */}
+                        {/* COMMERCIAL INTELLIGENCE SECTION - EXECUTIVE BRIEFING */}
                         {(() => {
                           const ciStatus = lead.ci_enrichment_status || 'not_generated'
                           const profile = lead.commercial_profile
@@ -1103,123 +1103,119 @@ export default function MyLeadsWorkspaceClient({
                           const isRefreshing = refreshingId === lead.id
                           const hasWebsite = !!lead.website?.trim()
 
-                          const getStateLabel = (status: string) => {
-                            switch (status) {
-                              case 'completed':
-                                return '✓ Complete'
-                              case 'processing':
-                                return '⚙️ Generating Profile'
-                              case 'pending':
-                                return '⏳ Waiting in Queue'
-                              case 'failed':
-                                return '✗ Failed'
-                              default:
-                                return 'Not Started'
-                            }
-                          }
-
                           return (
-                            <div className="space-y-3">
-                              <div className="text-xs font-medium text-slate-400 tracking-wide">
-                                Commercial Intelligence
+                            <div className="space-y-6">
+                              {/* HEADER */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-white mb-1">Commercial Intelligence</h4>
+                                <p className="text-xs text-slate-500">AI-powered business research</p>
                               </div>
 
-                              <p className="text-xs text-slate-500">AI-powered analysis: website research, business signals, and commercial insights.</p>
-
                               {ciStatus === 'completed' && profile ? (
-                                <div className="space-y-3">
-                                  <div className="space-y-1.5">
-                                    <p className="text-xs font-semibold text-emerald-400">✓ Analysis Complete</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {snapshot && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Website Snapshot</span>}
-                                      {signals && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Business Signals</span>}
-                                      {profile && <span className="px-2 py-1 text-xs bg-emerald-500/10 text-emerald-300 rounded">Commercial Profile</span>}
+                                <div className="space-y-6">
+                                  {/* COMPLETION STATUS - Verification chips */}
+                                  <div className="flex gap-2 flex-wrap">
+                                    {snapshot && <span className="px-2.5 py-1 text-xs bg-emerald-500/15 text-emerald-300 rounded-full font-medium">✓ Website Analyzed</span>}
+                                    {signals && <span className="px-2.5 py-1 text-xs bg-emerald-500/15 text-emerald-300 rounded-full font-medium">✓ Business Classified</span>}
+                                    {profile && <span className="px-2.5 py-1 text-xs bg-emerald-500/15 text-emerald-300 rounded-full font-medium">✓ Commercial Profile Ready</span>}
+                                  </div>
+
+                                  {/* EXECUTIVE SUMMARY - Hero element */}
+                                  {profile.summary && (
+                                    <div className="space-y-2">
+                                      <p className="text-sm leading-relaxed text-slate-300">{profile.summary}</p>
                                     </div>
-                                  </div>
+                                  )}
 
-                                  <div className="space-y-2 text-sm text-slate-300">
-                                    {profile.summary && (
-                                      <div>
-                                        <p className="text-xs text-slate-500 mb-1">Summary</p>
-                                        <p className="text-slate-300">{profile.summary}</p>
+                                  {/* BUSINESS OVERVIEW */}
+                                  {(profile.industry || profile.primary_service || profile.target_customer) && (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-1 gap-3">
+                                        {profile.industry && (
+                                          <div>
+                                            <p className="text-xs text-slate-500 font-medium mb-1">Industry</p>
+                                            <p className="text-sm text-slate-300">{profile.industry}</p>
+                                          </div>
+                                        )}
+                                        {profile.primary_service && (
+                                          <div>
+                                            <p className="text-xs text-slate-500 font-medium mb-1">Primary Service</p>
+                                            <p className="text-sm text-slate-300">{profile.primary_service}</p>
+                                          </div>
+                                        )}
+                                        {profile.target_customer && (
+                                          <div>
+                                            <p className="text-xs text-slate-500 font-medium mb-1">Target Customer</p>
+                                            <p className="text-sm text-slate-300">{profile.target_customer}</p>
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                    {profile.industry && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Industry</p>
-                                        <p className="text-slate-300">{profile.industry}</p>
+                                    </div>
+                                  )}
+
+                                  {/* CAPABILITIES - Pills/Tags for semantic search readiness */}
+                                  {profile.core_services && profile.core_services.length > 0 && (
+                                    <div className="space-y-2">
+                                      <p className="text-xs text-slate-500 font-medium">Capabilities</p>
+                                      <div className="flex gap-2 flex-wrap">
+                                        {profile.core_services.map((service: string, idx: number) => (
+                                          <span key={idx} className="px-2.5 py-1.5 text-xs bg-blue-500/10 text-blue-300 rounded-lg font-medium">
+                                            {service}
+                                          </span>
+                                        ))}
                                       </div>
-                                    )}
-                                    {profile.primary_service && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Primary Service</p>
-                                        <p className="text-slate-300">{profile.primary_service}</p>
+                                    </div>
+                                  )}
+
+                                  {/* TOPICS - Keywords as pills for future filtering */}
+                                  {profile.keywords && profile.keywords.length > 0 && (
+                                    <div className="space-y-2">
+                                      <p className="text-xs text-slate-500 font-medium">Topics</p>
+                                      <div className="flex gap-2 flex-wrap">
+                                        {profile.keywords.slice(0, 8).map((keyword: string, idx: number) => (
+                                          <span key={idx} className="px-2.5 py-1 text-xs bg-slate-500/10 text-slate-400 rounded-lg">
+                                            {keyword}
+                                          </span>
+                                        ))}
                                       </div>
-                                    )}
-                                    {profile.target_customer && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Target Customer</p>
-                                        <p className="text-slate-300">{profile.target_customer}</p>
-                                      </div>
-                                    )}
-                                    {profile.core_services && profile.core_services.length > 0 && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Core Services</p>
-                                        <p className="text-slate-300">{profile.core_services.join(', ')}</p>
-                                      </div>
-                                    )}
-                                    {profile.keywords && profile.keywords.length > 0 && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Keywords</p>
-                                        <p className="text-slate-300">{profile.keywords.slice(0, 5).join(', ')}</p>
-                                      </div>
-                                    )}
+                                    </div>
+                                  )}
+
+                                  {/* METADATA FOOTER - Subtle, secondary */}
+                                  <div className="flex items-center justify-between pt-3 border-t border-white/5 text-xs text-slate-600">
                                     {lead.ci_completed_at && (
-                                      <div>
-                                        <p className="text-xs text-slate-500">Analyzed</p>
-                                        <p className="text-slate-400 text-xs">
-                                          {new Date(lead.ci_completed_at).toLocaleDateString()}
-                                        </p>
-                                      </div>
+                                      <span>Updated {new Date(lead.ci_completed_at).toLocaleDateString()}</span>
                                     )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleEnrichCommercialIntelligence(lead.id)
+                                      }}
+                                      disabled={isRefreshing}
+                                      className="text-blue-400 hover:text-blue-300 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                                    >
+                                      {isRefreshing ? 'Re-analyzing...' : 'Re-analyze'}
+                                    </button>
                                   </div>
-
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleEnrichCommercialIntelligence(lead.id)
-                                    }}
-                                    disabled={isRefreshing}
-                                    className="w-full px-3 py-2 text-xs font-medium text-slate-300 hover:text-slate-200 hover:bg-white/[0.05] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                  >
-                                    {isRefreshing ? (
-                                      <span className="flex items-center justify-center gap-2">
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                        Re-analyzing...
-                                      </span>
-                                    ) : (
-                                      <span className="flex items-center justify-center gap-2">
-                                        <Sparkles className="h-3 w-3" />
-                                        Re-analyze
-                                      </span>
-                                    )}
-                                  </button>
                                 </div>
                               ) : ciStatus === 'processing' ? (
-                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
                                   <Loader2 className="h-3 w-3 animate-spin" />
-                                  Generating profile...
+                                  Analyzing business data…
                                 </div>
                               ) : ciStatus === 'pending' ? (
-                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
                                   <Sparkles className="h-3 w-3" />
-                                  Waiting in queue
+                                  Waiting to analyze
                                 </div>
                               ) : ciStatus === 'failed' ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-xs text-rose-500">
-                                    <X className="h-3 w-3" />
-                                    {lead.ci_last_error || 'Analysis failed'}
+                                <div className="space-y-3">
+                                  <div className="flex items-start gap-2 text-xs text-rose-500">
+                                    <X className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                    <div>
+                                      <p className="font-medium">{lead.ci_last_error || 'Analysis failed'}</p>
+                                      <p className="text-slate-600 mt-1">Check that a website is present and valid.</p>
+                                    </div>
                                   </div>
                                   <button
                                     onClick={(e) => {
@@ -1227,19 +1223,9 @@ export default function MyLeadsWorkspaceClient({
                                       handleEnrichCommercialIntelligence(lead.id)
                                     }}
                                     disabled={isRefreshing}
-                                    className="w-full px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    className="w-full px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    {isRefreshing ? (
-                                      <span className="flex items-center justify-center gap-2">
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                        Retrying...
-                                      </span>
-                                    ) : (
-                                      <span className="flex items-center justify-center gap-2">
-                                        <Sparkles className="h-3 w-3" />
-                                        Retry Analysis
-                                      </span>
-                                    )}
+                                    {isRefreshing ? 'Retrying...' : 'Retry Analysis'}
                                   </button>
                                 </div>
                               ) : hasWebsite ? (
@@ -1249,22 +1235,12 @@ export default function MyLeadsWorkspaceClient({
                                     handleEnrichCommercialIntelligence(lead.id)
                                   }}
                                   disabled={isRefreshing}
-                                  className="w-full px-3 py-2.5 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                  className="w-full px-3 py-2.5 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                  {isRefreshing ? (
-                                    <span className="flex items-center justify-center gap-2">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      Analyzing...
-                                    </span>
-                                  ) : (
-                                    <span className="flex items-center justify-center gap-2">
-                                      <Sparkles className="h-3 w-3" />
-                                      Start Analysis
-                                    </span>
-                                  )}
+                                  {isRefreshing ? 'Analyzing...' : 'Start Analysis'}
                                 </button>
                               ) : (
-                                <div className="text-xs text-slate-500">Add website to enable Commercial Intelligence.</div>
+                                <div className="text-xs text-slate-500 py-2">Add website to enable Commercial Intelligence analysis.</div>
                               )}
                             </div>
                           )
