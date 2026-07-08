@@ -156,10 +156,10 @@ export function ProspectingSession({
       {/* Header with back button */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">
-          {state.step === 'natural_briefing' && 'Prepare Today's Outreach'}
-          {state.step === 'searching' && 'Searching Your Library'}
-          {state.step === 'results' && 'Your Matching Businesses'}
-          {state.step === 'brief' && 'Campaign Brief'}
+          {state.step === 'natural_briefing' && "Prepare Today's Outreach"}
+          {state.step === 'searching' && "Searching Your Library"}
+          {state.step === 'results' && "Your Matching Businesses"}
+          {state.step === 'brief' && "Campaign Brief"}
         </h2>
         {state.step !== 'natural_briefing' && state.step !== 'searching' && (
           <button

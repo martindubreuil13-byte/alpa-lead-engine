@@ -20,7 +20,7 @@ export function RepositorySearch({
   goal,
   onResults,
 }: RepositorySearchProps) {
-  const [user] = useCurrentUser()
+  const { user } = useCurrentUser()
   const [isSearching, setIsSearching] = useState(false)
 
   useEffect(() => {

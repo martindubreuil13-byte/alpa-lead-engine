@@ -45,44 +45,48 @@ export function RefinementOptions({
   const [filters, setFilters] = useState<RefinementFilters>({})
 
   const handleToggleIndustry = (industry: string) => {
+    const currentIndustries = filters.industry || []
     const updated = {
       ...filters,
-      industry: (filters.industry || []).includes(industry)
-        ? filters.industry.filter((i) => i !== industry)
-        : [...(filters.industry || []), industry],
+      industry: currentIndustries.includes(industry)
+        ? currentIndustries.filter((i) => i !== industry)
+        : [...currentIndustries, industry],
     }
     setFilters(updated)
     onFiltersChange(updated)
   }
 
   const handleToggleLocation = (location: string) => {
+    const currentLocations = filters.location || []
     const updated = {
       ...filters,
-      location: (filters.location || []).includes(location)
-        ? filters.location.filter((l) => l !== location)
-        : [...(filters.location || []), location],
+      location: currentLocations.includes(location)
+        ? currentLocations.filter((l) => l !== location)
+        : [...currentLocations, location],
     }
     setFilters(updated)
     onFiltersChange(updated)
   }
 
   const handleToggleSize = (size: string) => {
+    const currentSizes = filters.size || []
     const updated = {
       ...filters,
-      size: (filters.size || []).includes(size)
-        ? filters.size.filter((s) => s !== size)
-        : [...(filters.size || []), size],
+      size: currentSizes.includes(size)
+        ? currentSizes.filter((s) => s !== size)
+        : [...currentSizes, size],
     }
     setFilters(updated)
     onFiltersChange(updated)
   }
 
   const handleToggleCISignal = (signal: string) => {
+    const currentSignals = filters.ciSignals || []
     const updated = {
       ...filters,
-      ciSignals: (filters.ciSignals || []).includes(signal)
-        ? filters.ciSignals.filter((s) => s !== signal)
-        : [...(filters.ciSignals || []), signal],
+      ciSignals: currentSignals.includes(signal)
+        ? currentSignals.filter((s) => s !== signal)
+        : [...currentSignals, signal],
     }
     setFilters(updated)
     onFiltersChange(updated)
