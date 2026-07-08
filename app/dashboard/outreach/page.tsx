@@ -1,26 +1,61 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ProspectingSession } from '@/components/outreach/ProspectingSession'
 import { OutreachWorkspace } from '@/components/outreach/OutreachWorkspace'
+import { EmptyStateOutreach } from '@/components/outreach/EmptyStateOutreach'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
+import { supabase } from '@/lib/supabase'
 
 /**
- * Outreach: Commercial workspace for preparing and executing today's outreach.
+ * Outreach: Commercial workspace for client acquisition.
  *
- * Two distinct workspaces:
- * 1. Preparation: User prepares commercial intent (Briefing → Campaign Brief)
- * 2. Execution: User executes prepared outreach (Review → Approve → Send)
+ * Three distinct experiences:
+ * 1. Empty State: No campaigns prepared. Invite to prepare.
+ * 2. Preparation: User preparing today's campaign (Briefing → Brief)
+ * 3. Execution: Campaign prepared, ready to review/send
  *
- * Entry point: Always starts with Preparation unless there are unsent messages waiting.
+ * Mental model:
+ * - User opens to acquire clients, not to manage email
+ * - Preparation creates work, Execution processes work
+ * - Never show queue until campaign is prepared
  */
 
-export default function OutreachPage() {
-  const { user, loading } = useCurrentUser()
-  const [showPreparation, setShowPreparation] = useState(false)
+type State = 'loading' | 'empty' | 'preparing' | 'executing'
 
-  if (loading) {
+export default function OutreachPage() {
+  const { user, loading: userLoading } = useCurrentUser()
+  const [state, setState] = useState<State>('loading')
+  const [messageCount, setMessageCount] = useState(0)
+
+  // Check if there are any prepared messages waiting
+  useEffect(() => {
+    if (userLoading || !user) return
+
+    const checkMessages = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('outreach_queue')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+
+        if (!error && count !== null && count > 0) {
+          setMessageCount(count)
+          setState('executing')
+        } else {
+          setState('empty')
+        }
+      } catch (err) {
+        console.error('[outreach] Failed to check messages:', err)
+        setState('empty')
+      }
+    }
+
+    checkMessages()
+  }, [user, userLoading])
+
+  if (userLoading || state === 'loading') {
     return (
       <div className="flex items-center justify-center py-24 text-slate-400">
         Loading...
@@ -32,28 +67,35 @@ export default function OutreachPage() {
     return null
   }
 
-  // If user is preparing a new campaign, show Preparation Workspace
-  if (showPreparation) {
+  // User is preparing a new campaign
+  if (state === 'preparing') {
     return (
       <ProspectingSession
         onComplete={() => {
-          // Campaign brief confirmed → Ready to execute
-          // In Phase 2, this triggers draft generation
-          // For now, transition to Execution Workspace
-          setShowPreparation(false)
+          // Campaign prepared → Check for messages and transition to executing
+          setState('executing')
         }}
         onCancel={() => {
-          setShowPreparation(false)
+          // User cancelled preparation
+          setState(messageCount > 0 ? 'executing' : 'empty')
         }}
       />
     )
   }
 
-  // Default: Show Execution Workspace
-  // User can "Prepare New" to start another campaign
+  // Campaign prepared, ready to review/send
+  if (state === 'executing') {
+    return (
+      <OutreachWorkspace
+        onPrepareNew={() => setState('preparing')}
+      />
+    )
+  }
+
+  // No campaigns prepared → Show invitation
   return (
-    <OutreachWorkspace
-      onPrepareNew={() => setShowPreparation(true)}
+    <EmptyStateOutreach
+      onPrepareOutreach={() => setState('preparing')}
     />
   )
 }
