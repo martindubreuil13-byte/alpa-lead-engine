@@ -1,94 +1,56 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-
 import { ProspectingSession } from '@/components/outreach/ProspectingSession'
-import { OutreachWorkspace } from '@/components/outreach/OutreachWorkspace'
-import { useCurrentUser } from '@/lib/auth/useCurrentUser'
-import { supabase } from '@/lib/supabase'
 
 /**
- * Outreach: Commercial workspace for client acquisition.
+ * Outreach: The Daily Commercial Strategy Session
  *
- * Mental model:
- * - User opens Outreach to acquire clients, not to manage email
- * - Default: Preparation workspace (ProspectingSession)
- * - Queue is the result of preparation, not the entry point
- * - After preparing a campaign → Check for prepared messages → Show execution
+ * PRINCIPLE: Every morning, the user begins a fresh preparation session.
+ * This page has ONE job: facilitate today's commercial strategy conversation.
  *
- * Hydration: Server and client render the same initial state.
- * User auth is guaranteed by layout/middleware before this page renders.
+ * The user opens Outreach to:
+ * 1. Define today's commercial objective
+ * 2. Let ALPA find the right businesses
+ * 3. Review ALPA's reasoning
+ * 4. Prepare personalized outreach
+ * 5. Review and send messages
+ *
+ * Outreach History (previous sessions, prepared messages from yesterday):
+ * - These belong in a separate context/route
+ * - Never the default landing page
+ * - Never interrupt today's preparation
+ *
+ * Hydration:
+ * - Server renders ProspectingSession
+ * - Client hydrates ProspectingSession
+ * - No state transitions during hydration
+ * - No checking database before first render
+ * - Deterministic and stable
  */
 
-type State = 'preparing' | 'executing'
-
 export default function OutreachPage() {
-  const { user } = useCurrentUser()
-  const [state, setState] = useState<State>('preparing')
-  const [hasCheckedMessages, setHasCheckedMessages] = useState(false)
+  // Auth is guaranteed by layout/middleware
+  // No need to check user status here
 
-  // Check for existing prepared messages only once after hydration
-  useEffect(() => {
-    if (!user || hasCheckedMessages) return
-
-    const checkMessages = async () => {
-      try {
-        const { count, error } = await supabase
-          .from('outreach_queue')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-
-        if (!error && count !== null && count > 0) {
-          setState('executing')
-        }
-      } catch (err) {
-        console.error('[outreach] Failed to check messages:', err)
-      } finally {
-        setHasCheckedMessages(true)
-      }
-    }
-
-    checkMessages()
-  }, [user, hasCheckedMessages])
-
-  // User is preparing a new campaign
-  if (state === 'preparing') {
-    return (
-      <ProspectingSession
-        onComplete={async () => {
-          // Campaign prepared. Check if messages exist, then transition.
-          if (!user) return
-
-          try {
-            const { count, error } = await supabase
-              .from('outreach_queue')
-              .select('id', { count: 'exact', head: true })
-              .eq('user_id', user.id)
-
-            if (!error && count !== null && count > 0) {
-              setState('executing')
-            } else {
-              // No messages yet (Phase 2 will generate them)
-              // For now, reset to preparing for next campaign
-              setState('preparing')
-            }
-          } catch (err) {
-            console.error('[outreach] Failed to check messages:', err)
-            setState('preparing')
-          }
-        }}
-        onCancel={() => {
-          // Cancelled mid-preparation, stay in preparation
-          setState('preparing')
-        }}
-      />
-    )
-  }
-
-  // Campaign prepared, messages ready to review/send
+  // The entire Outreach experience is the ProspectingSession
+  // No routing based on database state
+  // No checking for prepared messages
+  // No showing the queue as the default landing
+  //
+  // When preparation completes, the messages will be stored
+  // and can be accessed through the execution flow
+  // but they don't determine what the user sees first
   return (
-    <OutreachWorkspace
-      onPrepareNew={() => setState('preparing')}
+    <ProspectingSession
+      onComplete={() => {
+        // Preparation complete
+        // In Phase 2, this will show the prepared messages
+        // For now, the session is complete
+      }}
+      onCancel={() => {
+        // User cancelled - they stay in preparation
+        // ready to start a new session
+      }}
     />
   )
 }
