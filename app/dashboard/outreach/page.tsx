@@ -1,9 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Clock, Loader2, Search, Send, Trash2, XCircle, Zap } from 'lucide-react'
+import { CheckCircle2, Loader2, Search, Trash2, Sparkles, Send, Zap } from 'lucide-react'
 
 import ReviewPanel from '@/components/outreach/ReviewPanel'
+import { ProspectingSession } from '@/components/outreach/ProspectingSession'
+import { statusBadge, contextBadge, sourceBadge, stepBadge, ctaBadge, matchBadge } from '@/components/ui/badge-utils'
+import { Toast } from '@/components/ui/Toast'
+import { FilterSelect } from '@/components/ui/FilterSelect'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import {
   buildOutreachSenderProfile,
@@ -89,170 +93,11 @@ const EMPTY_STATS: QueueStats = {
   pipelineAutomation: 0,
 }
 
-// ─── Badges ──────────────────────────────────────────────────────────────────
-
-function statusBadge(status: 'draft' | 'approved' | 'sent' | 'rejected') {
-  if (status === 'approved') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
-        <CheckCircle2 className="h-3 w-3" />
-        Approved
-      </span>
-    )
-  }
-  if (status === 'sent') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-300">
-        <Send className="h-3 w-3" />
-        Sent
-      </span>
-    )
-  }
-  if (status === 'rejected') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-400/20 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-300">
-        <XCircle className="h-3 w-3" />
-        Rejected
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-slate-400">
-      <Clock className="h-3 w-3" />
-      Draft
-    </span>
-  )
-}
-
-function contextBadge(status: string) {
-  if (status === 'enriched') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-violet-400/20 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-300">
-        <Zap className="h-2.5 w-2.5" />
-        Enriched
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-slate-500">
-      Basic
-    </span>
-  )
-}
-
-function sourceBadge(source: string) {
-  if (source === 'pipeline_automation') {
-    return (
-      <span className="inline-flex items-center rounded-full border border-emerald-400/18 bg-emerald-500/8 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
-        Pipeline Automation
-      </span>
-    )
-  }
-  if (source === 'agent') {
-    return (
-      <span className="inline-flex items-center rounded-full border border-blue-400/18 bg-blue-500/8 px-2 py-0.5 text-[10px] font-medium text-blue-300">
-        Agent
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-slate-500">
-      Manual
-    </span>
-  )
-}
-
-function stepLabel(step: StepFilter | null) {
-  if (step === 'first_outreach') return 'First Outreach'
-  if (step === 'follow_up') return 'Follow-Up'
-  if (step === 'final_attempt') return 'Final Attempt'
-  return 'Unknown Step'
-}
-
-function stepBadge(step: StepFilter | null) {
-  if (!step || step === 'all') return null
-  return (
-    <span className="inline-flex items-center rounded-full border border-amber-400/20 bg-amber-500/8 px-2 py-0.5 text-[10px] font-medium text-amber-200">
-      {stepLabel(step)}
-    </span>
-  )
-}
-
-function ctaBadge(label: string | null, type: string | null) {
-  if (!label) return null
-  return (
-    <span className="inline-flex items-center rounded-full border border-cyan-400/18 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
-      {type ? `${label} · ${type}` : label}
-    </span>
-  )
-}
-
-function matchBadge(personalizationScore: number | null) {
-  if (personalizationScore == null) return null
-  if (personalizationScore >= 4) {
-    return (
-      <span className="inline-flex items-center rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
-        High match
-      </span>
-    )
-  }
-  if (personalizationScore >= 2) {
-    return (
-      <span className="inline-flex items-center rounded-full border border-amber-400/20 bg-amber-500/8 px-2 py-0.5 text-[10px] font-medium text-amber-300/80">
-        Medium match
-      </span>
-    )
-  }
-  return null
-}
-
-// ─── Toast ───────────────────────────────────────────────────────────────────
-
-function Toast({ message, onDone }: { message: string; onDone: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 2800)
-    return () => clearTimeout(t)
-  }, [onDone])
-  return (
-    <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-white/10 bg-[#0d1424] px-5 py-3 text-sm text-slate-200 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-      {message}
-    </div>
-  )
-}
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<{ value: string; label: string }>
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block">
-      <span className="sr-only">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full rounded-xl border border-white/[0.08] bg-slate-950/46 px-3 text-sm font-medium text-slate-100 outline-none transition focus:border-violet-300/24 focus:bg-slate-950/62"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function OutreachQueuePage() {
   const { user, loading: userLoading } = useCurrentUser()
+  const [showProspecting, setShowProspecting] = useState(false)
   const [items, setItems] = useState<QueueItem[]>([])
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [senderProfile, setSenderProfile] = useState<OutreachSenderProfile | undefined>()
@@ -816,6 +661,19 @@ export default function OutreachQueuePage() {
     )
   }
 
+  // Show Prospecting session if starting new campaign
+  if (showProspecting) {
+    return (
+      <ProspectingSession
+        onComplete={() => {
+          setShowProspecting(false)
+          void fetchQueue()
+        }}
+        onCancel={() => setShowProspecting(false)}
+      />
+    )
+  }
+
   const rejectedCount = items.filter((i) => i.review_status === 'rejected').length
 
   return (
@@ -828,6 +686,18 @@ export default function OutreachQueuePage() {
             Review, refine, and approve your next outbound messages.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowProspecting(true)}
+          className="flex items-center gap-2 rounded-xl border border-violet-400/25 bg-violet-500/10 px-4 py-2 text-sm font-medium text-violet-300 transition hover:border-violet-400/50 hover:bg-violet-500/18 hover:text-white"
+        >
+          <Sparkles className="h-4 w-4" />
+          Start new campaign
+        </button>
+      </div>
+
+      {/* Rejected count button */}
+      <div className="flex justify-end">
         {rejectedCount > 0 && (
           <button
             type="button"
