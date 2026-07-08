@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { NaturalBriefing } from './NaturalBriefing'
-import { RepositorySearch } from './RepositorySearch'
+import { RepositorySearchAnimated } from './RepositorySearchAnimated'
 import { RepositoryResults } from './RepositoryResults'
 import { RefinementOptions, type RefinementFilters } from './RefinementOptions'
 import { CampaignBrief } from './CampaignBrief'
@@ -151,8 +151,8 @@ export function ProspectingSession({
   }, [state.step])
 
   return (
-    <div className="space-y-6">
-      {/* Header with back button */}
+    <div className="max-w-2xl mx-auto space-y-8">
+      {/* Back button */}
       {state.step !== 'natural_briefing' && state.step !== 'searching' && (
         <button
           type="button"
@@ -165,13 +165,13 @@ export function ProspectingSession({
       )}
 
       {/* Content */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-8">
+      <div>
         {state.step === 'natural_briefing' && (
           <NaturalBriefing onNext={handleBriefingComplete} />
         )}
 
         {state.step === 'searching' && (
-          <RepositorySearch
+          <RepositorySearchAnimated
             offering={state.offering}
             audience={state.audience}
             goal={state.goal}
