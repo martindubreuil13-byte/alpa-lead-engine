@@ -51,19 +51,17 @@ export function ProspectingSession({
   onComplete,
   onCancel,
 }: ProspectingSessionProps) {
-  console.log('[ProspectingSession] Mounted')
   const [state, setState] = useState<ProspectingSessionState>(INITIAL_STATE)
   const [showSearch, setShowSearch] = useState(false)
 
   // Load from sessionStorage on mount
   useEffect(() => {
-    console.log('[ProspectingSession] Loading session from storage')
     const saved = sessionStorage.getItem(SESSION_KEY)
     if (saved) {
       try {
         setState(JSON.parse(saved))
       } catch (e) {
-        console.error('Failed to load session:', e)
+        console.error('[preparation] Failed to load session:', e)
       }
     }
   }, [])
