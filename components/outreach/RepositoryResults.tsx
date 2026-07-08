@@ -99,9 +99,13 @@ export function RepositoryResults({
         onClick={onNext}
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
       >
-        Refine or Continue
+        Continue
         <ArrowRight className="h-4 w-4" />
       </button>
+
+      <p className="text-xs text-slate-500 text-center">
+        You can fine-tune your selection in the next screen if needed.
+      </p>
     </div>
   )
 }

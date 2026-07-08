@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
-import { CommercialBriefing } from './CommercialBriefing'
+import { NaturalBriefing } from './NaturalBriefing'
 import { RepositorySearch } from './RepositorySearch'
 import { RepositoryResults } from './RepositoryResults'
 import { RefinementOptions, type RefinementFilters } from './RefinementOptions'
-import { CapacitySelection } from './CapacitySelection'
-import { AutomationLadder } from './AutomationLadder'
 import { CampaignBrief } from './CampaignBrief'
 
-type Step = 'briefing' | 'searching' | 'results' | 'refinement' | 'capacity' | 'automation' | 'brief'
+type Step = 'natural_briefing' | 'searching' | 'results' | 'optional_refinement' | 'brief'
 type AutomationLevel = 'manual' | 'personalize' | 'generate'
 
 interface ProspectingSessionState {
@@ -25,11 +23,12 @@ interface ProspectingSessionState {
   filteredCount: number
   capacity: number
   automationLevel: AutomationLevel
+  showRefinement: boolean
 }
 
 const SESSION_KEY = 'prospecting_session'
 const INITIAL_STATE: ProspectingSessionState = {
-  step: 'briefing',
+  step: 'natural_briefing',
   offering: '',
   audience: '',
   goal: '',
@@ -38,8 +37,9 @@ const INITIAL_STATE: ProspectingSessionState = {
   matchesWithoutCI: 0,
   filters: {},
   filteredCount: 0,
-  capacity: 0,
+  capacity: 20,
   automationLevel: 'personalize',
+  showRefinement: false,
 }
 
 interface ProspectingSessionProps {
@@ -75,7 +75,7 @@ export function ProspectingSession({
     setState((prev) => ({ ...prev, ...updates }))
   }
 
-  // Handle briefing completion - trigger search
+  // Handle natural briefing completion - trigger search
   const handleBriefingComplete = (offering: string, audience: string, goal: string) => {
     updateState({
       offering,
@@ -101,48 +101,32 @@ export function ProspectingSession({
     setShowSearch(false)
   }
 
-  // Handle moving to refinement or directly to capacity
+  // Handle results - go directly to brief (no refinement step)
+  // Optional refinement can be accessed separately if needed
   const handleResultsNext = () => {
-    updateState({ step: 'refinement' })
+    updateState({ step: 'brief' })
+  }
+
+  // Handle optional refinement toggle
+  const handleToggleRefinement = () => {
+    updateState({ showRefinement: !state.showRefinement })
   }
 
   // Handle filter changes
   const handleFiltersChange = (filters: RefinementFilters) => {
-    // In Phase 1, filters are just stored but not applied to search yet
-    // Phase 2+ will implement actual filter application
     updateState({ filters })
   }
 
-  // Handle refinement completion
+  // Handle refinement completion (go back to results)
   const handleRefinementNext = (filters: RefinementFilters) => {
     updateState({
       filters,
-      step: 'capacity',
+      showRefinement: false,
     })
-  }
-
-  // Handle capacity selection
-  const handleCapacityNext = (capacity: number) => {
-    updateState({
-      capacity,
-      step: 'automation',
-    })
-  }
-
-  // Handle automation level selection
-  const handleAutomationChange = (level: AutomationLevel) => {
-    updateState({ automationLevel: level })
-  }
-
-  // Handle going to campaign brief
-  const handleAutomationNext = () => {
-    updateState({ step: 'brief' })
   }
 
   // Handle campaign brief confirmation
   const handleBriefNext = () => {
-    // Campaign Brief confirmed - in Phase 2+, this triggers draft generation
-    // For now, just notify parent if needed
     if (onComplete) {
       onComplete(state)
     }
@@ -152,47 +136,32 @@ export function ProspectingSession({
   const handleBack = () => {
     switch (state.step) {
       case 'results':
-        updateState({ step: 'briefing' })
-        break
-      case 'refinement':
-        updateState({ step: 'results' })
-        break
-      case 'capacity':
-        updateState({ step: 'refinement' })
-        break
-      case 'automation':
-        updateState({ step: 'capacity' })
+        updateState({ step: 'natural_briefing' })
         break
       case 'brief':
-        updateState({ step: 'automation' })
+        updateState({ step: 'results' })
         break
     }
   }
 
-  // Trigger live search when briefing changes
+  // Auto-trigger search when in searching state
   useEffect(() => {
-    if (state.offering && state.audience && state.goal && !showSearch) {
-      // Auto-trigger search after brief
-      if (state.step === 'searching') {
-        setShowSearch(true)
-      }
+    if (state.step === 'searching' && !showSearch) {
+      setShowSearch(true)
     }
-  }, [state.offering, state.audience, state.goal])
+  }, [state.step])
 
   return (
     <div className="space-y-6">
       {/* Header with back button */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">
-          {state.step === 'briefing' && 'Commercial Briefing'}
+          {state.step === 'natural_briefing' && 'Prepare Today's Outreach'}
           {state.step === 'searching' && 'Searching Your Library'}
           {state.step === 'results' && 'Your Matching Businesses'}
-          {state.step === 'refinement' && 'Refine Your Selection'}
-          {state.step === 'capacity' && 'Select Capacity'}
-          {state.step === 'automation' && 'Preparation Mode'}
           {state.step === 'brief' && 'Campaign Brief'}
         </h2>
-        {state.step !== 'briefing' && state.step !== 'searching' && (
+        {state.step !== 'natural_briefing' && state.step !== 'searching' && (
           <button
             type="button"
             onClick={handleBack}
@@ -206,63 +175,48 @@ export function ProspectingSession({
 
       {/* Content */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-8">
-        {state.step === 'briefing' && (
-          <CommercialBriefing
-            onNext={handleBriefingComplete}
-            initialOffering={state.offering}
-            initialAudience={state.audience}
-            initialGoal={state.goal}
-          />
+        {state.step === 'natural_briefing' && (
+          <NaturalBriefing onNext={handleBriefingComplete} />
         )}
 
         {state.step === 'searching' && (
-          <>
-            <RepositorySearch
-              offering={state.offering}
-              audience={state.audience}
-              goal={state.goal}
-              onResults={handleSearchResults}
-            />
-          </>
+          <RepositorySearch
+            offering={state.offering}
+            audience={state.audience}
+            goal={state.goal}
+            onResults={handleSearchResults}
+          />
         )}
 
         {state.step === 'results' && (
-          <RepositoryResults
-            totalMatches={state.totalMatches}
-            matchesWithCI={state.matchesWithCI}
-            matchesWithoutCI={state.matchesWithoutCI}
-            onNext={handleResultsNext}
-          />
-        )}
-
-        {state.step === 'refinement' && (
-          <RefinementOptions
-            totalMatches={state.filteredCount}
-            onFiltersChange={handleFiltersChange}
-            onNext={handleRefinementNext}
-          />
-        )}
-
-        {state.step === 'capacity' && (
-          <CapacitySelection
-            totalAvailable={state.filteredCount}
-            onNext={handleCapacityNext}
-          />
-        )}
-
-        {state.step === 'automation' && (
           <div className="space-y-6">
-            <AutomationLadder
-              value={state.automationLevel}
-              onChange={handleAutomationChange}
+            <RepositoryResults
+              totalMatches={state.totalMatches}
+              matchesWithCI={state.matchesWithCI}
+              matchesWithoutCI={state.matchesWithoutCI}
+              onNext={handleResultsNext}
             />
-            <button
-              type="button"
-              onClick={handleAutomationNext}
-              className="w-full px-4 py-2.5 rounded-xl border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
-            >
-              Review Brief
-            </button>
+
+            {/* Optional refinement link */}
+            <div className="border-t border-white/10 pt-4">
+              <button
+                type="button"
+                onClick={handleToggleRefinement}
+                className="text-xs text-slate-400 hover:text-slate-300 transition"
+              >
+                {state.showRefinement ? '↓ Hide refinement options' : '↑ Show refinement options'}
+              </button>
+            </div>
+
+            {state.showRefinement && (
+              <div className="border-t border-white/10 pt-6">
+                <RefinementOptions
+                  totalMatches={state.filteredCount}
+                  onFiltersChange={handleFiltersChange}
+                  onNext={handleRefinementNext}
+                />
+              </div>
+            )}
           </div>
         )}
 

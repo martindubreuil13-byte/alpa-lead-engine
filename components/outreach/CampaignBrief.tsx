@@ -40,7 +40,7 @@ export function CampaignBrief({
       <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 space-y-4">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            Offering
+            You're promoting
           </div>
           <div className="text-base font-medium text-white">{offering}</div>
         </div>
@@ -49,7 +49,7 @@ export function CampaignBrief({
 
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            Audience
+            To reach
           </div>
           <div className="text-base font-medium text-white">{audience}</div>
         </div>
@@ -58,7 +58,7 @@ export function CampaignBrief({
 
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            Campaign Goal
+            Goal
           </div>
           <div className="text-base font-medium text-white">{goal}</div>
         </div>
@@ -68,32 +68,23 @@ export function CampaignBrief({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-              Available
+              Available matches
             </div>
             <div className="text-2xl font-bold text-white">{totalMatches}</div>
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-              You're selecting
+              You're reaching
             </div>
             <div className="text-2xl font-bold text-violet-300">{selectedCapacity}</div>
           </div>
-        </div>
-
-        <div className="border-t border-white/5" />
-
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            Preparation Mode
-          </div>
-          <div className="text-base font-medium text-white">{automationLabel}</div>
         </div>
       </div>
 
       {/* Confirmation Message */}
       <div className="p-4 rounded-lg border border-violet-400/20 bg-violet-500/10">
         <p className="text-sm text-violet-200">
-          ✓ Everything is set. When you start, ALPA will prepare personalized outreach to {selectedCapacity} business{selectedCapacity !== 1 ? 'es' : ''} based on your briefing.
+          Ready to go. ALPA will prepare personalized outreach for these {selectedCapacity} business{selectedCapacity !== 1 ? 'es' : ''} based on your briefing.
         </p>
       </div>
 
