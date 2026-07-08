@@ -12,8 +12,9 @@ import { createServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
-// CANONICAL LEAD SELECTION
-// Matches Lead Library exactly to ensure consistent totals across ALPA
+// PHASE 0.1: My Leads is the Permanent Business Repository (ADR-001)
+// This canonical selection defines the complete business entity.
+// All discovered businesses live here; all other modules reference from here.
 const LEAD_SELECT = 'id, user_id, company_name, city, industry, email, phone, website, notes, status, pipeline_stage, close_reason, first_contact_at, followup_due_at, followup_sent_at, final_attempt_sent_at, last_contact_at, outreach_attempts, next_action_status, closed_at, created_at, last_activity_at, status_updated_at, date_added, website_snapshot, business_signals, commercial_profile, ci_enrichment_status, ci_started_at, ci_completed_at, ci_last_error, ci_retry_count, ci_processing_duration_ms, ci_cost_estimate, ci_model_versions'
 
 export default async function MyLeadsPage() {

@@ -1463,43 +1463,26 @@ export default function Page() {
     })
   }
 
+  // PHASE 0.1: Scraper is pure discovery (acquisition only).
+  // Pipeline management happens in My Leads and Pipeline modules.
+  // This function now navigates to My Leads instead of updating status.
   async function addPreviewLeadToPipeline(id: string) {
     const targetLead = sessionSavedLeads.find((lead) => lead.id === id)
     if (!targetLead) return
 
     if (isFree) {
       requestInboxFocus()
-      setToastMessage('Open your leads to manage pipeline actions.')
-      router.push('/dashboard/leads')
+      setToastMessage('Go to My Leads to manage pipeline actions.')
+      router.push('/dashboard/my-leads')
       return
     }
 
-    const { error } = await supabase
-      .from('leads')
-      .update({ status: 'pipeline' })
-      .eq('id', id)
+    // PHASE 0.1: Removed status update (was: status: 'pipeline')
+    // Businesses are created with default status in My Leads repository.
+    // Pipeline assignment happens through My Leads or Pipeline module.
 
-    if (error) {
-      console.error('Preview pipeline update failed:', error)
-      setToastMessage('Could not update pipeline right now.')
-      return
-    }
-
-    setSessionSavedLeads((prev) =>
-      prev.map((lead) => (lead.id === id ? { ...lead, status: 'pipeline' } : lead))
-    )
-
-    const storedResult = readStoredScrapeResult()
-    if (storedResult) {
-      writeStoredScrapeResult({
-        ...storedResult,
-        latestSavedLeads: storedResult.latestSavedLeads.map((lead) =>
-          lead.id === id ? { ...lead, status: 'pipeline' } : lead
-        ),
-      })
-    }
-
-    setToastMessage(`${targetLead.company_name} added to pipeline.`)
+    setToastMessage(`${targetLead.company_name} is in your My Leads repository.`)
+    router.push('/dashboard/my-leads')
   }
 
   function clearValidation() {

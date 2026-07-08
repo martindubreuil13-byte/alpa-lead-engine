@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
+import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 
 type GuestLeadInsertPayload = {
   user_id: string
@@ -201,6 +202,17 @@ export async function POST(req: Request) {
 
   if (!data) {
     return NextResponse.json({ error: 'Insert succeeded without returned rows' }, { status: 500 })
+  }
+
+  // Enqueue each newly created lead for Commercial Intelligence enrichment
+  if (data && data.length > 0) {
+    for (const lead of data) {
+      await enqueueLeadEnrichment(lead.id, supabase).catch((err) => {
+        console.error(`[CI-QUEUE] Failed to enqueue lead ${lead.id}:`, err)
+        // Don't fail the entire import if enqueueing fails
+        // The repair utility can fix this later if needed
+      })
+    }
   }
 
   const imported = data.length

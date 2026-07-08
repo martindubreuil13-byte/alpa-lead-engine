@@ -42,6 +42,13 @@ function formatLocation(value: string | null) {
 
 export default function LeadLibraryPage() {
   const router = useRouter()
+
+  // PHASE 0.1: Lead Library consolidated into My Leads
+  // Redirect to My Leads which provides comprehensive search and filtering
+  useEffect(() => {
+    router.replace('/dashboard/my-leads')
+  }, [router])
+
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [leads, setLeads] = useState<Lead[]>([])

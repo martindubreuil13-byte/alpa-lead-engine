@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
 import { STRIPE_API_VERSION } from '@/lib/stripe'
 import { syncSubscriptionToDatabase } from '@/lib/stripe/subscription'
+import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
@@ -212,10 +213,24 @@ export async function POST(req: Request) {
       }
 
       if (rowsToInsert.length > 0) {
-        const { error: insertError } = await admin.from('leads').insert(rowsToInsert)
+        const { data: insertedLeads, error: insertError } = await admin
+          .from('leads')
+          .insert(rowsToInsert)
+          .select('id')
 
         if (insertError) {
           return NextResponse.json({ error: insertError.message }, { status: 500 })
+        }
+
+        // Enqueue each newly created lead for Commercial Intelligence enrichment
+        if (insertedLeads && insertedLeads.length > 0) {
+          for (const lead of insertedLeads) {
+            await enqueueLeadEnrichment(lead.id, admin).catch((err) => {
+              console.error(`[CI-QUEUE] Failed to enqueue lead ${lead.id}:`, err)
+              // Don't fail the entire activation if enqueueing fails
+              // The repair utility can fix this later if needed
+            })
+          }
         }
       }
     }

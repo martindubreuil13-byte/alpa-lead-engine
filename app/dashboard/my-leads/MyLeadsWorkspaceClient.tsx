@@ -9,6 +9,9 @@ import { type Lead as LifecycleLead } from '@/lib/pipeline/lifecycle'
 import { cn } from '@/lib/utils'
 import { archiveLeads, restoreLeads, deleteLead, deleteLeads } from './actions'
 
+// PHASE 0.1: MyLeadsLead represents a Business in the permanent repository (ADR-001)
+// All discovered businesses are stored here.
+// Other modules (Outreach, Pipeline, Future AI) reference these businesses via ID.
 export type MyLeadsLead = LifecycleLead & {
   id: string
   user_id: string
@@ -176,6 +179,8 @@ function getActivityTimeline(lead: MyLeadsLead): string {
   return getDiscoveryTime(lead)
 }
 
+// PHASE 0.1: Archive is a status change, not removal. (ADR-001)
+// Archived businesses remain in the repository; they're just hidden from active view.
 function isArchivedLead(lead: MyLeadsLead): boolean {
   const status = String(lead.status || '').trim().toLowerCase()
   return (
@@ -1231,7 +1236,10 @@ export default function MyLeadsWorkspaceClient({
                           {viewMode === 'active' && (
                             <>
                               <button
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  router.push(`/dashboard/outreach?business_id=${lead.id}`)
+                                }}
                                 className="flex-1 px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                               >
                                 Start outreach

@@ -229,7 +229,9 @@ export default function LeadsPageClient({
     }
   }
 
-  async function moveToPipeline(ids: string[]) {
+  // PHASE 0.1: Renamed from moveToPipeline to clarify semantics
+  // Assigns businesses to pipeline tracking (not movement)
+  async function updatePipelineAssignment(ids: string[]) {
     if (ids.length === 0) return
 
     if (pipelineLocked) {
@@ -244,7 +246,7 @@ export default function LeadsPageClient({
       .in('id', ids)
 
     if (error) {
-      console.error('Move failed:', error.message)
+      console.error('Pipeline assignment failed:', error.message)
       return
     }
 
@@ -531,7 +533,7 @@ export default function LeadsPageClient({
 
                 <div className="flex flex-wrap gap-3">
                   <button
-                    onClick={() => moveToPipeline(selected)}
+                    onClick={() => updatePipelineAssignment(selected)}
                     disabled={selected.length === 0}
                     className={`btn-secondary ${
                       selected.length === 0
@@ -539,7 +541,7 @@ export default function LeadsPageClient({
                         : 'text-slate-200'
                     }`}
                   >
-                    Move to Pipeline
+                    Add to Pipeline
                   </button>
 
                   {isAdminUser ? (
@@ -634,7 +636,7 @@ export default function LeadsPageClient({
                     selected={!limitedMode && !missionScopedView && selected.includes(lead.id)}
                     onToggleSelect={!limitedMode && !missionScopedView ? () => toggleSelect(lead.id) : undefined}
                     onView={!missionScopedView ? () => router.push(`/dashboard/leads/${lead.id}`) : undefined}
-                    onAddToPipeline={!missionScopedView ? () => void moveToPipeline([lead.id]) : undefined}
+                    onAddToPipeline={!missionScopedView ? () => void updatePipelineAssignment([lead.id]) : undefined}
                     onPrepareOutreach={!missionScopedView && isAdminUser ? () => void prepareOutreach([lead.id]) : undefined}
                     onContact={
                       !missionScopedView && lead.email

@@ -22,8 +22,15 @@ function readSearchParam(value: string | string[] | undefined) {
 }
 
 export default async function LeadsPage({ searchParams }: LeadsPageProps) {
+  const { redirect } = await import('next/navigation')
   const resolvedSearchParams = (await searchParams) ?? {}
   const missionIdFilter = readSearchParam(resolvedSearchParams.mission_id)
+
+  // PHASE 0.1: Leads Inbox consolidated into My Leads
+  // If no mission context, redirect to My Leads (primary business repository)
+  if (!missionIdFilter) {
+    return redirect('/dashboard/my-leads')
+  }
 
   let initialMissionLeads: MissionInboxLead[] = []
   let missionQueryError: string | null = null

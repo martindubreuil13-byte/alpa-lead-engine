@@ -663,16 +663,22 @@ export default function OutreachQueuePage() {
 
   // Show Prospecting session if starting new campaign
   if (showProspecting) {
+    console.log('[OutreachQueue] Rendering ProspectingSession')
     return (
       <ProspectingSession
         onComplete={() => {
+          console.log('[OutreachQueue] ProspectingSession completed')
           setShowProspecting(false)
           void fetchQueue()
         }}
-        onCancel={() => setShowProspecting(false)}
+        onCancel={() => {
+          console.log('[OutreachQueue] ProspectingSession cancelled')
+          setShowProspecting(false)
+        }}
       />
     )
   }
+  console.log('[OutreachQueue] showProspecting is', showProspecting, '- rendering queue')
 
   const rejectedCount = items.filter((i) => i.review_status === 'rejected').length
 
@@ -688,7 +694,10 @@ export default function OutreachQueuePage() {
         </div>
         <button
           type="button"
-          onClick={() => setShowProspecting(true)}
+          onClick={() => {
+            console.log('[OutreachQueue] Start new campaign clicked')
+            setShowProspecting(true)
+          }}
           className="flex items-center gap-2 rounded-xl border border-violet-400/25 bg-violet-500/10 px-4 py-2 text-sm font-medium text-violet-300 transition hover:border-violet-400/50 hover:bg-violet-500/18 hover:text-white"
         >
           <Sparkles className="h-4 w-4" />
