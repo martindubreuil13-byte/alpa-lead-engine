@@ -92,41 +92,41 @@ export function RepositoryResults({
 
   return (
     <div className="space-y-8">
-      {/* Advisor Recommendation */}
+      {/* Commercial Insight with Evidence */}
       <div className="space-y-6">
-        <p className="text-sm text-slate-400">Here's what I found:</p>
+        <p className="text-sm text-slate-400">Commercial Insight</p>
 
-        <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-4">
-          <p className="text-lg leading-relaxed text-white">
-            I found more than{' '}
-            <span className="font-semibold text-violet-200">
-              {totalMatches.toLocaleString()}
-            </span>{' '}
-            businesses that could be relevant to your outreach.
-          </p>
+        <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-6">
+          <div className="space-y-4">
+            <p className="text-base text-slate-300">
+              I reviewed{' '}
+              <span className="font-semibold text-violet-200">{totalMatches.toLocaleString()}</span>{' '}
+              businesses in your library.
+            </p>
 
-          <p className="text-base leading-relaxed text-white">
-            For today, I recommend starting with{' '}
-            <span className="font-semibold text-violet-200">{recommendedCapacity}</span> carefully
-            selected companies.
-          </p>
-
-          <p className="text-sm text-slate-300">
-            Quality outreach consistently outperforms mass outreach. This size gives you meaningful
-            conversations while maintaining personalization.
-          </p>
+            <p className="text-base text-slate-300">
+              After applying your commercial strategy, I identified the{' '}
+              <span className="font-semibold text-violet-200">{recommendedCapacity}</span> strongest
+              candidates to begin today's outreach.
+            </p>
+          </div>
 
           {recommendation && recommendation.advice && (
             <div className="border-t border-violet-400/10 pt-4">
-              <p className="text-sm text-slate-300">
+              <p className="text-sm leading-relaxed text-white">
                 {recommendation.advice}
               </p>
             </div>
           )}
 
-          <p className="text-xs text-slate-400 pt-2">
-            {percentWithCI}% have commercial intelligence data for better personalization
-          </p>
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-slate-400">
+              {percentWithCI}% have commercial intelligence data for personalization
+            </p>
+            <p className="text-xs font-medium text-violet-300">
+              High confidence
+            </p>
+          </div>
         </div>
       </div>
 

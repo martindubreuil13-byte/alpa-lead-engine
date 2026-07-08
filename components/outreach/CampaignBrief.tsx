@@ -35,40 +35,49 @@ export function CampaignBrief({
         <h3 className="text-lg font-medium text-white">Today's Plan</h3>
       </div>
 
-      {/* Advisor Message */}
-      <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-6">
+      {/* What We're Doing */}
+      <div className="space-y-6">
         <div className="space-y-4">
-          <p className="text-lg leading-relaxed text-white">
-            We'll prepare personalized outreach for{' '}
-            <span className="font-semibold text-violet-200">{selectedCapacity}</span> carefully
-            selected businesses.
-          </p>
-
-          <p className="text-base leading-relaxed text-slate-200">
-            Your messages will introduce{' '}
-            <span className="font-semibold text-violet-200">{offering}</span> to{' '}
-            <span className="font-semibold text-violet-200">{audience}</span> who are likely to
-            benefit from what you offer.
-          </p>
-        </div>
-
-        <div className="border-t border-violet-400/10 pt-6 space-y-3">
-          <div className="space-y-2">
-            <p className="text-sm text-slate-300">
-              <span className="font-medium">Estimated preparation time:</span> Less than 2 minutes
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+              Offering
             </p>
-            <p className="text-sm text-slate-400">
-              Each message will be personalized based on available business information.
-            </p>
+            <p className="text-base text-white">{offering}</p>
           </div>
 
-          {recommendation && recommendation.advice && (
-            <div className="border-t border-violet-400/10 pt-3">
-              <p className="text-sm text-slate-300">
-                {recommendation.advice}
-              </p>
-            </div>
-          )}
+          <div className="border-t border-white/5" />
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+              Reaching
+            </p>
+            <p className="text-base text-white">{audience}</p>
+          </div>
+
+          <div className="border-t border-white/5" />
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+              Businesses Selected
+            </p>
+            <p className="text-2xl font-bold text-violet-300">{selectedCapacity}</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-6 space-y-4">
+          <p className="text-base text-white">
+            We'll prepare personalized outreach for these{' '}
+            <span className="font-semibold text-violet-200">{selectedCapacity}</span> businesses.
+          </p>
+
+          <div className="space-y-2">
+            <p className="text-sm text-slate-300">
+              <span className="font-medium">Estimated time:</span> Less than 2 minutes
+            </p>
+            <p className="text-sm text-slate-400">
+              Messages personalized based on available business data.
+            </p>
+          </div>
         </div>
       </div>
 

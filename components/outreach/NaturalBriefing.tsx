@@ -82,11 +82,13 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
   if (!parsed) {
     return (
       <div className="space-y-8">
-        <div className="space-y-4">
-          <p className="text-sm text-slate-400">Good afternoon.</p>
-          <label className="block text-lg font-medium text-white">
+        <div className="space-y-6">
+          <label className="block text-2xl font-semibold text-white leading-tight">
             What would you like to accomplish today?
           </label>
+          <p className="text-sm text-slate-400">
+            Describe your goal naturally. I'll identify the right businesses and prepare today's outreach.
+          </p>
         </div>
 
         <textarea
@@ -119,9 +121,10 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
         <p className="text-sm text-slate-400">Here's what I understand:</p>
       </div>
 
-      {/* Confident Recommendation Presentation */}
+      {/* Commercial Insight */}
       {!isEditing && (
         <div className="space-y-6">
+          <p className="text-sm text-slate-400">Here's what I understand:</p>
           <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-4">
             <p className="text-lg leading-relaxed text-white">
               You're introducing{' '}
@@ -130,7 +133,7 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
             </p>
             {parsed.goal && (
               <p className="text-lg leading-relaxed text-white">
-                Your goal is to{' '}
+                Your objective is to{' '}
                 <span className="font-semibold text-violet-200">{parsed.goal}</span>.
               </p>
             )}
