@@ -7,6 +7,12 @@ interface CampaignBriefProps {
   totalMatches: number
   selectedCapacity: number
   automationLevel: 'manual' | 'personalize' | 'generate'
+  recommendation: {
+    advice: string
+    priorityField: string | null
+    priorityValue: string | null
+    confidence: number
+  } | null
   onNext: () => void
   onBack: () => void
 }
@@ -18,6 +24,7 @@ export function CampaignBrief({
   totalMatches,
   selectedCapacity,
   automationLevel,
+  recommendation,
   onNext,
   onBack,
 }: CampaignBriefProps) {
@@ -45,7 +52,7 @@ export function CampaignBrief({
           </p>
         </div>
 
-        <div className="border-t border-violet-400/10 pt-6">
+        <div className="border-t border-violet-400/10 pt-6 space-y-3">
           <div className="space-y-2">
             <p className="text-sm text-slate-300">
               <span className="font-medium">Estimated preparation time:</span> Less than 2 minutes
@@ -54,6 +61,14 @@ export function CampaignBrief({
               Each message will be personalized based on available business information.
             </p>
           </div>
+
+          {recommendation && recommendation.advice && (
+            <div className="border-t border-violet-400/10 pt-3">
+              <p className="text-sm text-slate-300">
+                {recommendation.advice}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

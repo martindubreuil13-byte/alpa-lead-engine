@@ -23,6 +23,12 @@ interface ProspectingSessionState {
   filteredCount: number
   capacity: number
   automationLevel: AutomationLevel
+  recommendation: {
+    advice: string
+    priorityField: string | null
+    priorityValue: string | null
+    confidence: number
+  } | null
 }
 
 const SESSION_KEY = 'prospecting_session'
@@ -38,6 +44,7 @@ const INITIAL_STATE: ProspectingSessionState = {
   filteredCount: 0,
   capacity: 20,
   automationLevel: 'personalize',
+  recommendation: null,
 }
 
 interface ProspectingSessionProps {
@@ -73,8 +80,12 @@ export function ProspectingSession({
     setState((prev) => ({ ...prev, ...updates }))
   }
 
-  // Handle natural briefing completion - trigger search
-  const handleBriefingComplete = (offering: string, audience: string, goal: string) => {
+  // Handle natural briefing completion - generate recommendation, then search
+  const handleBriefingComplete = async (
+    offering: string,
+    audience: string,
+    goal: string
+  ) => {
     updateState({
       offering,
       audience,
@@ -82,6 +93,22 @@ export function ProspectingSession({
       step: 'searching',
     })
     setShowSearch(true)
+
+    // Generate commercial recommendation
+    try {
+      const response = await fetch('/api/outreach/commercial-recommendation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offering, audience, goal }),
+      })
+
+      if (response.ok) {
+        const recommendation = await response.json()
+        updateState({ recommendation })
+      }
+    } catch (err) {
+      console.error('[outreach] Failed to generate recommendation:', err)
+    }
   }
 
   // Handle search results
@@ -184,6 +211,7 @@ export function ProspectingSession({
             totalMatches={state.totalMatches}
             matchesWithCI={state.matchesWithCI}
             matchesWithoutCI={state.matchesWithoutCI}
+            recommendation={state.recommendation}
             onNext={handleResultsNext}
             onAdjust={handleResultsAdjust}
           />
@@ -212,6 +240,7 @@ export function ProspectingSession({
             totalMatches={state.totalMatches}
             selectedCapacity={state.capacity}
             automationLevel={state.automationLevel}
+            recommendation={state.recommendation}
             onNext={handleBriefNext}
             onBack={handleBack}
           />

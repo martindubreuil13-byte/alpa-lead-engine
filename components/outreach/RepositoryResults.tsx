@@ -4,6 +4,12 @@ interface RepositoryResultsProps {
   totalMatches: number
   matchesWithCI: number
   matchesWithoutCI: number
+  recommendation: {
+    advice: string
+    priorityField: string | null
+    priorityValue: string | null
+    confidence: number
+  } | null
   onNext: () => void
   onAdjust?: () => void
   onDiscover?: () => void
@@ -15,6 +21,7 @@ export function RepositoryResults({
   totalMatches,
   matchesWithCI,
   matchesWithoutCI,
+  recommendation,
   onNext,
   onAdjust,
   onDiscover,
@@ -108,6 +115,14 @@ export function RepositoryResults({
             Quality outreach consistently outperforms mass outreach. This size gives you meaningful
             conversations while maintaining personalization.
           </p>
+
+          {recommendation && recommendation.advice && (
+            <div className="border-t border-violet-400/10 pt-4">
+              <p className="text-sm text-slate-300">
+                {recommendation.advice}
+              </p>
+            </div>
+          )}
 
           <p className="text-xs text-slate-400 pt-2">
             {percentWithCI}% have commercial intelligence data for better personalization
