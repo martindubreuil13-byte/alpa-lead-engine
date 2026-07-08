@@ -91,65 +91,85 @@ export function RepositoryResults({
   }
 
   return (
-    <div className="space-y-8">
-      {/* Commercial Insight with Evidence */}
+    <div className="space-y-12 max-w-3xl">
+      {/* Why These Businesses */}
       <div className="space-y-6">
-        <p className="text-sm text-slate-400">Commercial Insight</p>
+        <p className="text-sm text-slate-400">Commercial recommendation</p>
 
-        <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-6">
-          <div className="space-y-4">
-            <p className="text-base text-slate-300">
-              I reviewed{' '}
-              <span className="font-semibold text-violet-200">{totalMatches.toLocaleString()}</span>{' '}
-              businesses in your library.
-            </p>
+        <h2 className="text-2xl font-semibold text-white leading-tight">
+          I recommend these {recommendedCapacity} businesses because:
+        </h2>
 
-            <p className="text-base text-slate-300">
-              After applying your commercial strategy, I identified the{' '}
-              <span className="font-semibold text-violet-200">{recommendedCapacity}</span> strongest
-              candidates to begin today's outreach.
-            </p>
-          </div>
-
-          {recommendation && recommendation.advice && (
-            <div className="border-t border-violet-400/10 pt-4">
-              <p className="text-sm leading-relaxed text-white">
-                {recommendation.advice}
+        <div className="space-y-4">
+          <div className="flex gap-4">
+            <div className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-violet-400" />
+            <div>
+              <p className="text-base text-white font-medium">Highest commercial fit</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Strong match to your offering and audience profile
               </p>
             </div>
-          )}
+          </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <p className="text-xs text-slate-400">
-              {percentWithCI}% have commercial intelligence data for personalization
-            </p>
-            <p className="text-xs font-medium text-violet-300">
-              High confidence
-            </p>
+          <div className="flex gap-4">
+            <div className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-violet-400" />
+            <div>
+              <p className="text-base text-white font-medium">Complete commercial intelligence</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Website data, company signals, and buying indicators available
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <div className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-violet-400" />
+            <div>
+              <p className="text-base text-white font-medium">Active and receptive</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Showing growth signals and updated business information
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <div className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-violet-400" />
+            <div>
+              <p className="text-base text-white font-medium">Not recently contacted</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Fresh opportunity for meaningful conversations
+              </p>
+            </div>
           </div>
         </div>
+
+        {recommendation && recommendation.advice && (
+          <div className="border-t border-slate-700 pt-6">
+            <p className="text-sm text-slate-300">
+              <span className="font-medium text-white">Industry insight:</span> {' '}
+              {recommendation.advice}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={onNext}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
-        >
-          Use my recommendation
-          <ArrowRight className="h-4 w-4" />
-        </button>
-
+      <div className="flex gap-3 pt-4">
         {onAdjust && (
           <button
             type="button"
             onClick={onAdjust}
-            className="w-full px-4 py-3 rounded-lg border border-white/10 text-sm font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-300"
+            className="px-6 py-3 rounded-lg border border-slate-600 text-slate-300 font-medium text-sm transition hover:bg-slate-900"
           >
             Adjust
           </button>
         )}
+        <button
+          type="button"
+          onClick={onNext}
+          className="px-6 py-3 rounded-lg bg-violet-500 text-white font-medium text-sm transition hover:bg-violet-600"
+        >
+          Prepare my outreach
+        </button>
       </div>
     </div>
   )

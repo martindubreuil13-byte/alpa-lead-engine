@@ -16,12 +16,11 @@ interface ParsedBriefing {
 export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
   const [input, setInput] = useState('')
   const [parsed, setParsed] = useState<ParsedBriefing | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
 
   const parseWithAI = async (text: string): Promise<ParsedBriefing> => {
     try {
-      // Call Claude Haiku to extract commercial intent naturally
       const response = await fetch('/api/outreach/parse-briefing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,8 +34,7 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
       const data = await response.json()
       return data as ParsedBriefing
     } catch (err) {
-      console.error('[briefing] AI parsing failed, using fallback:', err)
-      // Fallback to deterministic parsing
+      console.error('[briefing] AI parsing failed:', err)
       return parseWithFallback(text)
     }
   }
@@ -73,7 +71,17 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
 
     try {
       const result = await parseWithAI(input)
-      setParsed(result)
+
+      // Check for low confidence (missing fields)
+      if (result.confidence < 0.7 || !result.offering || !result.audience) {
+        // Ask for clarification instead of showing broken summary
+        setParsed(result)
+        setShowConfirmation(false)
+      } else {
+        // High confidence - show immediately
+        setParsed(result)
+        setShowConfirmation(true)
+      }
     } finally {
       setIsAnalyzing(false)
     }
@@ -81,13 +89,13 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
 
   if (!parsed) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-12 max-w-3xl">
         <div className="space-y-6">
-          <label className="block text-2xl font-semibold text-white leading-tight">
+          <h1 className="text-4xl font-semibold text-white leading-tight">
             What would you like to accomplish today?
-          </label>
-          <p className="text-sm text-slate-400">
-            Describe your goal naturally. I'll identify the right businesses and prepare today's outreach.
+          </h1>
+          <p className="text-base text-slate-400 leading-relaxed">
+            Describe your commercial goal. I'll identify the right businesses and prepare today's outreach.
           </p>
         </div>
 
@@ -99,121 +107,117 @@ export function NaturalBriefing({ onNext }: NaturalBriefingProps) {
               handleSubmit()
             }
           }}
-          placeholder="Describe what you're working on. I'll understand the details…"
-          className="w-full h-40 px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/30 transition resize-none text-base leading-relaxed"
+          placeholder="Example: I help early-stage tech companies build stronger sales processes. I want to reach founders who are raising Series A and haven't yet built out dedicated sales teams."
+          className="w-full h-32 px-0 py-0 bg-transparent border-b border-slate-600 text-white placeholder-slate-500 focus:border-slate-400 focus:outline-none transition resize-none text-base leading-relaxed"
           disabled={isAnalyzing}
         />
 
         <button
           onClick={handleSubmit}
           disabled={!input.trim() || isAnalyzing}
-          className="w-full px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 disabled:opacity-50 disabled:cursor-not-allowed transition hover:bg-violet-500/30 hover:border-violet-400/50"
+          className="px-6 py-3 rounded-lg bg-violet-500 text-white font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition hover:bg-violet-600"
         >
-          {isAnalyzing ? 'Analyzing…' : 'Continue'}
+          {isAnalyzing ? 'Understanding your business…' : 'Continue'}
         </button>
       </div>
     )
   }
 
+  // If asking for clarification
+  if (!showConfirmation) {
+    return (
+      <div className="space-y-12 max-w-3xl">
+        <div className="space-y-6">
+          <div>
+            <p className="text-sm text-slate-400 mb-4">Here's what I understand:</p>
+            <h2 className="text-2xl font-semibold text-white leading-tight">
+              {parsed.offering && parsed.audience
+                ? `You're helping ${parsed.audience} with ${parsed.offering}.`
+                : "I think I understand your business, but I'd like to confirm something."}
+            </h2>
+          </div>
+
+          {!parsed.offering && (
+            <div className="space-y-3 pt-4">
+              <p className="text-sm text-slate-400">What specifically are you offering?</p>
+              <input
+                type="text"
+                placeholder="Your service or product"
+                defaultValue={parsed.offering}
+                onChange={(e) => setParsed({ ...parsed, offering: e.target.value })}
+                className="w-full px-0 py-2 bg-transparent border-b border-slate-600 text-white placeholder-slate-500 focus:border-slate-400 focus:outline-none"
+              />
+            </div>
+          )}
+
+          {!parsed.audience && (
+            <div className="space-y-3 pt-4">
+              <p className="text-sm text-slate-400">Who are you trying to reach?</p>
+              <input
+                type="text"
+                placeholder="Your ideal customer"
+                defaultValue={parsed.audience}
+                onChange={(e) => setParsed({ ...parsed, audience: e.target.value })}
+                className="w-full px-0 py-2 bg-transparent border-b border-slate-600 text-white placeholder-slate-500 focus:border-slate-400 focus:outline-none"
+              />
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => setShowConfirmation(true)}
+          className="px-6 py-3 rounded-lg bg-violet-500 text-white font-medium text-sm transition hover:bg-violet-600"
+        >
+          Confirm
+        </button>
+      </div>
+    )
+  }
+
+  // Confirmation with commercial insight
   return (
-    <div className="space-y-8">
-      <div className="space-y-4">
-        <p className="text-sm text-slate-400">Here's what I understand:</p>
+    <div className="space-y-12 max-w-3xl">
+      <div className="space-y-6">
+        <p className="text-sm text-slate-400">I understand your business.</p>
+
+        <div className="space-y-4">
+          <h2 className="text-2xl font-semibold text-white leading-tight">
+            You're helping {parsed.audience} with {parsed.offering}.
+          </h2>
+          {parsed.goal && (
+            <p className="text-base text-slate-300">
+              Your objective is to {parsed.goal}.
+            </p>
+          )}
+        </div>
+
+        <div className="border-t border-slate-700 pt-6">
+          <p className="text-sm text-slate-400 mb-3">My commercial strategy:</p>
+          <p className="text-base text-slate-200 leading-relaxed">
+            I'll prioritize businesses most likely to benefit from what you're offering. That usually means
+            companies that are early enough to benefit, established enough to make decisions, and actively
+            growing. Quality conversations beat mass outreach.
+          </p>
+        </div>
       </div>
 
-      {/* Commercial Insight */}
-      {!isEditing && (
-        <div className="space-y-6">
-          <p className="text-sm text-slate-400">Here's what I understand:</p>
-          <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-8 space-y-4">
-            <p className="text-lg leading-relaxed text-white">
-              You're introducing{' '}
-              <span className="font-semibold text-violet-200">{parsed.offering}</span> to{' '}
-              <span className="font-semibold text-violet-200">{parsed.audience}</span>.
-            </p>
-            {parsed.goal && (
-              <p className="text-lg leading-relaxed text-white">
-                Your objective is to{' '}
-                <span className="font-semibold text-violet-200">{parsed.goal}</span>.
-              </p>
-            )}
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => setIsEditing(true)}
-              className="flex-1 px-4 py-3 rounded-lg border border-white/10 text-sm font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
-            >
-              Adjust
-            </button>
-            <button
-              onClick={() => onNext(parsed.offering, parsed.audience, parsed.goal)}
-              className="flex-1 px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
-            >
-              Yes, continue
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Mode */}
-      {isEditing && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-2">
-              What you're offering
-            </label>
-            <input
-              type="text"
-              value={parsed.offering}
-              onChange={(e) => setParsed({ ...parsed, offering: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/30"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-2">
-              Who you're reaching
-            </label>
-            <input
-              type="text"
-              value={parsed.audience}
-              onChange={(e) => setParsed({ ...parsed, audience: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/30"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-2">
-              Your goal
-            </label>
-            <input
-              type="text"
-              value={parsed.goal}
-              onChange={(e) => setParsed({ ...parsed, goal: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/30"
-            />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => setIsEditing(false)}
-              className="flex-1 px-4 py-3 rounded-lg border border-white/10 text-sm font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
-            >
-              Back
-            </button>
-            <button
-              onClick={() => {
-                setIsEditing(false)
-                onNext(parsed.offering, parsed.audience, parsed.goal)
-              }}
-              className="flex-1 px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="flex gap-3">
+        <button
+          onClick={() => {
+            setParsed(null)
+            setShowConfirmation(false)
+          }}
+          className="px-6 py-3 rounded-lg border border-slate-600 text-slate-300 font-medium text-sm transition hover:bg-slate-900"
+        >
+          Revise
+        </button>
+        <button
+          onClick={() => onNext(parsed.offering, parsed.audience, parsed.goal)}
+          className="px-6 py-3 rounded-lg bg-violet-500 text-white font-medium text-sm transition hover:bg-violet-600"
+        >
+          Search your library
+        </button>
+      </div>
     </div>
   )
 }
