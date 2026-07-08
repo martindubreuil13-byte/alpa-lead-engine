@@ -21,70 +21,51 @@ export function CampaignBrief({
   onNext,
   onBack,
 }: CampaignBriefProps) {
-  const automationLabel = {
-    manual: "I'll prepare everything myself",
-    personalize: 'AI helps me personalize',
-    generate: 'AI prepares everything for review',
-  }[automationLevel]
-
   return (
     <div className="space-y-8">
+      {/* Title */}
       <div>
-        <h2 className="text-2xl font-bold text-white">Campaign Brief</h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Review everything before we start preparing your outreach.
+        <h3 className="text-lg font-semibold text-white">Today's Outreach</h3>
+      </div>
+
+      {/* What You're Doing */}
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+            Offering
+          </p>
+          <p className="text-base text-white">{offering}</p>
+        </div>
+
+        <div className="border-t border-white/5" />
+
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+            Audience
+          </p>
+          <p className="text-base text-white">{audience}</p>
+        </div>
+
+        <div className="border-t border-white/5" />
+
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
+            Businesses Selected
+          </p>
+          <p className="text-2xl font-bold text-violet-300">{selectedCapacity}</p>
+        </div>
+      </div>
+
+      {/* Confidence Message */}
+      <div className="rounded-2xl border border-violet-400/20 bg-violet-500/5 p-6 space-y-3">
+        <p className="text-base text-white font-medium">
+          {selectedCapacity} personalized messages will now be prepared.
         </p>
-      </div>
-
-      {/* Brief Summary Card */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 space-y-4">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            You're promoting
-          </div>
-          <div className="text-base font-medium text-white">{offering}</div>
-        </div>
-
-        <div className="border-t border-white/5" />
-
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            To reach
-          </div>
-          <div className="text-base font-medium text-white">{audience}</div>
-        </div>
-
-        <div className="border-t border-white/5" />
-
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-            Goal
-          </div>
-          <div className="text-base font-medium text-white">{goal}</div>
-        </div>
-
-        <div className="border-t border-white/5" />
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-              Available matches
-            </div>
-            <div className="text-2xl font-bold text-white">{totalMatches}</div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
-              You're reaching
-            </div>
-            <div className="text-2xl font-bold text-violet-300">{selectedCapacity}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Confirmation Message */}
-      <div className="p-4 rounded-lg border border-violet-400/20 bg-violet-500/10">
-        <p className="text-sm text-violet-200">
-          Ready to go. ALPA will prepare personalized outreach for these {selectedCapacity} business{selectedCapacity !== 1 ? 'es' : ''} based on your briefing.
+        <p className="text-sm text-slate-300">
+          I'll personalize each message based on available commercial data.
+        </p>
+        <p className="text-xs text-slate-400">
+          Estimated preparation time: under 2 minutes
         </p>
       </div>
 
@@ -93,17 +74,17 @@ export function CampaignBrief({
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
         >
           <ChevronLeft className="h-4 w-4" />
-          Go back to refine
+          Adjust
         </button>
         <button
           type="button"
           onClick={onNext}
           className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
         >
-          Start Preparing Outreach
+          Prepare Outreach
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>

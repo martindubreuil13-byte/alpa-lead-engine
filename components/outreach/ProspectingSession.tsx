@@ -8,7 +8,7 @@ import { RepositoryResults } from './RepositoryResults'
 import { RefinementOptions, type RefinementFilters } from './RefinementOptions'
 import { CampaignBrief } from './CampaignBrief'
 
-type Step = 'natural_briefing' | 'searching' | 'results' | 'optional_refinement' | 'brief'
+type Step = 'natural_briefing' | 'searching' | 'results' | 'refinement' | 'brief'
 type AutomationLevel = 'manual' | 'personalize' | 'generate'
 
 interface ProspectingSessionState {
@@ -23,7 +23,6 @@ interface ProspectingSessionState {
   filteredCount: number
   capacity: number
   automationLevel: AutomationLevel
-  showRefinement: boolean
 }
 
 const SESSION_KEY = 'prospecting_session'
@@ -39,7 +38,6 @@ const INITIAL_STATE: ProspectingSessionState = {
   filteredCount: 0,
   capacity: 20,
   automationLevel: 'personalize',
-  showRefinement: false,
 }
 
 interface ProspectingSessionProps {
@@ -101,15 +99,13 @@ export function ProspectingSession({
     setShowSearch(false)
   }
 
-  // Handle results - go directly to brief (no refinement step)
-  // Optional refinement can be accessed separately if needed
+  // Handle results - user can either use recommendation or adjust
   const handleResultsNext = () => {
     updateState({ step: 'brief' })
   }
 
-  // Handle optional refinement toggle
-  const handleToggleRefinement = () => {
-    updateState({ showRefinement: !state.showRefinement })
+  const handleResultsAdjust = () => {
+    updateState({ step: 'refinement' })
   }
 
   // Handle filter changes
@@ -117,11 +113,11 @@ export function ProspectingSession({
     updateState({ filters })
   }
 
-  // Handle refinement completion (go back to results)
+  // Handle refinement completion - go to brief
   const handleRefinementNext = (filters: RefinementFilters) => {
     updateState({
       filters,
-      showRefinement: false,
+      step: 'brief',
     })
   }
 
@@ -137,6 +133,9 @@ export function ProspectingSession({
     switch (state.step) {
       case 'results':
         updateState({ step: 'natural_briefing' })
+        break
+      case 'refinement':
+        updateState({ step: 'results' })
         break
       case 'brief':
         updateState({ step: 'results' })
@@ -154,24 +153,16 @@ export function ProspectingSession({
   return (
     <div className="space-y-6">
       {/* Header with back button */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">
-          {state.step === 'natural_briefing' && "Prepare Today's Outreach"}
-          {state.step === 'searching' && "Searching Your Library"}
-          {state.step === 'results' && "Your Matching Businesses"}
-          {state.step === 'brief' && "Campaign Brief"}
-        </h2>
-        {state.step !== 'natural_briefing' && state.step !== 'searching' && (
-          <button
-            type="button"
-            onClick={handleBack}
-            className="p-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition"
-            title="Go back"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-        )}
-      </div>
+      {state.step !== 'natural_briefing' && state.step !== 'searching' && (
+        <button
+          type="button"
+          onClick={handleBack}
+          className="p-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition -ml-2"
+          title="Go back"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      )}
 
       {/* Content */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-8">
@@ -189,34 +180,27 @@ export function ProspectingSession({
         )}
 
         {state.step === 'results' && (
+          <RepositoryResults
+            totalMatches={state.totalMatches}
+            matchesWithCI={state.matchesWithCI}
+            matchesWithoutCI={state.matchesWithoutCI}
+            onNext={handleResultsNext}
+            onAdjust={handleResultsAdjust}
+          />
+        )}
+
+        {state.step === 'refinement' && (
           <div className="space-y-6">
-            <RepositoryResults
-              totalMatches={state.totalMatches}
-              matchesWithCI={state.matchesWithCI}
-              matchesWithoutCI={state.matchesWithoutCI}
-              onNext={handleResultsNext}
-            />
-
-            {/* Optional refinement link */}
-            <div className="border-t border-white/10 pt-4">
-              <button
-                type="button"
-                onClick={handleToggleRefinement}
-                className="text-xs text-slate-400 hover:text-slate-300 transition"
-              >
-                {state.showRefinement ? '↓ Hide refinement options' : '↑ Show refinement options'}
-              </button>
+            <div>
+              <p className="text-sm text-slate-400 mb-6">
+                Fine-tune your selection:
+              </p>
             </div>
-
-            {state.showRefinement && (
-              <div className="border-t border-white/10 pt-6">
-                <RefinementOptions
-                  totalMatches={state.filteredCount}
-                  onFiltersChange={handleFiltersChange}
-                  onNext={handleRefinementNext}
-                />
-              </div>
-            )}
+            <RefinementOptions
+              totalMatches={state.filteredCount || state.totalMatches}
+              onFiltersChange={handleFiltersChange}
+              onNext={handleRefinementNext}
+            />
           </div>
         )}
 
