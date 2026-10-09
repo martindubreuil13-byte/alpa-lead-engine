@@ -47,8 +47,8 @@ export function canAccessFeature(feature: string, user: UserProfile | null) {
   if (isAdmin(user) || isPaid(user)) {
     if (feature === 'leads' || feature === 'csv') return true
     // Prospector plan: search and export only — no pipeline, templates, or email outreach
-    if (user.plan === 'prospector') return false
-    if (feature === 'pipeline' || feature === 'templates' || feature === 'email') return true
+    // Pipeline, templates and email outreach are retired for customers; admins only.
+    if (feature === 'pipeline' || feature === 'templates' || feature === 'email') return isAdmin(user)
   }
 
   switch (feature) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 export const runtime = 'nodejs'
 
@@ -34,6 +35,9 @@ function hasQuotaHint(value: unknown) {
 }
 
 export async function GET() {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   console.log('📥 /api/debug-email HIT')
   console.log('RESEND KEY LOADED:', !!process.env.RESEND_API_KEY)
 

@@ -30,11 +30,14 @@ export interface EnrichLeadDirectResult {
   }
 }
 
-export async function enrichLeadDirect(leadId: string): Promise<EnrichLeadDirectResult> {
+export async function enrichLeadDirect(
+  leadId: string,
+  options: { client?: any } = {}
+): Promise<EnrichLeadDirectResult> {
   const startTime = Date.now()
   console.log(`[CI-TRACE] STEP 6 ENTER enrichLeadDirect lead_id=${leadId}`)
   console.log(`[CI-TRACE] STEP 6 BEFORE enrichLeadDirect.createServerClient lead_id=${leadId}`)
-  const supabase = await createServerClient()
+  const supabase = options.client || (await createServerClient())
   console.log(`[CI-TRACE] STEP 6 AFTER enrichLeadDirect.createServerClient lead_id=${leadId} elapsed_ms=${Date.now() - startTime}`)
 
   try {

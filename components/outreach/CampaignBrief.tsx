@@ -1,12 +1,15 @@
 import { ArrowRight, ChevronLeft } from 'lucide-react'
+import type { PreparationMode } from './NaturalBriefing'
 
 interface CampaignBriefProps {
   offering: string
   audience: string
   goal: string
+  desiredActionLabel: string
+  ctaDetail: string
   totalMatches: number
   selectedCapacity: number
-  automationLevel: 'manual' | 'personalize' | 'generate'
+  preparationMode: PreparationMode
   recommendation: {
     advice: string
     priorityField: string | null
@@ -21,67 +24,48 @@ export function CampaignBrief({
   offering,
   audience,
   goal,
+  desiredActionLabel,
+  ctaDetail,
   totalMatches,
   selectedCapacity,
-  automationLevel,
+  preparationMode,
   recommendation,
   onNext,
   onBack,
 }: CampaignBriefProps) {
+  const preparationLabel = {
+    review: 'Prepare everything for review',
+    assist: 'Help me write it',
+    self: "I'll write it myself",
+  }[preparationMode]
+
+  const actionSummary = ctaDetail ? `${desiredActionLabel}: ${ctaDetail}` : desiredActionLabel || goal
+
   return (
-    <div className="space-y-8">
-      {/* Title */}
-      <div>
-        <h3 className="text-lg font-medium text-white">Today's Plan</h3>
+    <div className="max-w-3xl space-y-8">
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300/80">
+          Today's Plan
+        </p>
+        <h2 className="text-3xl font-semibold leading-tight text-white">
+          Ready to prepare outreach for today.
+        </h2>
       </div>
 
-      {/* What We're Doing */}
       <div className="space-y-6">
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
-              Offering
-            </p>
-            <p className="text-base text-white">{offering}</p>
+        <SummaryRow label="You're selling" value={offering} />
+        <SummaryRow label="You're reaching" value={audience} />
+        <SummaryRow label="You want them to" value={actionSummary} />
+        <SummaryRow label="Preparation" value={preparationLabel} />
+        <SummaryRow label="Recommended businesses" value={`${selectedCapacity} of ${totalMatches.toLocaleString()}`} />
+
+        {recommendation?.advice ? (
+          <div className="rounded-lg border border-violet-300/16 bg-violet-400/8 px-4 py-3 text-sm leading-6 text-violet-100">
+            {recommendation.advice}
           </div>
-
-          <div className="border-t border-white/5" />
-
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
-              Reaching
-            </p>
-            <p className="text-base text-white">{audience}</p>
-          </div>
-
-          <div className="border-t border-white/5" />
-
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
-              Businesses Selected
-            </p>
-            <p className="text-2xl font-bold text-violet-300">{selectedCapacity}</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-6 space-y-4">
-          <p className="text-base text-white">
-            We'll prepare personalized outreach for these{' '}
-            <span className="font-semibold text-violet-200">{selectedCapacity}</span> businesses.
-          </p>
-
-          <div className="space-y-2">
-            <p className="text-sm text-slate-300">
-              <span className="font-medium">Estimated time:</span> Less than 2 minutes
-            </p>
-            <p className="text-sm text-slate-400">
-              Messages personalized based on available business data.
-            </p>
-          </div>
-        </div>
+        ) : null}
       </div>
 
-      {/* Actions */}
       <div className="flex gap-3">
         <button
           type="button"
@@ -100,6 +84,17 @@ export function CampaignBrief({
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  )
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-t border-white/8 pt-4 first:border-t-0 first:pt-0">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </p>
+      <p className="text-lg leading-7 text-white">{value}</p>
     </div>
   )
 }

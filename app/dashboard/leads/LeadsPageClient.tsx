@@ -10,7 +10,6 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import LeadCard from '@/components/leads/LeadCard'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
-import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import { getGuestLeads, removeGuestLead } from '@/lib/guest-session'
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import type { MissionInboxLead } from '@/lib/leads/mission-leads'
@@ -99,7 +98,6 @@ export default function LeadsPageClient({
   const [featureLockContent, setFeatureLockContent] = useState<FeatureLockContent>(
     PIPELINE_LOCK_CONTENT
   )
-  const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
   const [preparingOutreach, setPreparingOutreach] = useState(false)
 
   const [search, setSearch] = useState('')
@@ -431,7 +429,7 @@ export default function LeadsPageClient({
                 <div>
                   <div className="text-sm font-medium text-white">{leads.length} trial leads ready</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    Download your results or send a copy to your email.
+                    Download your results as a CSV.
                   </div>
                 </div>
 
@@ -442,13 +440,6 @@ export default function LeadsPageClient({
                     className="btn-primary-gold"
                   >
                     Download CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSendLeadsModal(true)}
-                    className="btn-primary-gold"
-                  >
-                    Send to my email
                   </button>
                 </div>
               </div>
@@ -532,17 +523,19 @@ export default function LeadsPageClient({
                 <div className="text-sm text-slate-300">{selected.length} selected</div>
 
                 <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={() => updatePipelineAssignment(selected)}
-                    disabled={selected.length === 0}
-                    className={`btn-secondary ${
-                      selected.length === 0
-                        ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
-                        : 'text-slate-200'
-                    }`}
-                  >
-                    Add to Pipeline
-                  </button>
+                  {isAdminUser ? (
+                    <button
+                      onClick={() => updatePipelineAssignment(selected)}
+                      disabled={selected.length === 0}
+                      className={`btn-secondary ${
+                        selected.length === 0
+                          ? 'cursor-not-allowed bg-white/5 text-slate-500 hover:bg-white/5'
+                          : 'text-slate-200'
+                      }`}
+                    >
+                      Add to Pipeline
+                    </button>
+                  ) : null}
 
                   {isAdminUser ? (
                     <button
@@ -591,7 +584,7 @@ export default function LeadsPageClient({
               </div>
             ) : null}
 
-            {!limitedMode && pipelineLocked ? (
+            {isAdminUser && !limitedMode && pipelineLocked ? (
               <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
                 <span>Pipeline stays locked on free access, but your session leads remain fully reviewable and exportable.</span>
                 <button
@@ -636,20 +629,8 @@ export default function LeadsPageClient({
                     selected={!limitedMode && !missionScopedView && selected.includes(lead.id)}
                     onToggleSelect={!limitedMode && !missionScopedView ? () => toggleSelect(lead.id) : undefined}
                     onView={!missionScopedView ? () => router.push(`/dashboard/leads/${lead.id}`) : undefined}
-                    onAddToPipeline={!missionScopedView ? () => void updatePipelineAssignment([lead.id]) : undefined}
+                    onAddToPipeline={!missionScopedView && isAdminUser ? () => void updatePipelineAssignment([lead.id]) : undefined}
                     onPrepareOutreach={!missionScopedView && isAdminUser ? () => void prepareOutreach([lead.id]) : undefined}
-                    onContact={
-                      !missionScopedView && lead.email
-                        ? () => {
-                            if (emailLocked) {
-                              openContactLock()
-                              return
-                            }
-
-                            router.push(`/dashboard/leads/${lead.id}`)
-                          }
-                        : undefined
-                    }
                     expandedFooter={
                       limitedMode ? (
                         <button
@@ -677,15 +658,6 @@ export default function LeadsPageClient({
         benefit={featureLockContent.benefit}
         ctaLabel={featureLockContent.ctaLabel}
         showUpgradeCta={isFree}
-      />
-
-      <SendLeadsModal
-        isOpen={showSendLeadsModal}
-        onClose={() => setShowSendLeadsModal(false)}
-        viewerEmail=""
-        leads={leads}
-        summaryLine={`${leads.length} leads ready from your ALPA trial`}
-        visitorType={visitorType}
       />
     </>
   )

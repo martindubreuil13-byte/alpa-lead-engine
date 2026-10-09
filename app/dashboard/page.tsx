@@ -7,27 +7,17 @@ import {
   BarChart3,
   Inbox,
   Loader2,
-  Mail,
   RotateCcw,
   Search,
+  Sparkles,
 } from 'lucide-react'
 
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
-import { getDailyEmailLimit, type EmailUsageSnapshot } from '@/lib/email/send-limits'
 import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
-import { getBrowserTimeZone } from '@/lib/timezone'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 import { getLeadLimit } from '@/lib/usage/usage'
-
-type QueueStatus = 'draft' | 'approved' | 'sent' | 'rejected'
-
-type OutreachQueueRow = {
-  id: string
-  review_status: QueueStatus | null
-  updated_at: string | null
-}
 
 type LeadUsageSnapshot = {
   leadsUsed: number
@@ -47,11 +37,7 @@ type DashboardData = {
   leadsUsedThisMonth: number
   leadsLimit: number
   myLeads: number
-  emailSentToday: number | null
-  emailLimit: number | null
-  campaignDrafts: number | null
-  approvedCampaigns: number | null
-  sentCampaigns: number | null
+  commercialProfiles: number
   recentSearches: RecentSearch[]
   recentSearchesAvailable: boolean
 }
@@ -61,11 +47,7 @@ const EMPTY_DASHBOARD: DashboardData = {
   leadsUsedThisMonth: 0,
   leadsLimit: 25,
   myLeads: 0,
-  emailSentToday: null,
-  emailLimit: null,
-  campaignDrafts: null,
-  approvedCampaigns: null,
-  sentCampaigns: null,
+  commercialProfiles: 0,
   recentSearches: [],
   recentSearchesAvailable: true,
 }
@@ -83,20 +65,6 @@ function getFirstName(userName: string | null | undefined, email: string | null 
   const localPart = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim()
   if (!localPart) return null
   return localPart.charAt(0).toUpperCase() + localPart.slice(1)
-}
-
-function getUsageDateForTimeZone(timeZone = getBrowserTimeZone(), date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const year = parts.find((part) => part.type === 'year')?.value
-  const month = parts.find((part) => part.type === 'month')?.value
-  const day = parts.find((part) => part.type === 'day')?.value
-
-  return `${year}-${month}-${day}`
 }
 
 function formatDate(value: string | null) {
@@ -127,52 +95,30 @@ function getDefaultLeadLimit(plan: string | null | undefined, isGuest: boolean) 
 }
 
 function getNextBestStep(data: DashboardData) {
-  const readyCampaigns = (data.campaignDrafts || 0) + (data.approvedCampaigns || 0)
-
   if (data.myLeads === 0) {
     return {
-      title: 'Start by discovering your first prospects.',
-      detail: 'Run a focused search, review the results, and save the leads worth contacting.',
+      title: 'Start by discovering businesses.',
+      detail: 'Run a focused search, review the results, and save the businesses worth understanding.',
       href: '/dashboard/scraper',
-      cta: 'Find leads',
+      cta: 'Discover businesses',
     }
   }
 
-  if (readyCampaigns > 0) {
+  if (data.commercialProfiles < data.myLeads) {
     return {
-      title: 'You have emails ready for review.',
-      detail: 'Drafts or approved messages already exist. Review them before sending.',
-      href: '/dashboard/leads',
-      cta: 'Review leads',
-    }
-  }
-
-  if ((data.sentCampaigns || 0) > 0) {
-    return {
-      title: 'Review recent campaign activity.',
-      detail: 'Some outreach has already been sent. Check your saved leads and recent results.',
-      href: '/dashboard/leads',
-      cta: 'My Leads',
+      title: 'Build commercial intelligence on saved businesses.',
+      detail: 'Analyze more profiles so your library becomes easier to understand and act on.',
+      href: '/dashboard/my-leads',
+      cta: 'Review My Leads',
     }
   }
 
   return {
-    title: 'You have leads ready. Export them or create a campaign.',
-    detail: 'Use your saved leads to prepare the next outreach step.',
-    href: '/dashboard/leads',
-    cta: 'Open leads',
+    title: 'Your business library is ready.',
+    detail: 'Review commercial profiles, export selected businesses, or take a simple action from a saved company.',
+    href: '/dashboard/my-leads',
+    cta: 'Open My Leads',
   }
-}
-
-async function fetchEmailUsageSnapshot() {
-  const timeZone = getBrowserTimeZone()
-  // TODO: Route every email send path, including Outreach Queue sends, into one usage source.
-  const response = await fetch(`/api/send-email?timeZone=${encodeURIComponent(timeZone)}`, {
-    cache: 'no-store',
-    headers: { 'x-alpa-time-zone': timeZone },
-  })
-  const result = await response.json().catch(() => null)
-  return response.ok ? (result?.usage as EmailUsageSnapshot | null) : null
 }
 
 async function fetchCurrentLeadUsage(
@@ -263,10 +209,6 @@ export default function Page() {
       : getFirstName(userName, profile?.email || user?.email)
   const nextStep = useMemo(() => getNextBestStep(data), [data])
   const leadProgress = clampPercent(data.leadsUsedThisMonth, data.leadsLimit)
-  const emailProgress =
-    data.emailSentToday !== null && data.emailLimit
-      ? clampPercent(data.emailSentToday, data.emailLimit)
-      : null
 
   useEffect(() => {
     if (userLoading || profileLoading) return
@@ -290,38 +232,29 @@ export default function Page() {
     setData((current) => ({ ...current, loading: true }))
 
     try {
-      const timeZone = getBrowserTimeZone()
-      const today = getUsageDateForTimeZone(timeZone)
-      const [leadUsageResult, myLeadsResult, queueResult, usageSnapshot, recentSearchesResult] = await Promise.all([
+      const [leadUsageResult, myLeadsResult, commercialProfilesResult, recentSearchesResult] = await Promise.all([
         fetchCurrentLeadUsage(user.id, profile?.plan),
         supabase
           .from('leads')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id),
         supabase
-          .from('outreach_queue')
-          .select('id, review_status, updated_at')
-          .eq('user_id', user.id),
-        fetchEmailUsageSnapshot(),
+          .from('leads')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('ci_enrichment_status', 'completed'),
         fetchRecentSearches(user.id),
       ])
 
       if (myLeadsResult.error) throw myLeadsResult.error
-
-      const queueRows = queueResult.error ? [] : ((queueResult.data || []) as OutreachQueueRow[])
-      const todaySent = usageSnapshot?.date === today ? usageSnapshot.sent : usageSnapshot?.sent ?? null
-      const emailLimit = usageSnapshot?.limit ?? getDailyEmailLimit(profile?.plan)
+      if (commercialProfilesResult.error) throw commercialProfilesResult.error
 
       setData({
         loading: false,
         leadsUsedThisMonth: leadUsageResult.leadsUsed,
         leadsLimit: leadUsageResult.leadsLimit,
         myLeads: myLeadsResult.count ?? 0,
-        emailSentToday: todaySent,
-        emailLimit,
-        campaignDrafts: queueResult.error ? null : queueRows.filter((row) => row.review_status === 'draft').length,
-        approvedCampaigns: queueResult.error ? null : queueRows.filter((row) => row.review_status === 'approved').length,
-        sentCampaigns: queueResult.error ? null : queueRows.filter((row) => row.review_status === 'sent').length,
+        commercialProfiles: commercialProfilesResult.count ?? 0,
         recentSearches: recentSearchesResult.searches,
         recentSearchesAvailable: recentSearchesResult.available,
       })
@@ -343,11 +276,7 @@ export default function Page() {
       leadsUsedThisMonth: guestLeadCount,
       leadsLimit: leadLimit,
       myLeads: guestLeadCount,
-      emailSentToday: null,
-      emailLimit: null,
-      campaignDrafts: null,
-      approvedCampaigns: null,
-      sentCampaigns: null,
+      commercialProfiles: 0,
       recentSearches: [],
       recentSearchesAvailable: false,
     })
@@ -363,7 +292,7 @@ export default function Page() {
 
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(220px,0.82fr)_minmax(220px,0.82fr)]">
         <UsageCard
-          label="Leads used this month"
+          label="Businesses discovered"
           value={data.leadsUsedThisMonth}
           detail={`of ${formatNumber(data.leadsLimit)} this month`}
           percent={leadProgress}
@@ -376,10 +305,10 @@ export default function Page() {
           icon={Inbox}
         />
         <SnapshotCard
-          label="Emails sent today"
-          value={data.emailSentToday ?? '—'}
-          detail={data.emailLimit ? `Daily limit ${data.emailLimit}` : 'Not available yet'}
-          icon={Mail}
+          label="Commercial profiles"
+          value={data.commercialProfiles}
+          detail="Businesses analyzed"
+          icon={Sparkles}
         />
       </section>
 
@@ -388,17 +317,19 @@ export default function Page() {
           <SectionHeader eyebrow="Progress" title="Usage this cycle" />
           <div className="mt-5 space-y-5">
             <ProgressBar
-              label="Leads used this month"
+              label="Businesses discovered this month"
               percent={leadProgress}
               detail={`${formatNumber(data.leadsUsedThisMonth)} of ${formatNumber(data.leadsLimit)} this month`}
             />
-            {emailProgress !== null && data.emailLimit ? (
-              <ProgressBar
-                label="Emails sent today"
-                percent={emailProgress}
-                detail={`${formatNumber(data.emailSentToday || 0)} of ${formatNumber(data.emailLimit)} today`}
-              />
-            ) : null}
+            <ProgressBar
+              label="Commercial profiles generated"
+              percent={clampPercent(data.commercialProfiles, Math.max(data.myLeads, 1))}
+              detail={
+                data.myLeads > 0
+                  ? `${formatNumber(data.commercialProfiles)} of ${formatNumber(data.myLeads)} saved businesses analyzed`
+                  : 'No saved businesses yet'
+              }
+            />
           </div>
         </div>
 
@@ -439,17 +370,17 @@ function HeroSection({
             {displayName ? `${getGreeting()} ${displayName}.` : `${getGreeting()}.`}
           </h1>
           <p className="mt-3 max-w-xl text-base leading-7 text-slate-300 sm:text-lg">
-            ALPA helps you find fresh business leads and turn them into outreach-ready opportunities.
+            ALPA helps you discover businesses and build commercial intelligence about them.
           </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
           <Link href="/dashboard/scraper" className="btn-primary-gold">
-            Find new leads
+            Discover businesses
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
-            href="/dashboard/leads"
+            href="/dashboard/my-leads"
             className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.075]"
           >
             My Leads
@@ -592,7 +523,7 @@ function RecentSearches({
                   {search.location ? <span>{search.location}</span> : null}
                   <span>{formatDate(search.createdAt)}</span>
                   {search.leadsCount !== null ? (
-                    <span>{search.leadsCount} leads</span>
+                    <span>{search.leadsCount} businesses</span>
                   ) : null}
                 </div>
               </div>
@@ -608,7 +539,7 @@ function RecentSearches({
         </div>
       ) : (
         <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/24 p-4 text-sm leading-6 text-slate-400">
-          Recent searches will appear here after you run lead discovery.
+          Recent searches will appear here after you run business discovery.
         </div>
       )}
     </section>

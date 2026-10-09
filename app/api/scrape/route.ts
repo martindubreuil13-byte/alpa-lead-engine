@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import * as cheerio from 'cheerio'
 
 import { searchGooglePlaces } from '@/lib/sources/google'
@@ -18,7 +19,9 @@ import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
+import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
 export const runtime = 'nodejs'
 
@@ -50,6 +53,7 @@ type ScrapeConfig = {
   maxLeads: number
   outputLeadLimit: number
   userId: string | null
+  workerEligible: boolean
 }
 
 type HtmlPage = {
@@ -218,7 +222,7 @@ function createSseResponse(message: string, status = 200) {
 }
 
 async function getOrCreateCurrentUsageRow(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: SupabaseClient<any>,
   userId: string,
   leadsLimit: number
 ) {
@@ -291,7 +295,7 @@ async function getOrCreateCurrentUsageRow(
 }
 
 async function incrementUsageRow(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: SupabaseClient<any>,
   usageRow: UsageRow,
   addedCount: number
 ) {
@@ -1099,7 +1103,9 @@ async function runScraper(
           // Enqueue for background enrichment via durable queue
           const enqueueStartedAt = Date.now()
           console.log(`[CI-TRACE] STEP 2 BEFORE enqueueLeadEnrichment lead_id=${saved.id}`)
-          const enqueueResult = await enqueueLeadEnrichment(saved.id, supabase)
+          const enqueueResult = await enqueueLeadEnrichment(saved.id, supabase, {
+            workerEligible: config.workerEligible,
+          })
           console.log(
             `[CI-TRACE] STEP 2 AFTER enqueueLeadEnrichment lead_id=${saved.id} ok=${enqueueResult.ok} queue_id=${enqueueResult.ok ? enqueueResult.data?.id || 'unknown' : 'N/A'} queue_status=${enqueueResult.ok ? enqueueResult.data?.status || 'unknown' : 'N/A'} elapsed_ms=${Date.now() - enqueueStartedAt}`
           )
@@ -1127,6 +1133,21 @@ async function runScraper(
         ]
           .filter(Boolean)
           .join(' | ')
+
+        if (saved.reason === 'duplicate' && config.workerEligible) {
+          // Owner-verified private preview: reuse the existing lead instead of
+          // dropping it, and let the database RPC decide whether it needs research.
+          const existingId = await findExistingOwnerLeadId(supabase, userId, lead)
+          if (existingId) {
+            addedLeads.push({ ...createGuestLead(lead), id: existingId })
+            addedCount += 1
+            const requeue = await enqueueLeadEnrichment(existingId, supabase, { workerEligible: true })
+            if (!requeue.ok) {
+              console.error(`[CI-SCRAPER] Queue: Failed to requeue ${existingId} - ${requeue.error}`)
+            }
+            continue
+          }
+        }
 
         if (saved.reason === 'duplicate') {
           duplicateCount += 1
@@ -1216,6 +1237,22 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser()
 
   const isGuestMode = !user && Boolean(guestSessionId)
+  const privatePreviewRequested = body.privatePreview === true
+  const isPrivatePreview = isPrivatePreviewWorkerRequest(
+    privatePreviewRequested,
+    user?.id,
+    process.env.PRIVATE_ALPA_OWNER_USER_ID
+  )
+
+  if (privatePreviewRequested && !isPrivatePreview) {
+    return new Response('data: ❌ private preview access denied\n\n', {
+      status: 404,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+      },
+    })
+  }
   console.log(
     'SCRAPER AUTH CONTEXT:',
     JSON.stringify(
@@ -1277,7 +1314,7 @@ export async function POST(req: Request) {
     })
 
     if (subscription.subscription_active || authenticatedPlan === 'admin') {
-      trackedUsageRow = await getOrCreateCurrentUsageRow(supabase, user.id, leadsLimit)
+      trackedUsageRow = await getOrCreateCurrentUsageRow(createAdminClient(), user.id, leadsLimit)
       currentUsage = trackedUsageRow.leads_used
 
       if (trackedUsageRow.leads_used >= trackedUsageRow.leads_limit) {
@@ -1299,6 +1336,7 @@ export async function POST(req: Request) {
     maxLeads: requestedLeadCount,
     outputLeadLimit: remainingCapacity,
     userId: user?.id || null,
+    workerEligible: isPrivatePreview,
   }
 
   const encoder = new TextEncoder()
@@ -1348,7 +1386,7 @@ export async function POST(req: Request) {
         if (trackedUsageRow) {
           try {
             const nextUsageRow = await incrementUsageRow(
-              supabase,
+              createAdminClient(),
               trackedUsageRow,
               finalResult.addedCount
             )

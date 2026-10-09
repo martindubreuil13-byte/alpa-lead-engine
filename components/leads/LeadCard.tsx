@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Columns3, ExternalLink, Globe, Mail, Phone, Zap } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, Globe, Mail, Phone } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -135,13 +135,11 @@ export default function LeadCard({
   isNew = false,
   context = 'inbox',
   onView,
-  onAddToPipeline,
   onContact,
   sourceUrl,
   sourceLabel,
   selected = false,
   onToggleSelect,
-  onPrepareOutreach,
   lifecycleLabel,
   lifecycleTone,
   expandedFooter,
@@ -159,7 +157,7 @@ export default function LeadCard({
     }
 
     if (inPipeline) {
-      return { label: 'In pipeline' }
+      return { label: 'Saved' }
     }
 
     if (isNew) {
@@ -173,13 +171,6 @@ export default function LeadCard({
   const phoneHref = phone ? `tel:${phone}` : undefined
   const normalizedSourceUrl = normalizeUrl(sourceUrl)
   const sourceHost = sourceLabel || getSourceHost(sourceUrl)
-  const pipelineLabel =
-    context === 'pipeline'
-      ? 'Update pipeline stage'
-      : inPipeline
-        ? 'Update pipeline'
-        : 'Add to pipeline'
-
   return (
     <article
       data-lead-id={id}
@@ -250,25 +241,6 @@ export default function LeadCard({
               >
                 <Globe className="h-4 w-4" />
               </ActionButton>
-
-              <ActionButton
-                label={pipelineLabel}
-                disabled={!onAddToPipeline}
-                active={inPipeline}
-                onClick={onAddToPipeline}
-              >
-                <Columns3 className="h-4 w-4" />
-              </ActionButton>
-
-              {onPrepareOutreach ? (
-                <ActionButton
-                  label="Prepare outreach"
-                  active={false}
-                  onClick={onPrepareOutreach}
-                >
-                  <Zap className="h-4 w-4 text-violet-300" />
-                </ActionButton>
-              ) : null}
 
               <ActionButton
                 label={detailsOpen ? 'Hide details' : 'Show details'}

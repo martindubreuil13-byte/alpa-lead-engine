@@ -1,7 +1,6 @@
 import { load } from 'cheerio'
+import { normalizeWebsiteUrl, safeFetchWebsite } from './safe-website-fetch'
 import type { BusinessSignals, ExtractionResult } from './types'
-
-const FETCH_TIMEOUT = 8000
 
 interface PageAnalysisResult {
   html: string
@@ -24,7 +23,7 @@ export async function generateBusinessSignals(
   }
 
   try {
-    const normalizedUrl = normalizeUrl(website)
+    const normalizedUrl = normalizeWebsiteUrl(website)
 
     // Check HTTPS
     const hasHttps = normalizedUrl.startsWith('https://')
@@ -100,44 +99,14 @@ export async function generateBusinessSignals(
   }
 }
 
-function normalizeUrl(url: string): string {
-  const trimmed = String(url).trim()
-  if (!trimmed) return ''
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed
-  }
-
-  return `https://${trimmed}`
-}
-
 async function fetchPage(url: string): Promise<PageAnalysisResult | null> {
   try {
-    const startTime = Date.now()
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      },
-      signal: controller.signal,
-      redirect: 'follow',
-    })
-
-    clearTimeout(timeout)
-
-    if (!response.ok) return null
-
-    const html = await response.text()
-    const responseTimeMs = Date.now() - startTime
+    const response = await safeFetchWebsite(url)
 
     return {
-      html,
-      statusCode: response.status,
-      responseTimeMs,
+      html: response.html,
+      statusCode: response.statusCode,
+      responseTimeMs: response.responseTimeMs,
     }
   } catch {
     return null

@@ -5,11 +5,11 @@ import { Sparkles, X } from 'lucide-react'
 export default function FirstSuccessModal({
   isOpen,
   onClose,
-  onEmailLeads,
+  onExportCsv,
 }: {
   isOpen: boolean
   onClose: () => void
-  onEmailLeads: () => void
+  onExportCsv: () => void
 }) {
   if (!isOpen) return null
 
@@ -49,10 +49,10 @@ export default function FirstSuccessModal({
           </button>
           <button
             type="button"
-            onClick={onEmailLeads}
+            onClick={onExportCsv}
             className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-base font-semibold text-slate-200 transition hover:border-white/18 hover:bg-white/[0.08]"
           >
-            Email Me My Leads
+            Export CSV
           </button>
         </div>
       </div>

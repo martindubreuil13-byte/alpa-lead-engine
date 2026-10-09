@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { getDailyEmailLimit, type EmailUsageSnapshot } from '@/lib/email/send-limits'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 export const runtime = 'nodejs'
 
@@ -298,6 +299,9 @@ async function incrementUsageWithAdminFallback(
 }
 
 export async function GET(req: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   try {
     const timeZone = getRequestTimeZone(req)
     const currentUsage = await getAuthenticatedUsage(timeZone)
@@ -325,6 +329,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   const supabase = await createServerClient()
   let userId: string | null = null
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { adminGuard } from '@/lib/auth/require-admin'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import type { TrialLead } from '@/lib/trial'
 
@@ -121,6 +122,10 @@ async function sendWithResend(payload: ResultsEmailPayload & { toEmail: string; 
 }
 
 export async function POST(req: Request) {
+  // Customer-facing email delivery is retired; kept for administrators only.
+  const denied = await adminGuard()
+  if (denied) return denied
+
   try {
     const payload: ResultsEmailPayload = await req.json()
     const toEmail = String(payload.toEmail || payload.email || '').trim().toLowerCase()

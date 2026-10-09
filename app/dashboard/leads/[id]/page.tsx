@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation'
 import FeatureLockNotice from '@/components/access/FeatureLockNotice'
 import FeatureLockModal from '@/components/modals/FeatureLockModal'
 import { getEmailLimitFeedback } from '@/lib/email/send-limits'
-import { canAccessFeature } from '@/lib/auth/access'
+import { canAccessFeature, isAdmin } from '@/lib/auth/access'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { getGuestLeads } from '@/lib/guest-session'
@@ -224,12 +224,22 @@ export default function Page() {
   const plan = profile?.plan || 'free'
   const isFree = plan === 'free'
   const emailLocked = !profileLoading && !canAccessFeature('email', profile)
+  // Email composition/templates are a retired customer feature: administrators only.
+  const showComposer = !profileLoading && isAdmin(profile)
 
   useEffect(() => {
     if (userLoading) return
     void fetchLead()
-    void fetchEmailSetup()
   }, [leadId, user, userLoading])
+
+  useEffect(() => {
+    if (userLoading || profileLoading) return
+    if (!showComposer) {
+      setSetupLoading(false)
+      return
+    }
+    void fetchEmailSetup()
+  }, [showComposer, user, userLoading, profileLoading])
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
   const senderProfile = useMemo(
@@ -457,7 +467,7 @@ export default function Page() {
   }
 
   if (profileLoading) {
-    return <div className="text-slate-400">Loading email composer...</div>
+    return <div className="text-slate-400">Loading lead...</div>
   }
 
   if (!lead) {
@@ -469,14 +479,21 @@ export default function Page() {
       <header className="glass p-5 sm:p-6">
         <div className="space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/70">
-            Lead composer
+            {showComposer ? 'Lead composer' : 'Business profile'}
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            Email Composer
+            {showComposer ? 'Email Composer' : lead.company_name}
           </h1>
           <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-            Choose a saved template, review the final email, and send it from the same mobile-first composer.
+            {showComposer
+              ? 'Choose a saved template, review the final email, and send it from the same mobile-first composer.'
+              : 'Contact details and business information for this saved lead.'}
           </p>
+          {!showComposer ? (
+            <Link href="/dashboard/my-leads" className="inline-flex text-sm text-emerald-200 transition hover:text-white">
+              Back to My Leads
+            </Link>
+          ) : null}
         </div>
 
         <div className="mt-5 rounded-[28px] border border-white/8 bg-white/[0.04] p-4">
@@ -509,7 +526,7 @@ export default function Page() {
         </div>
       </header>
 
-      {setupLoading ? (
+      {!showComposer ? null : setupLoading ? (
         <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6 text-slate-400">
           Loading your saved templates...
         </div>
@@ -683,14 +700,16 @@ export default function Page() {
         </div>
       )}
 
-      <FeatureLockModal
-        isOpen={showFeatureLock}
-        onClose={() => setShowFeatureLock(false)}
-        title="Email Sending"
-        description="Reviewing lead details stays available on free access, but sending outreach from inside ALPA unlocks on Starter."
-        benefit="Templates and built-in sending help you turn a good lead into a live conversation much faster."
-        showUpgradeCta={isFree}
-      />
+      {showComposer ? (
+        <FeatureLockModal
+          isOpen={showFeatureLock}
+          onClose={() => setShowFeatureLock(false)}
+          title="Email Sending"
+          description="Reviewing lead details stays available on free access, but sending outreach from inside ALPA unlocks on Starter."
+          benefit="Templates and built-in sending help you turn a good lead into a live conversation much faster."
+          showUpgradeCta={isFree}
+        />
+      ) : null}
     </div>
   )
 }

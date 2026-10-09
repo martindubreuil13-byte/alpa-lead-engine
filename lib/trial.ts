@@ -25,4 +25,15 @@ export type TrialLead = {
   updated_at?: string | null
   status_updated_at?: string | null
   last_activity_at?: string | null
+  commercial_profile?: {
+    summary?: string | null
+    industry?: string | null
+    primary_service?: string | null
+    target_customer?: string | null
+    core_services?: string[] | null
+    keywords?: string[] | null
+  } | null
+  ci_enrichment_status?: string | null
+  ci_completed_at?: string | null
+  ci_last_error?: string | null
 }

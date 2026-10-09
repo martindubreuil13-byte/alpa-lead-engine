@@ -2,27 +2,34 @@
 
 import { useEffect, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
-import { NaturalBriefing } from './NaturalBriefing'
+import { useRouter } from 'next/navigation'
+import {
+  NaturalBriefing,
+  type DesiredAction,
+  type OutreachBriefing,
+  type PreparationMode,
+} from './NaturalBriefing'
 import { RepositoryReasoningProcess } from './RepositoryReasoningProcess'
 import { RepositoryResults } from './RepositoryResults'
 import { RefinementOptions, type RefinementFilters } from './RefinementOptions'
 import { CampaignBrief } from './CampaignBrief'
 
 type Step = 'natural_briefing' | 'searching' | 'results' | 'refinement' | 'brief'
-type AutomationLevel = 'manual' | 'personalize' | 'generate'
-
 interface ProspectingSessionState {
   step: Step
   offering: string
   audience: string
   goal: string
+  desiredAction: DesiredAction | null
+  desiredActionLabel: string
+  ctaDetail: string
   totalMatches: number
   matchesWithCI: number
   matchesWithoutCI: number
   filters: RefinementFilters
   filteredCount: number
   capacity: number
-  automationLevel: AutomationLevel
+  preparationMode: PreparationMode
   recommendation: {
     advice: string
     priorityField: string | null
@@ -37,13 +44,16 @@ const INITIAL_STATE: ProspectingSessionState = {
   offering: '',
   audience: '',
   goal: '',
+  desiredAction: null,
+  desiredActionLabel: '',
+  ctaDetail: '',
   totalMatches: 0,
   matchesWithCI: 0,
   matchesWithoutCI: 0,
   filters: {},
   filteredCount: 0,
   capacity: 20,
-  automationLevel: 'personalize',
+  preparationMode: 'review',
   recommendation: null,
 }
 
@@ -56,6 +66,7 @@ export function ProspectingSession({
   onComplete,
   onCancel,
 }: ProspectingSessionProps) {
+  const router = useRouter()
   const [state, setState] = useState<ProspectingSessionState>(INITIAL_STATE)
   const [showSearch, setShowSearch] = useState(false)
 
@@ -81,15 +92,19 @@ export function ProspectingSession({
   }
 
   // Handle natural briefing completion - generate recommendation, then search
-  const handleBriefingComplete = async (
-    offering: string,
-    audience: string,
-    goal: string
-  ) => {
+  const handleBriefingComplete = async (briefing: OutreachBriefing) => {
+    const goal = briefing.ctaDetail
+      ? `${briefing.desiredActionLabel}: ${briefing.ctaDetail}`
+      : briefing.desiredActionLabel
+
     updateState({
-      offering,
-      audience,
+      offering: briefing.offering,
+      audience: briefing.audience,
       goal,
+      desiredAction: briefing.desiredAction,
+      desiredActionLabel: briefing.desiredActionLabel,
+      ctaDetail: briefing.ctaDetail,
+      preparationMode: briefing.preparationMode,
       step: 'searching',
     })
     setShowSearch(true)
@@ -99,7 +114,11 @@ export function ProspectingSession({
       const response = await fetch('/api/outreach/commercial-recommendation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ offering, audience, goal }),
+        body: JSON.stringify({
+          offering: briefing.offering,
+          audience: briefing.audience,
+          goal,
+        }),
       })
 
       if (response.ok) {
@@ -214,6 +233,7 @@ export function ProspectingSession({
             recommendation={state.recommendation}
             onNext={handleResultsNext}
             onAdjust={handleResultsAdjust}
+            onDiscover={() => router.push('/dashboard/scraper')}
           />
         )}
 
@@ -237,9 +257,11 @@ export function ProspectingSession({
             offering={state.offering}
             audience={state.audience}
             goal={state.goal}
+            desiredActionLabel={state.desiredActionLabel}
+            ctaDetail={state.ctaDetail}
             totalMatches={state.totalMatches}
             selectedCapacity={state.capacity}
-            automationLevel={state.automationLevel}
+            preparationMode={state.preparationMode}
             recommendation={state.recommendation}
             onNext={handleBriefNext}
             onBack={handleBack}

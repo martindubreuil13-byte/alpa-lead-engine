@@ -1,4 +1,5 @@
 import { Anthropic } from '@anthropic-ai/sdk'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -11,7 +12,33 @@ interface ParsedBriefing {
   confidence: number
 }
 
+function cleanExtractedField(value: unknown) {
+  if (typeof value !== 'string') return ''
+
+  const cleaned = value.trim().replace(/\s+/g, ' ')
+  const invalidValues = new Set([
+    '',
+    'n/a',
+    'na',
+    'none',
+    'not specified',
+    'unspecified',
+    'unknown',
+    'unclear',
+    'not clear',
+    'not mentioned',
+  ])
+
+  if (invalidValues.has(cleaned.toLowerCase())) return ''
+  if (cleaned.length < 3) return ''
+
+  return cleaned
+}
+
 export async function POST(request: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   try {
     const { input } = await request.json()
 
@@ -52,9 +79,15 @@ Be concise. Extract only from what they said. If something is unclear, leave it 
       throw new Error('Unexpected response type')
     }
 
-    const parsed: ParsedBriefing = JSON.parse(content.text)
+    const parsed = JSON.parse(content.text) as Partial<ParsedBriefing>
+    const sanitized: ParsedBriefing = {
+      offering: cleanExtractedField(parsed.offering),
+      audience: cleanExtractedField(parsed.audience),
+      goal: cleanExtractedField(parsed.goal),
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+    }
 
-    return Response.json(parsed)
+    return Response.json(sanitized)
   } catch (error) {
     console.error('[parse-briefing] Error:', error)
 

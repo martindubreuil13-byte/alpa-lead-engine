@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Mail, MapPin, X } from 'lucide-react'
+import { CheckCircle2, MapPin, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { enableGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { resetGuestSession } from '@/lib/session/resetGuestSession'
-import { getOrCreateGuestSessionId, saveGuestCaptureEmail, upsertGuestLead } from '@/lib/guest-session'
+import { getOrCreateGuestSessionId, upsertGuestLead } from '@/lib/guest-session'
+import { downloadLeadCsv } from '@/lib/leads/csv'
 import { supabase } from '@/lib/supabase'
 import { type TrialLead, FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { createAnalyticsSearchId, trackEvent } from '@/lib/track'
 
-type Phase = 'closed' | 'input' | 'searching' | 'reward' | 'emailCapture' | 'emailSuccess' | 'error'
+type Phase = 'closed' | 'input' | 'searching' | 'reward' | 'error'
 
 const STEPS = [
   'Scanning business records',
@@ -457,7 +458,7 @@ function RewardPhase({
   totalElapsedSeconds,
   remainingFreeLeads,
   onViewLeads,
-  onEmailCapture,
+  onDownloadCsv,
   onReSearch,
   onUpgrade,
   onClose,
@@ -471,7 +472,7 @@ function RewardPhase({
   totalElapsedSeconds: number
   remainingFreeLeads: number
   onViewLeads: () => void
-  onEmailCapture: () => void
+  onDownloadCsv: () => void
   onReSearch: () => void
   onUpgrade: () => void
   onClose: () => void
@@ -545,169 +546,14 @@ function RewardPhase({
         {isAtLimit ? (
           <>
             <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" conversion />
-            <GhostBtn onClick={onEmailCapture} label="Email my leads" />
+            <GhostBtn onClick={onDownloadCsv} label="Download CSV" />
             <TextLink onClick={onViewLeads} label="View leads" />
           </>
         ) : (
           <>
             <CmdBar onClick={onViewLeads} prefix="Your leads" label="View leads" dot="emerald" conversion />
             <GhostBtn onClick={onReSearch} label="Run another free search" />
-            <TextLink onClick={onEmailCapture} label="Email my leads" />
-          </>
-        )}
-      </div>
-    </>
-  )
-}
-
-function EmailCapturePhase({
-  totalLeads,
-  email,
-  setEmail,
-  emailError,
-  emailSending,
-  onSend,
-  onSkip,
-  onClose,
-}: {
-  totalLeads: number
-  email: string
-  setEmail: (v: string) => void
-  emailError: string
-  emailSending: boolean
-  onSend: () => void
-  onSkip: () => void
-  onClose: () => void
-}) {
-  const canSend = email.trim().length > 0 && !emailSending
-
-  return (
-    <>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Mail className="h-3.5 w-3.5 text-blue-400/70" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Send your lead list
-            </span>
-          </div>
-          <h2
-            id="trial-flow-title"
-            className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl"
-          >
-            Send your {totalLeads} leads
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            We&apos;ll send your leads to your inbox so you can work them later.
-          </p>
-        </div>
-        <CloseButton onClick={onClose} />
-      </div>
-
-      <div className="mt-6">
-        <label htmlFor="trial-email" className="mb-1.5 block text-xs font-medium text-slate-500">
-          Email address
-        </label>
-        <input
-          id="trial-email"
-          type="email"
-          className="input"
-          placeholder="name@company.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && onSend()}
-          autoComplete="email"
-        />
-        {emailError && <p className="mt-2 text-xs text-rose-400">{emailError}</p>}
-      </div>
-
-      <div className="mt-5 space-y-2.5">
-        <button
-          type="button"
-          disabled={!canSend}
-          onClick={onSend}
-          className={cn(
-            canSend
-              ? 'btn-primary-gold group w-full'
-              : 'inline-flex min-h-[60px] w-full cursor-not-allowed items-center justify-center rounded-[13px] border border-white/[0.05] bg-[rgba(10,18,32,0.40)] px-7 text-base font-semibold text-slate-600 opacity-40'
-          )}
-        >
-          {emailSending ? 'Sending…' : 'Send my leads'}
-          {canSend && !emailSending ? (
-            <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
-              →
-            </span>
-          ) : null}
-        </button>
-        <GhostBtn onClick={onSkip} label="Skip — view leads in dashboard" />
-      </div>
-    </>
-  )
-}
-
-function EmailSuccessPhase({
-  email,
-  totalLeadsGenerated,
-  totalElapsedSeconds,
-  remainingFreeLeads,
-  onViewLeads,
-  onReSearch,
-  onUpgrade,
-  onClose,
-}: {
-  email: string
-  totalLeadsGenerated: number
-  totalElapsedSeconds: number
-  remainingFreeLeads: number
-  onViewLeads: () => void
-  onReSearch: () => void
-  onUpgrade: () => void
-  onClose: () => void
-}) {
-  const isAtLimit = remainingFreeLeads === 0
-
-  return (
-    <>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400/80" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Email sent
-            </span>
-          </div>
-          <h2
-            id="trial-flow-title"
-            className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl"
-          >
-            Your lead list is on its way.
-          </h2>
-          <p className="mt-1 text-sm leading-relaxed text-slate-500">
-            You generated{' '}
-            <span className="text-slate-300">
-              {totalLeadsGenerated} lead{totalLeadsGenerated !== 1 ? 's' : ''}
-            </span>{' '}
-            in{' '}
-            <span className="text-slate-300">
-              {totalElapsedSeconds} second{totalElapsedSeconds !== 1 ? 's' : ''}
-            </span>
-            . Check{' '}
-            <span className="text-slate-300">{email}</span>.
-          </p>
-        </div>
-        <CloseButton onClick={onClose} />
-      </div>
-
-      <div className="mt-6 space-y-2.5">
-        {isAtLimit ? (
-          <>
-            <CmdBar onClick={onUpgrade} prefix="Plans" label="Continue prospecting" dot="blue" conversion />
-            <GhostBtn onClick={onViewLeads} label="View leads" />
-          </>
-        ) : (
-          <>
-            <CmdBar onClick={onReSearch} prefix="Free trial" label="Run another free search" dot="blue" conversion />
-            <GhostBtn onClick={onViewLeads} label="View leads" />
+            <TextLink onClick={onDownloadCsv} label="Download CSV" />
           </>
         )}
       </div>
@@ -769,9 +615,6 @@ export default function FreeTrialCommandFlow() {
   const [allLeads, setAllLeads] = useState<TrialLead[]>([])
 
   // Email
-  const [email, setEmail] = useState('')
-  const [emailSending, setEmailSending] = useState(false)
-  const [emailError, setEmailError] = useState('')
 
   // Persistent card
   const [cardDismissed, setCardDismissed] = useState(false)
@@ -1002,46 +845,11 @@ export default function FreeTrialCommandFlow() {
     }, 700)
   }, [businessType, location, leadCount, remainingFreeLeads])
 
-  const sendEmail = useCallback(async () => {
-    if (!email.trim() || emailSending) return
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setEmailError('Please enter a valid email address.')
-      return
-    }
-
-    setEmailSending(true)
-    setEmailError('')
-    saveGuestCaptureEmail(email.trim())
-
-    try {
-      const res = await fetch('/api/results-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toEmail: email.trim(),
-          leads: allLeads,
-          summaryLine,
-          elapsedSeconds: totalElapsedSeconds,
-          detailLine: null,
-          limitMessage: null,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        setEmailError(data?.error ?? 'Something went wrong. Please try again.')
-        return
-      }
-
-      void trackEvent('email_captured', { email: email.trim(), leads_count: allLeads.length })
-      trackGaEvent('email_captured', { capture_location: 'trial_flow', visitor_type: 'guest' })
-      setPhase('emailSuccess')
-    } catch {
-      setEmailError('Something went wrong. Please try again.')
-    } finally {
-      setEmailSending(false)
-    }
-  }, [email, emailSending, allLeads, summaryLine, totalElapsedSeconds])
+  const downloadCsv = useCallback(() => {
+    if (allLeads.length === 0) return
+    downloadLeadCsv(allLeads)
+    void trackEvent('csv_downloaded', { leads_count: allLeads.length })
+  }, [allLeads])
 
   const viewLeads = useCallback(() => router.push('/dashboard/leads'), [router])
   const upgrade = useCallback(() => router.push('/plans'), [router])
@@ -1116,33 +924,7 @@ export default function FreeTrialCommandFlow() {
                 totalElapsedSeconds={totalElapsedSeconds}
                 remainingFreeLeads={remainingFreeLeads}
                 onViewLeads={viewLeads}
-                onEmailCapture={() => setPhase('emailCapture')}
-                onReSearch={openForReSearch}
-                onUpgrade={upgrade}
-                onClose={close}
-              />
-            )}
-
-            {phase === 'emailCapture' && (
-              <EmailCapturePhase
-                totalLeads={allLeads.length}
-                email={email}
-                setEmail={setEmail}
-                emailError={emailError}
-                emailSending={emailSending}
-                onSend={sendEmail}
-                onSkip={viewLeads}
-                onClose={close}
-              />
-            )}
-
-            {phase === 'emailSuccess' && (
-              <EmailSuccessPhase
-                email={email}
-                totalLeadsGenerated={totalLeadsGenerated}
-                totalElapsedSeconds={totalElapsedSeconds}
-                remainingFreeLeads={remainingFreeLeads}
-                onViewLeads={viewLeads}
+                onDownloadCsv={downloadCsv}
                 onReSearch={openForReSearch}
                 onUpgrade={upgrade}
                 onClose={close}

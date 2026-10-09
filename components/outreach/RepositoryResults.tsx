@@ -28,17 +28,16 @@ export function RepositoryResults({
 }: RepositoryResultsProps) {
   const hasEnoughMatches = totalMatches >= 5
   const recommendedCapacity = Math.min(RECOMMENDED_CAPACITY, totalMatches)
-  const percentWithCI = totalMatches > 0 ? Math.round((matchesWithCI / totalMatches) * 100) : 0
 
   if (totalMatches === 0) {
     return (
-      <div className="space-y-6">
-        <div className="space-y-3 text-center py-12">
-          <p className="text-base text-white">
-            I didn't find any matching businesses in your library.
-          </p>
-          <p className="text-sm text-slate-400">
-            Try discovering new businesses or refining your search.
+      <div className="max-w-3xl space-y-6">
+        <div className="space-y-3 py-8">
+          <h2 className="text-2xl font-semibold leading-tight text-white">
+            I do not have enough businesses to recommend yet.
+          </h2>
+          <p className="text-base leading-7 text-slate-300">
+            I recommend finding more businesses before preparing outreach, so the messages are aimed at real commercial fit.
           </p>
         </div>
 
@@ -46,9 +45,9 @@ export function RepositoryResults({
           <button
             type="button"
             onClick={onDiscover}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-400"
           >
-            Discover Businesses
+            Find more businesses
             <ArrowRight className="h-4 w-4" />
           </button>
         )}
@@ -58,13 +57,13 @@ export function RepositoryResults({
 
   if (!hasEnoughMatches) {
     return (
-      <div className="space-y-6">
+      <div className="max-w-3xl space-y-6">
         <div className="space-y-4 py-8">
-          <p className="text-base text-white">
-            I found {totalMatches} business{totalMatches !== 1 ? 'es' : ''} in your library.
-          </p>
-          <p className="text-sm text-slate-400">
-            I recommend discovering more before starting outreach to have better quality options.
+          <h2 className="text-2xl font-semibold leading-tight text-white">
+            I only found {totalMatches} strong candidate{totalMatches === 1 ? '' : 's'}.
+          </h2>
+          <p className="text-base leading-7 text-slate-300">
+            I recommend finding more businesses before preparing outreach. A larger pool gives ALPA better options without lowering message quality.
           </p>
         </div>
 
@@ -72,9 +71,9 @@ export function RepositoryResults({
           <button
             type="button"
             onClick={onDiscover}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-violet-400/30 bg-violet-500/20 text-sm font-medium text-violet-200 transition hover:bg-violet-500/30 hover:border-violet-400/50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-400"
           >
-            Discover More Businesses
+            Find more businesses
             <ArrowRight className="h-4 w-4" />
           </button>
         )}
@@ -92,13 +91,20 @@ export function RepositoryResults({
 
   return (
     <div className="space-y-12 max-w-3xl">
-      {/* Why These Businesses */}
       <div className="space-y-6">
         <p className="text-sm text-slate-400">Commercial recommendation</p>
 
         <h2 className="text-2xl font-semibold text-white leading-tight">
-          I recommend these {recommendedCapacity} businesses because:
+          I recommend starting with {recommendedCapacity} businesses today.
         </h2>
+
+        <p className="text-base leading-7 text-slate-300">
+          That is enough to create meaningful conversations without sacrificing personalization quality.
+        </p>
+
+        <p className="text-sm leading-6 text-slate-400">
+          I reviewed {totalMatches.toLocaleString()} businesses and found {matchesWithCI.toLocaleString()} with enough commercial intelligence to support a useful first message.
+        </p>
 
         <div className="space-y-4">
           <div className="flex gap-4">

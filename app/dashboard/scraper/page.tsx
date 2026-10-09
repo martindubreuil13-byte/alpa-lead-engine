@@ -5,13 +5,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Building2, Globe, Mail, MapPin, Phone } from 'lucide-react'
 import LeadCard from '@/components/leads/LeadCard'
+import PrivatePreviewLeadCard from '@/components/leads/PrivatePreviewLeadCard'
 import { isAdmin, isAdminPlan, isPaid, isPaidPlan } from '@/lib/auth/access'
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import FirstSuccessModal from '@/components/modals/FirstSuccessModal'
 import PartialCompletionModal from '@/components/modals/PartialCompletionModal'
-import SendLeadsModal from '@/components/modals/SendLeadsModal'
 import {
   getGuestLeads,
   getOrCreateGuestSessionId,
@@ -49,6 +49,10 @@ import {
 import { FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import ProspectorOnboardingOverlay from '@/components/scraper/ProspectorOnboardingOverlay'
 import TrialLimitModal from '@/components/scraper/TrialLimitModal'
+import {
+  mergePrivatePreviewResearch,
+  shouldRefreshPrivatePreviewResearch,
+} from '@/lib/commercial-intelligence/private-preview-research'
 
 const LEAD_OPTIONS = ['10', '25', '50']
 const FIRST_SUCCESS_MODAL_STORAGE_KEY = 'alpa_first_success_modal_seen'
@@ -484,7 +488,9 @@ function getMetricIcon(label: string) {
   }
 }
 
-export default function Page() {
+const PRIVATE_PREVIEW_POLL_INTERVAL_MS = 20_000
+
+export function DiscoverExperience({ privatePreview = false }: { privatePreview?: boolean }) {
   const router = useRouter()
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
@@ -513,7 +519,6 @@ export default function Page() {
   const [guestClaimResult, setGuestClaimResult] = useState<StoredGuestClaimResult | null>(null)
   const [showFirstSuccessModal, setShowFirstSuccessModal] = useState(false)
   const [showPartialCompletionModal, setShowPartialCompletionModal] = useState(false)
-  const [showSendLeadsModal, setShowSendLeadsModal] = useState(false)
   const [showTrialLimitModal, setShowTrialLimitModal] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
@@ -612,6 +617,48 @@ export default function Page() {
       activity.includes('Checking') ||
       activity.includes('Deep enrichment'))
   const previewLeads = sessionSavedLeads.slice(0, 5)
+  const displayedPreviewLeads = privatePreview ? sessionSavedLeads : previewLeads
+  const privatePreviewLeadIds = privatePreview
+    ? sessionSavedLeads.map((lead) => lead.id).filter(Boolean).join(',')
+    : ''
+  const hasPendingPrivateResearch =
+    privatePreview &&
+    sessionSavedLeads.length > 0 &&
+    shouldRefreshPrivatePreviewResearch(sessionSavedLeads)
+
+  useEffect(() => {
+    if (!hasPendingPrivateResearch || !privatePreviewLeadIds) return
+
+    let cancelled = false
+    const refreshResearch = async () => {
+      try {
+        const response = await fetch('/api/leads/private-preview-research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: privatePreviewLeadIds.split(',') }),
+        })
+        if (!response.ok) return
+
+        const payload = await response.json()
+        if (!cancelled && payload?.ok && Array.isArray(payload.data)) {
+          setSessionSavedLeads((current) => mergePrivatePreviewResearch(current, payload.data))
+        }
+      } catch (error) {
+        console.warn(
+          '[private-preview] research refresh unavailable:',
+          error instanceof Error ? error.message : 'Unknown error'
+        )
+      }
+    }
+
+    void refreshResearch()
+    const interval = window.setInterval(refreshResearch, PRIVATE_PREVIEW_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [hasPendingPrivateResearch, privatePreviewLeadIds])
+
   const skippedInvalidCount = guestClaimResult?.skipped_invalid ?? 0
   const skippedDuplicateCount = guestClaimResult?.skipped_duplicate ?? 0
   const showGuestClaimHelper = skippedInvalidCount > 0 || skippedDuplicateCount > 0
@@ -910,7 +957,6 @@ export default function Page() {
     setCompletionResult(null)
     setGuestClaimResult(null)
     setShowPartialCompletionModal(false)
-    setShowSendLeadsModal(false)
     setToastMessage('')
     setActivity('Idle')
     clearStoredGuestClaimResult()
@@ -1126,7 +1172,6 @@ export default function Page() {
       setCompletionResult(null)
       setShowFirstSuccessModal(false)
       setShowPartialCompletionModal(false)
-      setShowSendLeadsModal(false)
       setToastMessage('')
       setActivity('Finding businesses...')
       runStartUsageRef.current = resolvedUsageCount
@@ -1139,6 +1184,7 @@ export default function Page() {
         maxLeads: activeRequestedLeadCount,
         existingLeadCount: isGuest ? guestLeadCount : authenticatedLeadCount,
         guestSessionId: isGuest ? getOrCreateGuestSessionId() : null,
+        privatePreview,
       }
       const analyticsSearchId = createAnalyticsSearchId()
       const searchStartedAt = Date.now()
@@ -1444,45 +1490,24 @@ export default function Page() {
   }
 
   function downloadPreviewLeads() {
-    if (!previewLeads.length) return
+    const exportLeads = privatePreview ? sessionSavedLeads : previewLeads
+    if (!exportLeads.length) return
 
-    const csv = buildLeadCsv(previewLeads)
+    const csv = buildLeadCsv(exportLeads)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = 'alpa-leads-preview.csv'
     link.click()
     URL.revokeObjectURL(link.href)
-    void trackEvent('csv_downloaded', { leads_count: previewLeads.length })
+    void trackEvent('csv_downloaded', { leads_count: exportLeads.length })
     trackGaEvent('csv_downloaded', {
       query: businessType.trim(),
       location: locationTarget,
-      leads_exported: previewLeads.length,
+      leads_exported: exportLeads.length,
       visitor_type: visitorType,
       session_id: analyticsSessionId || undefined,
     })
-  }
-
-  // PHASE 0.1: Scraper is pure discovery (acquisition only).
-  // Pipeline management happens in My Leads and Pipeline modules.
-  // This function now navigates to My Leads instead of updating status.
-  async function addPreviewLeadToPipeline(id: string) {
-    const targetLead = sessionSavedLeads.find((lead) => lead.id === id)
-    if (!targetLead) return
-
-    if (isFree) {
-      requestInboxFocus()
-      setToastMessage('Go to My Leads to manage pipeline actions.')
-      router.push('/dashboard/my-leads')
-      return
-    }
-
-    // PHASE 0.1: Removed status update (was: status: 'pipeline')
-    // Businesses are created with default status in My Leads repository.
-    // Pipeline assignment happens through My Leads or Pipeline module.
-
-    setToastMessage(`${targetLead.company_name} is in your My Leads repository.`)
-    router.push('/dashboard/my-leads')
   }
 
   function clearValidation() {
@@ -1521,7 +1546,7 @@ export default function Page() {
             Live discovery
           </div>
           <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-white">
-            Finding your leads
+            Finding businesses
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             Searching businesses, checking websites, and validating contact details.
@@ -1655,21 +1680,21 @@ export default function Page() {
                   DISCOVER
                 </div>
                 <h1 className="mt-2 text-[2rem] font-semibold leading-[1.04] tracking-[-0.04em] text-white sm:text-[2.6rem]">
-                  Find new business leads
+                  Discover businesses
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:hidden">
-                  Tell ALPA who you want to find. We&apos;ll search, verify, and prepare leads.
+                  Tell ALPA who you want to find. We&apos;ll search, verify, and save businesses.
                 </p>
                 <p className="mt-2 hidden max-w-2xl text-[15px] leading-7 text-slate-400 sm:block">
                   Tell ALPA who you want to find. We&apos;ll search, verify, and prepare
-                  contact-ready leads in seconds.
+                  relevant businesses in seconds.
                 </p>
               </div>
 
               <div className="rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
                 {isPlanLoading || usageLoading
                   ? 'Preparing your workspace...'
-                  : `${resolvedUsageCount} of ${formatLeadLimit(resolvedLeadLimit)} leads used this month`}
+                  : `${resolvedUsageCount} of ${formatLeadLimit(resolvedLeadLimit)} businesses discovered this month`}
               </div>
             </div>
 
@@ -1720,7 +1745,7 @@ export default function Page() {
                 </div>
 
                 <div className="space-y-2 border-white/8 lg:border-l lg:pl-3">
-                  <label className="text-sm font-medium text-slate-200">Lead count</label>
+                  <label className="text-sm font-medium text-slate-200">Result count</label>
                   <div className="grid grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-[#07111f]/92 p-1.5 sm:max-w-xs lg:max-w-none">
                     {LEAD_OPTIONS.map((option) => {
                       const selected = maxLeads === option
@@ -1761,7 +1786,7 @@ export default function Page() {
                   disabled={loading || hasMissingRequiredFields}
                   className="btn-primary-gold w-full"
                 >
-                  {loading ? 'Finding leads...' : 'Find leads'}
+                  {loading ? 'Finding businesses...' : 'Find businesses'}
                 </button>
               </div>
             </div>
@@ -1793,7 +1818,7 @@ export default function Page() {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                       <span>{search.location}</span>
-                      {search.leadCount ? <span>{search.leadCount} leads</span> : null}
+                      {search.leadCount ? <span>{search.leadCount} businesses</span> : null}
                     </div>
                   </div>
 
@@ -1827,13 +1852,13 @@ export default function Page() {
                     <h2 className="text-5xl font-semibold tracking-[-0.02em] text-white sm:text-6xl">
                       {completionResult.addedCount}
                     </h2>
-                    <span className="text-base font-medium text-slate-300">contact-ready leads</span>
+                    <span className="text-base font-medium text-slate-300">businesses saved</span>
                   </div>
                 </div>
               </div>
               {averageTimePerValidatedLead !== null ? (
                 <p className="text-sm text-slate-400">
-                  Validated in {formatTime(averageTimePerValidatedLead)} average per lead
+                  Validated in {formatTime(averageTimePerValidatedLead)} average per business
                 </p>
               ) : null}
             </div>
@@ -1873,27 +1898,32 @@ export default function Page() {
               </div>
             ) : null}
 
-            {(completionResult || guestClaimResult) && previewLeads.length > 0 ? (
+            {(completionResult || guestClaimResult) && displayedPreviewLeads.length > 0 ? (
               <div className="space-y-3 pt-4 opacity-0 animate-[fadeInUp_0.5s_ease-out_0.55s_forwards]">
                 <h3 className="text-sm font-medium tracking-[0.05em] text-slate-400">
-                  Preview ({previewLeads.length} of {sessionSavedLeads.length})
+                  {privatePreview
+                    ? `Results (${sessionSavedLeads.length})`
+                    : `Preview (${previewLeads.length} of ${sessionSavedLeads.length})`}
                 </h3>
                 <div className="space-y-2">
-                  {previewLeads.map((lead) => (
+                  {displayedPreviewLeads.map((lead) => (
                     <div key={lead.id} className="opacity-0 animate-[fadeInUp_0.4s_ease-out_0.6s_forwards]">
-                      <LeadCard
-                        id={lead.id}
-                        name={lead.company_name}
-                        location={formatLeadPreviewLocation(lead) || 'Verified business lead'}
-                        email={lead.email}
-                        phone={lead.phone}
-                        inPipeline={lead.status === 'pipeline'}
-                        contacted={lead.status === 'contacted'}
-                        isNew
-                        context="prospector"
-                        sourceUrl={lead.website}
-                        onAddToPipeline={() => void addPreviewLeadToPipeline(lead.id)}
-                      />
+                      {privatePreview ? (
+                        <PrivatePreviewLeadCard lead={lead} />
+                      ) : (
+                        <LeadCard
+                          id={lead.id}
+                          name={lead.company_name}
+                          location={formatLeadPreviewLocation(lead) || 'Verified business lead'}
+                          email={lead.email}
+                          phone={lead.phone}
+                          inPipeline={lead.status === 'pipeline'}
+                          contacted={lead.status === 'contacted'}
+                          isNew
+                          context="prospector"
+                          sourceUrl={lead.website}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1916,7 +1946,7 @@ export default function Page() {
                 type="button"
                 onClick={() => {
                   requestInboxFocus()
-                  router.push('/dashboard/leads')
+                  router.push('/dashboard/my-leads')
                 }}
                 className="btn-primary-gold w-full lg:col-span-2"
               >
@@ -1926,19 +1956,10 @@ export default function Page() {
               <button
                 type="button"
                 onClick={downloadPreviewLeads}
-                disabled={!previewLeads.length}
+                disabled={!displayedPreviewLeads.length}
                 className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Export CSV
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowSendLeadsModal(true)}
-                disabled={!sessionSavedLeads.length}
-                className="btn-secondary min-h-[52px] w-full rounded-2xl px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Email CSV
               </button>
             </div>
 
@@ -1968,34 +1989,21 @@ export default function Page() {
       />
 
       <FirstSuccessModal
-        isOpen={showFirstSuccessModal}
+        isOpen={!privatePreview && showFirstSuccessModal}
         onClose={() => setShowFirstSuccessModal(false)}
-        onEmailLeads={() => {
+        onExportCsv={() => {
           setShowFirstSuccessModal(false)
-          setShowSendLeadsModal(true)
-        }}
-      />
-
-      <SendLeadsModal
-        isOpen={showSendLeadsModal}
-        onClose={() => setShowSendLeadsModal(false)}
-        viewerEmail={viewerEmail}
-        leads={sessionSavedLeads}
-        summaryLine={completionResult?.summaryLine || `${sessionSavedLeads.length} leads ready from your ALPA session`}
-        query={businessType.trim()}
-        location={locationTarget}
-        visitorType={visitorType}
-        sessionId={analyticsSessionId}
-        onSent={(message) => {
-          setShowSendLeadsModal(false)
-          setToastMessage(message)
+          downloadPreviewLeads()
         }}
       />
 
       <TrialLimitModal
-        isOpen={showTrialLimitModal}
+        isOpen={!privatePreview && showTrialLimitModal}
         onClose={() => setShowTrialLimitModal(false)}
-        onEmailLeads={() => setShowSendLeadsModal(true)}
+        onExportCsv={() => {
+          setShowTrialLimitModal(false)
+          downloadPreviewLeads()
+        }}
       />
 
       {toastMessage ? (
@@ -2005,4 +2013,8 @@ export default function Page() {
       ) : null}
     </>
   )
+}
+
+export default function Page() {
+  return <DiscoverExperience />
 }

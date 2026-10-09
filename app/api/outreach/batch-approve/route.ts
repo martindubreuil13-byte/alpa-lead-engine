@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { createServerClient } from '@/lib/supabase/server'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 export const runtime = 'nodejs'
 
@@ -10,6 +11,9 @@ const requestSchema = z.object({
 })
 
 export async function POST(req: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   try {
     const body = await req.json().catch(() => null)
     const parsed = requestSchema.safeParse(body)

@@ -7,11 +7,11 @@ import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
 export default function TrialLimitModal({
   isOpen,
   onClose,
-  onEmailLeads,
+  onExportCsv,
 }: {
   isOpen: boolean
   onClose: () => void
-  onEmailLeads: () => void
+  onExportCsv: () => void
 }) {
   if (!isOpen) return null
 
@@ -67,11 +67,11 @@ export default function TrialLimitModal({
               type="button"
               onClick={() => {
                 onClose()
-                onEmailLeads()
+                onExportCsv()
               }}
               className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-6 text-sm font-semibold text-slate-200 transition hover:border-white/18 hover:bg-white/[0.07]"
             >
-              Email Me My Leads
+              Export CSV
             </button>
             <Link
               href="/plans"

@@ -43,7 +43,7 @@ const flowSteps = [
   },
   {
     title: 'Get leads',
-    body: 'Export or start outreach',
+    body: 'Copy or export to CSV',
   },
 ]
 

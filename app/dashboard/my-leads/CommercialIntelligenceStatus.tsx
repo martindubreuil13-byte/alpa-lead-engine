@@ -87,7 +87,7 @@ export default function CommercialIntelligenceStatus() {
           <div>
             <p className="text-sm font-semibold text-emerald-300 mb-2">✓ Commercial Intelligence Complete</p>
             <p className="text-sm text-slate-400 leading-relaxed">
-              Your entire lead database has been analyzed. All {stats.total_leads} {stats.total_leads === 1 ? 'business' : 'businesses'} are ready for outreach.
+              Your saved business library has been analyzed. All {stats.total_leads} {stats.total_leads === 1 ? 'business' : 'businesses'} now have commercial context.
             </p>
           </div>
           {activityMessage && (
@@ -104,8 +104,8 @@ export default function CommercialIntelligenceStatus() {
       <div className="space-y-6">
         {/* HEADER - Minimal, value-focused */}
         <div>
-          <h3 className="text-sm font-semibold text-white">Your Lead Database Is Getting Smarter</h3>
-          <p className="text-xs text-slate-400 mt-1">Analyzing businesses to help you sell smarter</p>
+          <h3 className="text-sm font-semibold text-white">Your Business Library Is Getting Smarter</h3>
+          <p className="text-xs text-slate-400 mt-1">Analyzing businesses so you can understand them faster</p>
         </div>
 
         {/* PRIMARY METRIC: Analyzed Count with Animation */}

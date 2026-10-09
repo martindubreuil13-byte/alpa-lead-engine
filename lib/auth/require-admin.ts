@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server'
-import type { createServerClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+
+import { isAdmin } from '@/lib/auth/access'
+import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { createServerClient } from '@/lib/supabase/server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerClient>>
 
@@ -31,4 +35,18 @@ export async function requireAdmin(
   }
 
   return { userId: user.id, error: null }
+}
+
+/** API guard: returns a 401/403 response for anyone who is not an admin, otherwise null. */
+export async function adminGuard(): Promise<NextResponse | null> {
+  const { error } = await requireAdmin(await createServerClient())
+  return error
+}
+
+/** Page guard for server layouts: sends non-admins back to the customer dashboard. */
+export async function requireAdminPage() {
+  const profile = await getUserProfile()
+  if (!profile) redirect('/login')
+  if (!isAdmin(profile)) redirect('/dashboard')
+  return profile
 }

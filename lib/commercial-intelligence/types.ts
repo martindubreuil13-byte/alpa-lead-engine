@@ -21,6 +21,12 @@ export interface WebsiteSnapshot {
   extracted_at: string // ISO timestamp
   page_language?: string
   favicon_url?: string
+  research_pages?: Array<{
+    kind: 'homepage' | 'about' | 'services' | 'contact'
+    url: string
+    text: string
+  }>
+  source_urls?: string[]
 }
 
 export interface BusinessSignals {
@@ -43,7 +49,7 @@ export interface BusinessSignals {
 }
 
 export interface CommercialProfile {
-  summary: string // 1-2 sentence factual summary
+  summary: string // Approximately 50-80 words, grounded in website evidence
   industry: string // e.g., "Software Development"
   business_category: string // e.g., "B2B SaaS"
   primary_service: string // Main offering

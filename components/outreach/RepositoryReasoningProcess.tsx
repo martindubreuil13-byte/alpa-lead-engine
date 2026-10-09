@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface ReasoningStep {
   label: string
@@ -26,29 +26,30 @@ export function RepositoryReasoningProcess({
   goal,
   onComplete,
 }: RepositoryReasoningProcessProps) {
+  const hasStarted = useRef(false)
   const [steps, setSteps] = useState<ReasoningStep[]>([
     {
-      label: 'Scanning your library',
+      label: 'Businesses reviewed',
       value: 0,
-      description: 'Searching all businesses in your repository',
+      description: 'Starting with the businesses already available to reach',
       completed: false,
     },
     {
-      label: 'Commercial intelligence available',
+      label: 'Ready for judgment',
       value: 0,
-      description: 'Businesses with commercial profiles analyzed',
+      description: 'Businesses with enough commercial context to evaluate',
       completed: false,
     },
     {
-      label: 'Commercial fit assessment',
+      label: 'Strong candidates',
       value: 0,
-      description: 'Evaluating relevance to your offering',
+      description: 'Matches with clear relevance to your offer and audience',
       completed: false,
     },
     {
-      label: 'Today\'s recommendation',
+      label: 'Recommended for today',
       value: 0,
-      description: 'Top candidates for immediate outreach',
+      description: 'A focused starting group for personalized outreach',
       completed: false,
     },
   ])
@@ -56,6 +57,9 @@ export function RepositoryReasoningProcess({
   const [currentStep, setCurrentStep] = useState(0)
 
   useEffect(() => {
+    if (hasStarted.current) return
+    hasStarted.current = true
+
     // Simulate the reasoning process with realistic numbers
     const sequence = async () => {
       // Step 1: Total count
@@ -113,7 +117,21 @@ export function RepositoryReasoningProcess({
   return (
     <div className="space-y-12 max-w-3xl">
       <div className="space-y-6">
-        <p className="text-sm text-slate-400">Evaluating commercial opportunities…</p>
+        <p className="text-sm text-slate-400">Evaluating commercial opportunities...</p>
+
+        <div className="space-y-3">
+          <h2 className="text-2xl font-semibold leading-tight text-white">
+            Based on what you're selling, I'll prioritize businesses that look mature enough to buy, but still early enough to benefit.
+          </h2>
+          <p className="text-base leading-7 text-slate-300">
+            I am looking for fit with {offering}, relevance to {audience}, and enough commercial context to prepare a specific first message.
+          </p>
+          {goal ? (
+            <p className="text-sm leading-6 text-slate-400">
+              The outreach will be judged against one practical outcome: {goal}.
+            </p>
+          ) : null}
+        </div>
 
         <div className="space-y-4">
           {steps.map((step, index) => (
@@ -152,7 +170,7 @@ export function RepositoryReasoningProcess({
       {currentStep === 4 && (
         <div className="border-t border-slate-700 pt-6">
           <p className="text-sm text-slate-300">
-            ✓ Search complete. Recommendations ready.
+            Search complete. Recommendations ready.
           </p>
         </div>
       )}

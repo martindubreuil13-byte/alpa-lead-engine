@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 
 import { createServerClient } from '@/lib/supabase/server'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 export async function POST(req: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   const body = await req.json().catch(() => null)
   console.log('[MISSION DELETE BODY]', body)
   const missionId = body?.missionId || body?.id

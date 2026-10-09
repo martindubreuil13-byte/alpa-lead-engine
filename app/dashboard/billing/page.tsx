@@ -92,7 +92,7 @@ export default async function BillingPage() {
   const currentPlanDescription = userIsAdmin
     ? 'Unlimited access across all ALPA features.'
     : user.plan === 'pro'
-      ? 'Paid access across prospecting, outreach, and workflow tools.'
+      ? 'Paid access across business discovery, research, and lead export.'
       : user.plan === 'prospector'
         ? '120 verified business leads per month with website and contact details.'
         : userIsPaid
@@ -159,7 +159,7 @@ export default async function BillingPage() {
                 Ready to unlock more?
               </h2>
               <p className="mt-3 max-w-2xl text-base leading-7 text-slate-300">
-                Upgrade to Starter to generate more leads and start outreach.
+                Upgrade to Starter to generate more leads.
               </p>
             </div>
 

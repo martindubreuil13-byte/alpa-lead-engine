@@ -89,7 +89,7 @@ export default function AboutPage() {
           <Section title="What problem it solves">
             <p>
               Instead of rebuilding lead lists from scratch, you define your target, generate leads
-              faster, and move directly into outreach.
+              faster, and export them to CSV.
             </p>
             <p>
               The goal is not just to find more leads. It is to build a process that works every

@@ -1,4 +1,7 @@
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
+
+type QueueClient = any
 
 export interface QueueItem {
   id: string
@@ -11,6 +14,10 @@ export interface QueueItem {
   completed_at: string | null
   last_error: string | null
   last_retry_at: string | null
+}
+
+export interface WorkerQueueItem extends QueueItem {
+  claim_token: string
 }
 
 /**
@@ -26,7 +33,8 @@ export interface QueueItem {
  */
 export async function enqueueLeadEnrichment(
   leadId: string,
-  supabase?: any
+  supabase?: any,
+  options: { workerEligible?: boolean; adminClient?: QueueClient } = {}
 ): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   const startedAt = Date.now()
   console.log(`[CI-TRACE] STEP 2 ENTER enqueueLeadEnrichment lead_id=${leadId}`)
@@ -67,6 +75,21 @@ export async function enqueueLeadEnrichment(
 
     const userId = authData.user.id
     console.log('[FORENSIC] Authenticated user_id:', userId)
+
+    // Owner-verified private preview: eligibility is granted only through the
+    // service-role RPC (the database rejects it from user sessions). The RPC
+    // also covers rediscovered leads without duplicating jobs or profiles.
+    if (options.workerEligible === true) {
+      const { data: outcome, error: rpcError } = await (options.adminClient || createAdminClient()).rpc(
+        'enqueue_private_preview_ci_worker',
+        { p_lead_id: leadId, p_user_id: userId }
+      )
+      if (rpcError) {
+        console.error(`[CI-QUEUE] private preview enqueue error: ${leadId} - ${rpcError.message}`)
+        return { ok: false, error: `Private preview enqueue failed: ${rpcError.message}` }
+      }
+      return { ok: true, data: { id: leadId, lead_id: leadId, status: 'pending', outcome } }
+    }
 
     const payload = {
       lead_id: leadId,
@@ -149,11 +172,11 @@ export async function enqueueLeadEnrichment(
  *
  * Items are atomically marked as 'processing' before returning.
  */
-export async function claimPendingQueueItems(limit = 10): Promise<QueueItem[]> {
+export async function claimPendingQueueItems(limit = 10, client?: QueueClient): Promise<QueueItem[]> {
   const startedAt = Date.now()
   console.log(`[CI-TRACE] STEP 5 ENTER claimPendingQueueItems limit=${limit}`)
   console.log('[CI-TRACE] STEP 5 BEFORE claimPendingQueueItems.createServerClient')
-  const supabase = await createServerClient()
+  const supabase = client || (await createServerClient())
   console.log(`[CI-TRACE] STEP 5 AFTER claimPendingQueueItems.createServerClient elapsed_ms=${Date.now() - startedAt}`)
 
   try {
@@ -228,11 +251,11 @@ export async function claimPendingQueueItems(limit = 10): Promise<QueueItem[]> {
  * Items processing for > timeout_seconds are reset to 'pending' for retry.
  * Called at worker startup to recover from crashes.
  */
-export async function resetStaleProcessingItems(timeoutSeconds = 300): Promise<{ resetCount: number }> {
+export async function resetStaleProcessingItems(timeoutSeconds = 300, client?: QueueClient): Promise<{ resetCount: number }> {
   const startedAt = Date.now()
   console.log(`[CI-TRACE] STEP 4 ENTER resetStaleProcessingItems timeout_seconds=${timeoutSeconds}`)
   console.log('[CI-TRACE] STEP 4 BEFORE resetStaleProcessingItems.createServerClient')
-  const supabase = await createServerClient()
+  const supabase = client || (await createServerClient())
   console.log(`[CI-TRACE] STEP 4 AFTER resetStaleProcessingItems.createServerClient elapsed_ms=${Date.now() - startedAt}`)
 
   try {
@@ -288,9 +311,10 @@ export async function completeEnrichment(
   signals: any,
   profile: any,
   success: boolean,
-  errorMsg?: string
+  errorMsg?: string,
+  client?: QueueClient
 ): Promise<{ ok: boolean; nextStatus?: string }> {
-  const supabase = await createServerClient()
+  const supabase = client || (await createServerClient())
 
   try {
     const { data, error } = await supabase.rpc('complete_ci_enrichment', {
@@ -326,14 +350,14 @@ export async function completeEnrichment(
 /**
  * Get queue statistics for monitoring.
  */
-export async function getQueueStats(): Promise<{
+export async function getQueueStats(client?: QueueClient): Promise<{
   pending: number
   processing: number
   completed: number
   failed: number
   total: number
 }> {
-  const supabase = await createServerClient()
+  const supabase = client || (await createServerClient())
 
   try {
     const { data, error } = await supabase.from('commercial_intelligence_queue').select('status')
@@ -359,4 +383,58 @@ export async function getQueueStats(): Promise<{
     console.error(`[CI-Queue] Exception getting stats`, err)
     return { pending: 0, processing: 0, completed: 0, failed: 0, total: 0 }
   }
+}
+
+/** Service-role-only worker claim. The RPC atomically locks rows and returns a
+ * claim token used to fence late or duplicate completions. */
+export async function claimWorkerQueueItems(
+  client: QueueClient,
+  limit = 5
+): Promise<WorkerQueueItem[]> {
+  const { data, error } = await client.rpc('claim_ci_queue_items_worker', {
+    p_limit: limit,
+  })
+
+  if (error) throw new Error(`Worker claim failed: ${error.message}`)
+  return (data || []) as WorkerQueueItem[]
+}
+
+export async function resetStaleWorkerItems(
+  client: QueueClient,
+  timeoutSeconds = 300
+): Promise<{ resetCount: number; failedCount: number }> {
+  const { data, error } = await client.rpc('reset_stale_ci_processing_worker', {
+    p_timeout_seconds: timeoutSeconds,
+  })
+
+  if (error) throw new Error(`Worker stale recovery failed: ${error.message}`)
+  return {
+    resetCount: data?.[0]?.reset_count || 0,
+    failedCount: data?.[0]?.failed_count || 0,
+  }
+}
+
+export async function completeWorkerEnrichment(
+  client: QueueClient,
+  item: WorkerQueueItem,
+  snapshot: any,
+  signals: any,
+  profile: any,
+  success: boolean,
+  errorMsg?: string
+): Promise<{ ok: boolean; nextStatus?: string }> {
+  const { data, error } = await client.rpc('complete_ci_enrichment_worker', {
+    p_queue_id: item.id,
+    p_lead_id: item.lead_id,
+    p_claim_token: item.claim_token,
+    p_snapshot: snapshot,
+    p_signals: signals,
+    p_profile: profile,
+    p_success: success,
+    p_error_msg: errorMsg || null,
+  })
+
+  if (error) throw new Error(`Worker completion failed: ${error.message}`)
+  const result = data?.[0]
+  return { ok: Boolean(result?.success), nextStatus: result?.message }
 }

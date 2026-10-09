@@ -1,4 +1,5 @@
 import { Anthropic } from '@anthropic-ai/sdk'
+import { adminGuard } from '@/lib/auth/require-admin'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -18,6 +19,9 @@ interface CommercialRecommendation {
 }
 
 export async function POST(request: Request) {
+  const denied = await adminGuard()
+  if (denied) return denied
+
   try {
     const { offering, audience, goal } =
       (await request.json()) as CommercialRecommendationRequest

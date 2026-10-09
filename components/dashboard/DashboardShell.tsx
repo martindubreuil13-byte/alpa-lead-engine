@@ -7,9 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   BarChart3,
   BookOpenText,
-  Columns3,
   CreditCard,
-  FileText,
   Home,
   Inbox,
   LifeBuoy,
@@ -20,11 +18,9 @@ import {
   Rocket,
   ServerCog,
   Settings,
-  Sparkles,
   Users,
   UserRoundSearch,
   X,
-  Zap,
 } from 'lucide-react'
 
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
@@ -59,35 +55,9 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/my-leads',
     label: 'My Leads',
     icon: UserRoundSearch,
-    adminOnly: true,
     accent: true,
-    description: 'The permanent repository of all discovered businesses. Review, qualify, and organize here.',
-    benefit: 'My Leads is your central workspace. Every business you discover lives here.',
-  },
-  {
-    href: '/dashboard/kanban',
-    label: 'Pipeline',
-    icon: Columns3,
-    feature: 'pipeline',
-    adminOnly: true,
-    description: 'Track businesses through pipeline stages and outcomes.',
-    benefit: 'Pipeline shows how businesses progress through your sales process.',
-  },
-  {
-    href: '/dashboard/outreach',
-    label: 'Outreach Queue',
-    icon: Zap,
-    adminOnly: true,
-    description: 'Create and manage campaign drafts for businesses in My Leads.',
-    benefit: 'The Outreach Queue keeps you in control of every message with one-click approve or reject.',
-  },
-  {
-    href: '/dashboard/templates',
-    label: 'Templates',
-    icon: FileText,
-    feature: 'templates',
-    description: 'Save proven outreach messages so your follow-up stays fast and consistent.',
-    benefit: 'Templates shorten response time and help your team scale without rewriting from scratch.',
+    description: 'Your saved business library. Review companies, commercial intelligence, and contact details.',
+    benefit: 'My Leads keeps the businesses worth understanding and acting on.',
   },
   { href: '/dashboard/billing', label: 'Plan & Billing', icon: CreditCard },
   {
@@ -95,18 +65,8 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Settings',
     icon: Settings,
     lockedOnFree: true,
-    description: 'Configure sender identity, workspace defaults, and the advanced controls behind your system.',
-    benefit: 'Settings make ALPA feel like your prospecting machine, not a generic dashboard.',
-  },
-  {
-    href: '/agent',
-    label: 'Agent',
-    icon: Sparkles,
-    adminOnly: true,
-    badge: 'Beta',
-    accent: true,
-    description: 'Autonomous lead engine that finds and prepares outreach on your behalf.',
-    benefit: 'Agent runs 24/7 to fill your pipeline without manual prospecting.',
+    description: 'Your account and plan details.',
+    benefit: 'Settings keep the business discovery workspace aligned to your account.',
   },
 ]
 
@@ -130,14 +90,8 @@ const ADMIN_ACTIVE_ICON_STYLE = {
 } as const
 
 const HOME_BACK_ROUTES = new Set([
-  '/dashboard/kanban',
-  '/dashboard/leads',
   '/dashboard/my-leads',
-  '/dashboard/library',
-  '/dashboard/outreach',
   '/dashboard/scraper',
-  '/agent/setup',
-  '/agent/dashboard',
 ])
 
 export default function DashboardShell({
@@ -272,10 +226,10 @@ export default function DashboardShell({
             </div>
             <div className="mt-3 text-sm text-slate-200">
               {viewerMode === 'authenticated_paid'
-                ? 'Paid access active across pipeline, templates, and outreach.'
+                ? 'Paid access active across discovery, business intelligence, and exports.'
                 : viewerMode === 'authenticated_free'
-                  ? 'Free access active. Upgrade when you are ready to unlock paid workflow tools.'
-                  : 'Trial mode active. Explore the dashboard and upgrade when you want full execution tools.'}
+                  ? 'Free access active. Upgrade when you are ready for more discovery and intelligence.'
+                  : 'Trial mode active. Explore business discovery and upgrade when you need more capacity.'}
             </div>
           </div>
 

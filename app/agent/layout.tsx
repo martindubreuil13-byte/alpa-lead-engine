@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 
+import { requireAdminPage } from '@/lib/auth/require-admin'
+
 export const metadata: Metadata = {
   robots: {
     index: false,
@@ -7,6 +9,8 @@ export const metadata: Metadata = {
   },
 }
 
-export default function AgentLayout({ children }: { children: React.ReactNode }) {
+// Agent Mode is retired for customers: reachable by administrators only (server-side).
+export default async function AgentLayout({ children }: { children: React.ReactNode }) {
+  await requireAdminPage()
   return children
 }

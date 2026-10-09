@@ -1,12 +1,22 @@
 import crypto from 'crypto'
 import { load } from 'cheerio'
-import type { WebsiteSnapshot, ExtractionResult } from './types'
 
-const FETCH_TIMEOUT = 8000
-const MAX_BODY_LENGTH = 2000
+import { normalizeWebsiteUrl, safeFetchWebsite, type WebsiteFetchOptions } from './safe-website-fetch.ts'
+import type { ExtractionResult, WebsiteSnapshot } from './types.ts'
+
+const MAX_HOMEPAGE_TEXT = 4_000
+const MAX_SUPPORTING_PAGE_TEXT = 3_000
+
+type ResearchPageKind = NonNullable<WebsiteSnapshot['research_pages']>[number]['kind']
+type ResearchPage = NonNullable<WebsiteSnapshot['research_pages']>[number]
+
+type SnapshotOptions = {
+  fetchOptions?: WebsiteFetchOptions
+}
 
 export async function extractWebsiteSnapshot(
-  website: string | null | undefined
+  website: string | null | undefined,
+  options: SnapshotOptions = {}
 ): Promise<ExtractionResult<WebsiteSnapshot>> {
   const startTime = Date.now()
 
@@ -20,37 +30,68 @@ export async function extractWebsiteSnapshot(
   }
 
   try {
-    const normalizedUrl = normalizeUrl(website)
-    const html = await fetchWebsiteHtml(normalizedUrl)
+    const homepage = await safeFetchWebsite(normalizeWebsiteUrl(website), options.fetchOptions)
+    const parsedHomepage = parseHomepage(homepage.html, homepage.url)
+    const researchPages: ResearchPage[] = [
+      {
+        kind: 'homepage',
+        url: homepage.url,
+        text: extractReadableText(homepage.html, MAX_HOMEPAGE_TEXT),
+      },
+    ]
 
-    if (!html) {
-      return {
-        ok: false,
-        error: { code: 'FETCH_FAILED', message: `Failed to fetch website: ${normalizedUrl}` },
-        duration_ms: Date.now() - startTime,
-        cost: 0,
-      }
-    }
+    const supportingPages: Array<{ kind: ResearchPageKind; url: string | null }> = [
+      { kind: 'about', url: parsedHomepage.about_url },
+      { kind: 'services', url: parsedHomepage.services_url },
+      { kind: 'contact', url: parsedHomepage.contact_url },
+    ]
 
-    const snapshot = parseWebsiteSnapshot(html, normalizedUrl)
-    const htmlHash = crypto.createHash('sha256').update(html).digest('hex')
+    const fetchedSupportingPages = await Promise.all(
+      supportingPages.map(async ({ kind, url }) => {
+        if (!url) return null
+        try {
+          const page = await safeFetchWebsite(url, options.fetchOptions)
+          return {
+            kind,
+            url: page.url,
+            text: extractReadableText(page.html, MAX_SUPPORTING_PAGE_TEXT),
+          } satisfies ResearchPage
+        } catch {
+          return null
+        }
+      })
+    )
+
+    researchPages.push(
+      ...fetchedSupportingPages.filter((page): page is ResearchPage => Boolean(page?.text))
+    )
+
+    const usablePages = researchPages.filter((page) => Boolean(page.text))
+    const htmlHash = crypto
+      .createHash('sha256')
+      .update(usablePages.map((page) => `${page.url}\n${page.text}`).join('\n\n'))
+      .digest('hex')
 
     return {
       ok: true,
       data: {
-        ...snapshot,
+        ...parsedHomepage,
+        body_excerpt: researchPages[0]?.text.slice(0, 2_000) || null,
+        research_pages: usablePages,
+        source_urls: usablePages.map((page) => page.url),
         html_hash: htmlHash,
         extracted_at: new Date().toISOString(),
       },
       duration_ms: Date.now() - startTime,
-      cost: 0, // No external API cost
+      cost: 0,
     }
   } catch (err) {
+    const error = err as { code?: string; message?: string }
     return {
       ok: false,
       error: {
-        code: 'EXTRACTION_ERROR',
-        message: err instanceof Error ? err.message : 'Unknown error',
+        code: error.code || 'EXTRACTION_ERROR',
+        message: error.message || 'Unable to retrieve website research',
       },
       duration_ms: Date.now() - startTime,
       cost: 0,
@@ -58,178 +99,101 @@ export async function extractWebsiteSnapshot(
   }
 }
 
-function normalizeUrl(url: string): string {
-  const trimmed = String(url).trim()
-  if (!trimmed) return ''
+export function extractReadableText(html: string, maxLength: number) {
+  const $ = load(html)
+  $('script, style, noscript, svg, nav, header, footer, form, iframe, canvas').remove()
+  const root = $('main').first().length
+    ? $('main').first()
+    : $('article').first().length
+      ? $('article').first()
+      : $('body')
 
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed
-  }
-
-  return `https://${trimmed}`
+  return root
+    .text()
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
 }
 
-async function fetchWebsiteHtml(url: string): Promise<string | null> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      signal: controller.signal,
-      redirect: 'follow',
-    })
-
-    clearTimeout(timeout)
-
-    if (!response.ok) return null
-
-    return await response.text()
-  } catch {
-    return null
-  }
-}
-
-function parseWebsiteSnapshot(html: string, baseUrl: string): Omit<WebsiteSnapshot, 'html_hash' | 'extracted_at'> {
-  try {
-    const $ = load(html)
-
-    const title = $('title').text() || $('meta[property="og:title"]').attr('content') || null
-
-    const metaDescription =
-      $('meta[name="description"]').attr('content') ||
-      $('meta[property="og:description"]').attr('content') ||
-      null
-
-    const h1 = $('h1').first().text() || null
-
-    const bodyText = $('body').text().trim().slice(0, MAX_BODY_LENGTH)
-    const bodyExcerpt = bodyText.length > 0 ? bodyText : null
-
-    // Find navigation links
-    const contactUrl = findUrl($, baseUrl, [
-      'contact',
-      'contact-us',
-      'get-in-touch',
-      'reach-out',
-    ])
-    const aboutUrl = findUrl($, baseUrl, ['about', 'about-us', 'team'])
-    const servicesUrl = findUrl($, baseUrl, ['services', 'solutions', 'products', 'features'])
-
-    // Extract visible email and phone
-    const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
-    const emails = html.match(emailRegex) || []
-    const visibleEmail = filterGenericEmails(emails)[0] || null
-
-    const phoneRegex = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g
-    const phones = html.match(phoneRegex) || []
-    const visiblePhone = phones[0] || null
-
-    // Extract social links
-    const socialLinks = extractSocialLinks($)
-
-    // Detect page language
-    const pageLanguage = $('html').attr('lang') || 'en'
-
-    // Extract favicon
-    const faviconUrl = extractFaviconUrl($, baseUrl)
-
-    return {
-      title,
-      meta_description: metaDescription,
-      h1,
-      body_excerpt: bodyExcerpt,
-      contact_url: contactUrl,
-      about_url: aboutUrl,
-      services_url: servicesUrl,
-      visible_email: visibleEmail,
-      visible_phone: visiblePhone,
-      social_links: socialLinks,
-      page_language: pageLanguage,
-      ...(faviconUrl ? { favicon_url: faviconUrl } : {}),
-    }
-  } catch {
-    return {
-      title: null,
-      meta_description: null,
-      h1: null,
-      body_excerpt: null,
-      contact_url: null,
-      about_url: null,
-      services_url: null,
-      visible_email: null,
-      visible_phone: null,
-      social_links: {},
-      page_language: 'en',
-    }
-  }
-}
-
-function findUrl($: any, baseUrl: string, keywords: string[]): string | null {
-  const urlObj = new URL(baseUrl)
-  const domain = urlObj.hostname
-
-  const links = $('a[href]')
-    .map((_: number, el: any) => $(el).attr('href'))
-    .get()
-    .filter(Boolean) as string[]
-
-  for (const link of links) {
-    const normalized = normalizeNavLink(link)
-    if (keywords.some((kw) => normalized.includes(kw))) {
-      try {
-        const absoluteUrl = new URL(link, baseUrl)
-        if (absoluteUrl.hostname === domain) {
-          return absoluteUrl.toString()
-        }
-      } catch {
-        // Invalid URL, skip
-      }
-    }
-  }
-
-  return null
-}
-
-function normalizeNavLink(link: string): string {
-  return link
-    .toLowerCase()
-    .replace(/^\//, '')
-    .replace(/\/$/, '')
-    .replace(/[^a-z0-9-]/g, '-')
-}
-
-function filterGenericEmails(emails: string[]): string[] {
-  const genericPatterns = [
-    'noreply',
-    'no-reply',
-    'donotreply',
-    'do-not-reply',
-    'admin',
-    'info',
-    'support',
-    'hello',
-    'hi',
-    'contact',
-    'sales',
-    'marketing',
-  ]
-
-  return emails.filter(
-    (email) => !genericPatterns.some((pattern) => email.toLowerCase().includes(pattern))
+function parseHomepage(
+  html: string,
+  baseUrl: string
+): Omit<WebsiteSnapshot, 'html_hash' | 'extracted_at' | 'research_pages' | 'source_urls'> {
+  const $ = load(html)
+  const title = cleanText($('title').text() || $('meta[property="og:title"]').attr('content'))
+  const metaDescription = cleanText(
+    $('meta[name="description"]').attr('content') ||
+      $('meta[property="og:description"]').attr('content')
   )
+  const h1 = cleanText($('h1').first().text())
+  const contactUrl = findUrl($, baseUrl, ['contact', 'contact-us', 'get-in-touch', 'reach-out'])
+  const aboutUrl = findUrl($, baseUrl, ['about', 'about-us', 'our-story', 'company', 'team'])
+  const servicesUrl = findUrl($, baseUrl, [
+    'services',
+    'solutions',
+    'products',
+    'what-we-do',
+    'features',
+  ])
+  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
+  const visibleEmail = (html.match(emailRegex) || []).find((email) => !isNoReplyEmail(email)) || null
+  const phoneRegex = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g
+  const faviconUrl = extractFaviconUrl($, baseUrl)
+
+  return {
+    title,
+    meta_description: metaDescription,
+    h1,
+    body_excerpt: null,
+    contact_url: contactUrl,
+    about_url: aboutUrl,
+    services_url: servicesUrl,
+    visible_email: visibleEmail,
+    visible_phone: html.match(phoneRegex)?.[0] || null,
+    social_links: extractSocialLinks($),
+    page_language: $('html').attr('lang') || 'en',
+    ...(faviconUrl ? { favicon_url: faviconUrl } : {}),
+  }
 }
 
-function extractSocialLinks($: any): Record<string, string> {
-  const links: Record<string, string> = {}
+function cleanText(value: string | undefined) {
+  const cleaned = String(value || '').replace(/\s+/g, ' ').trim()
+  return cleaned || null
+}
 
-  const socialPatterns = {
+function findUrl($: ReturnType<typeof load>, baseUrl: string, keywords: string[]) {
+  const base = new URL(baseUrl)
+  let match: string | null = null
+
+  $('a[href]').each((_, element) => {
+    if (match) return
+    const href = $(element).attr('href') || ''
+    const label = `${href} ${$(element).text()}`.toLowerCase()
+    if (!keywords.some((keyword) => label.includes(keyword))) return
+
+    try {
+      const url = new URL(href, base)
+      if (
+        ['http:', 'https:'].includes(url.protocol) &&
+        url.hostname.toLowerCase() === base.hostname.toLowerCase()
+      ) {
+        url.hash = ''
+        match = url.toString()
+      }
+    } catch {}
+  })
+
+  return match
+}
+
+function isNoReplyEmail(email: string) {
+  return /(?:no-?reply|do-?not-?reply)/i.test(email)
+}
+
+function extractSocialLinks($: ReturnType<typeof load>) {
+  const links: WebsiteSnapshot['social_links'] = {}
+  const patterns = {
     linkedin: /linkedin\.com/i,
     twitter: /twitter\.com|x\.com/i,
     facebook: /facebook\.com/i,
@@ -237,30 +201,23 @@ function extractSocialLinks($: any): Record<string, string> {
     github: /github\.com/i,
   }
 
-  $('a[href]').each((_: number, el: any) => {
-    const href = $(el).attr('href') || ''
-
-    for (const [platform, pattern] of Object.entries(socialPatterns)) {
-      if (pattern.test(href)) {
-        links[platform] = href
-      }
+  $('a[href]').each((_, element) => {
+    const href = $(element).attr('href') || ''
+    for (const [platform, pattern] of Object.entries(patterns)) {
+      if (pattern.test(href)) links[platform as keyof typeof links] = href
     }
   })
 
   return links
 }
 
-function extractFaviconUrl($: any, baseUrl: string): string | null {
+function extractFaviconUrl($: ReturnType<typeof load>, baseUrl: string) {
   try {
-    const faviconLink =
+    const href =
       $('link[rel="icon"]').attr('href') ||
       $('link[rel="shortcut icon"]').attr('href') ||
       '/favicon.ico'
-
-    if (!faviconLink) return null
-
-    const url = new URL(faviconLink, baseUrl)
-    return url.toString()
+    return new URL(href, baseUrl).toString()
   } catch {
     return null
   }

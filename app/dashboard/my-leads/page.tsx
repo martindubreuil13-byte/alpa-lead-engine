@@ -1,12 +1,8 @@
 import { redirect } from 'next/navigation'
 
-import MyLeadsWorkspaceClient, {
-  type MyLeadsCampaignSignal,
-  type MyLeadsLead,
-} from './MyLeadsWorkspaceClient'
+import MyLeadsWorkspaceClient, { type MyLeadsLead } from './MyLeadsWorkspaceClient'
 import CommercialIntelligenceStatus from './CommercialIntelligenceStatus'
 
-import { isAdmin } from '@/lib/auth/access'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -23,8 +19,8 @@ export default async function MyLeadsPage() {
   console.log(
   )
 
-  if (!profile || !isAdmin(profile)) {
-    redirect('/dashboard/leads')
+  if (!profile) {
+    redirect('/login')
   }
 
   const supabase = await createServerClient()
@@ -45,20 +41,12 @@ export default async function MyLeadsPage() {
   const leadsStartedAt = Date.now()
   console.log(
   )
-  const [leadsResult, campaignResult] = await Promise.all([
-    supabase
-      .from('leads')
-      .select(LEAD_SELECT)
-      .eq('user_id', userId)
-      .order('last_activity_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false, nullsFirst: false }),
-    supabase
-      .from('outreach_queue')
-      .select('lead_id, review_status, status')
-      .eq('user_id', userId)
-      .not('lead_id', 'is', null)
-      .in('review_status', ['draft', 'approved']),
-  ])
+  const leadsResult = await supabase
+    .from('leads')
+    .select(LEAD_SELECT)
+    .eq('user_id', userId)
+    .order('last_activity_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false, nullsFirst: false })
   const ciSummary = (leadsResult.data || []).reduce(
     (acc: Record<string, number>, lead: any) => {
       const status = lead.ci_enrichment_status || 'not_generated'
@@ -75,10 +63,6 @@ export default async function MyLeadsPage() {
     console.error('[my-leads] lead fetch failed:', leadsResult.error)
   }
 
-  if (campaignResult.error) {
-    console.error('[my-leads] campaign signal fetch failed:', campaignResult.error)
-  }
-
   return (
     <>
       <CommercialIntelligenceStatus />
@@ -86,7 +70,6 @@ export default async function MyLeadsPage() {
         totalCount={totalLeadCount}
         loadedCount={leadsResult.data?.length ?? 0}
         initialLeads={(leadsResult.data || []) as unknown as MyLeadsLead[]}
-        campaignSignals={(campaignResult.data || []) as unknown as MyLeadsCampaignSignal[]}
       />
     </>
   )

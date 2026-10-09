@@ -318,7 +318,7 @@ export default function PipelinePage() {
       console.error('Pipeline automation settings fetch failed:', error)
       setAutomationStatus({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Could not load automation settings.',
+        message: error instanceof Error ? error.message : 'Could not load message preparation settings.',
       })
     } finally {
       setAutomationLoading(false)
@@ -346,13 +346,13 @@ export default function PipelinePage() {
 
       setAutomationStatus({
         type: 'success',
-        message: 'Pipeline automation settings saved.',
+        message: 'Message preparation settings saved.',
       })
     } catch (error) {
       console.error('Pipeline automation settings save failed:', error)
       setAutomationStatus({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Could not save automation settings.',
+        message: error instanceof Error ? error.message : 'Could not save message preparation settings.',
       })
     } finally {
       setAutomationSaving(false)
@@ -396,13 +396,13 @@ export default function PipelinePage() {
       setDraftGenerationResult(generationResult)
       setAutomationStatus({
         type: 'success',
-        message: `${generationResult.created} draft${generationResult.created === 1 ? '' : 's'} generated.`,
+        message: `${generationResult.created} message${generationResult.created === 1 ? '' : 's'} prepared.`,
       })
     } catch (error) {
       console.error('Pipeline automation draft generation failed:', error)
       setAutomationStatus({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Could not generate drafts.',
+        message: error instanceof Error ? error.message : 'Could not prepare messages.',
       })
     } finally {
       setAutomationGenerating(false)
@@ -975,9 +975,9 @@ function PipelineAutomationCard({
     <section className="rounded-2xl border border-blue-300/14 bg-white/[0.032] p-4 shadow-[0_14px_34px_rgba(2,8,23,0.16)] backdrop-blur-xl sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Pipeline Automation</h2>
+          <h2 className="text-lg font-semibold text-white">Message Preparation</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
-            Choose the templates and timing ALPA should use to prepare outreach drafts for review. Emails are not sent automatically.
+            Choose the templates and timing ALPA should use to prepare messages for review. Emails are not sent automatically.
           </p>
         </div>
 
@@ -994,7 +994,7 @@ function PipelineAutomationCard({
 
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
         <StatusChip label="Templates configured" value={`${configuredTemplates}/3`} />
-        <StatusChip label="Automation" value={settings.enabled ? 'Enabled' : 'Disabled'} />
+        <StatusChip label="Preparation" value={settings.enabled ? 'On' : 'Off'} />
         <StatusChip label="Mode" value="Review before send" />
       </div>
 
@@ -1038,7 +1038,7 @@ function PipelineAutomationCard({
       {generationResult ? (
         <div className="mt-4 rounded-xl border border-emerald-300/18 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
           <div className="font-semibold">
-            {generationResult.created} draft{generationResult.created === 1 ? '' : 's'} generated
+            {generationResult.created} message{generationResult.created === 1 ? '' : 's'} prepared
           </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-emerald-100/80">
             <span>First Outreach: {generationResult.firstOutreach}</span>
@@ -1077,7 +1077,7 @@ function PipelineAutomationCard({
               href="/dashboard/outreach"
               className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.08] hover:text-white"
             >
-              Open Outreach Queue
+              Open Outreach
             </a>
           ) : null}
           {canGenerateDrafts ? (
@@ -1087,7 +1087,7 @@ function PipelineAutomationCard({
               disabled={loading || saving || generating}
               className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-500/90 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(16,185,129,0.13)] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.04] disabled:text-slate-500 sm:min-w-[150px]"
             >
-              {generating ? 'Generating...' : 'Generate Drafts'}
+              {generating ? 'Preparing...' : 'Prepare Messages'}
             </button>
           ) : null}
           <button

@@ -11,7 +11,7 @@ import { archiveLeads, restoreLeads, deleteLead, deleteLeads } from './actions'
 
 // PHASE 0.1: MyLeadsLead represents a Business in the permanent repository (ADR-001)
 // All discovered businesses are stored here.
-// Other modules (Outreach, Pipeline, Future AI) reference these businesses via ID.
+// ALPA keeps this as the user's saved business library.
 export type MyLeadsLead = LifecycleLead & {
   id: string
   user_id: string
@@ -37,13 +37,7 @@ export type MyLeadsLead = LifecycleLead & {
   ci_model_versions: any | null
 }
 
-export type MyLeadsCampaignSignal = {
-  lead_id: string | null
-  review_status: string | null
-  status: string | null
-}
-
-type Priority = 'ready' | 'overdue' | 'reply' | 'review' | 'waitlist' | 'archived'
+type Priority = 'ready' | 'review' | 'archived'
 type ViewMode = 'active' | 'archived'
 
 interface LeadMetadata {
@@ -54,7 +48,7 @@ interface LeadMetadata {
   isUrgent: boolean
 }
 
-function getLeadMetadata(lead: MyLeadsLead, campaignLeadIds: Set<string>): LeadMetadata {
+function getLeadMetadata(lead: MyLeadsLead): LeadMetadata {
   const isArchived = isArchivedLead(lead)
   if (isArchived) {
     return {
@@ -66,64 +60,36 @@ function getLeadMetadata(lead: MyLeadsLead, campaignLeadIds: Set<string>): LeadM
     }
   }
 
-  const inCampaign = campaignLeadIds.has(lead.id)
-  const hasActivity = hasContactActivity(lead)
   const quality = getLeadQuality(lead)
+  const hasCommercialProfile = lead.ci_enrichment_status === 'completed' || Boolean(lead.commercial_profile)
 
-  if (lead.followup_due_at && new Date(lead.followup_due_at) < new Date()) {
+  if (hasCommercialProfile) {
     return {
-      priority: 'overdue',
-      priorityLabel: 'Follow-up overdue',
-      activitySummary: getActivityTimeline(lead),
-      contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
-      isUrgent: true,
-    }
-  }
-
-  if (inCampaign) {
-    return {
-      priority: 'reply',
-      priorityLabel: 'Waiting for reply',
-      activitySummary: getActivityTimeline(lead),
+      priority: 'ready',
+      priorityLabel: 'Commercial profile ready',
+      activitySummary: `Analyzed ${getDiscoveryTime({
+        ...lead,
+        created_at: lead.ci_completed_at || lead.created_at,
+      })}`,
       contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
       isUrgent: false,
     }
   }
 
-  if (quality === 'ready' && !hasActivity) {
+  if (quality !== 'incomplete') {
     return {
-      priority: 'ready',
-      priorityLabel: 'Ready to contact',
+      priority: 'review',
+      priorityLabel: 'Ready for analysis',
       activitySummary: `Discovered ${getDiscoveryTime(lead)}`,
       contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
       isUrgent: false,
     }
   }
 
-  if (quality !== 'ready') {
-    return {
-      priority: 'review',
-      priorityLabel: 'Needs review',
-      activitySummary: getMissingContactInfo(lead),
-      contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
-      isUrgent: false,
-    }
-  }
-
-  if (hasActivity && lead.followup_due_at) {
-    return {
-      priority: 'waitlist',
-      priorityLabel: 'Waiting for follow-up',
-      activitySummary: `Due ${getFollowUpDueTime(lead)}`,
-      contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
-      isUrgent: false,
-    }
-  }
-
   return {
-    priority: 'waitlist',
-    priorityLabel: 'In progress',
-    activitySummary: getActivityTimeline(lead),
+    priority: 'review',
+    priorityLabel: 'Needs contact details',
+    activitySummary: getMissingContactInfo(lead),
     contactInfo: { website: !!lead.website, email: !!lead.email, phone: !!lead.phone },
     isUrgent: false,
   }
@@ -157,28 +123,6 @@ function getDiscoveryTime(lead: MyLeadsLead): string {
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date)
 }
 
-function getFollowUpDueTime(lead: MyLeadsLead): string {
-  if (!lead.followup_due_at) return 'soon'
-  const due = new Date(lead.followup_due_at)
-  const today = new Date()
-  const daysUntil = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  if (daysUntil < 0) return 'today'
-  if (daysUntil === 0) return 'today'
-  if (daysUntil === 1) return 'tomorrow'
-  return `in ${daysUntil}d`
-}
-
-function getActivityTimeline(lead: MyLeadsLead): string {
-  if (lead.last_activity_at) {
-    const date = new Date(lead.last_activity_at)
-    const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
-    if (days === 0) return 'Active today'
-    if (days === 1) return 'Active yesterday'
-    return `Active ${days}d ago`
-  }
-  return getDiscoveryTime(lead)
-}
-
 // PHASE 0.1: Archive is a status change, not removal. (ADR-001)
 // Archived businesses remain in the repository; they're just hidden from active view.
 function isArchivedLead(lead: MyLeadsLead): boolean {
@@ -186,18 +130,6 @@ function isArchivedLead(lead: MyLeadsLead): boolean {
   return (
     lead.pipeline_stage === 'closed' ||
     ['closed_no_response', 'no_response', 'rejected', 'invalid', 'archived'].includes(status)
-  )
-}
-
-function hasContactActivity(lead: MyLeadsLead): boolean {
-  const status = String(lead.status || '').trim().toLowerCase()
-  return Boolean(
-    lead.first_contact_at ||
-      lead.last_contact_at ||
-      lead.followup_sent_at ||
-      lead.final_attempt_sent_at ||
-      (lead.outreach_attempts || 0) > 0 ||
-      ['contacted', 'followup_due', 'followup_sent'].includes(status)
   )
 }
 
@@ -213,43 +145,23 @@ interface RelationshipStage {
 function getRelationshipMemory(lead: MyLeadsLead): RelationshipStage[] {
   const stages: RelationshipStage[] = []
 
-  // Discovered: always true if lead exists
   stages.push({ name: 'Discovered', completed: true })
 
-  // Validated: has any contact info
   const hasAnyContact = !!lead.email || !!lead.phone || !!lead.website
-  stages.push({ name: 'Validated', completed: hasAnyContact })
+  stages.push({ name: 'Contact details', completed: hasAnyContact })
 
-  // Ready: has all contact info
-  const hasAllContact = !!lead.email && !!lead.phone && !!lead.website
-  stages.push({ name: 'Ready', completed: hasAllContact })
+  const hasCommercialProfile = lead.ci_enrichment_status === 'completed' || Boolean(lead.commercial_profile)
+  stages.push({ name: 'Commercial Intelligence', completed: hasCommercialProfile })
 
-  // First Contact: has made contact
-  const hasContact = hasContactActivity(lead)
-  stages.push({ name: 'First Contact', completed: hasContact })
-
-  // Awaiting Response: in active campaign
-  const hasOutreach = Boolean(lead.outreach_attempts && lead.outreach_attempts > 0)
-  stages.push({ name: 'Awaiting Response', completed: hasOutreach })
-
-  // Follow-up: has follow-up scheduled or sent
-  const hasFollowUp = !!lead.followup_due_at || !!lead.followup_sent_at
-  stages.push({ name: 'Follow-up', completed: hasFollowUp })
-
-  // Filter to only show completed stages (we want to show progress, not future)
   return stages.filter(s => s.completed)
 }
 
 function getStatusAccentColor(metadata: LeadMetadata): string {
   switch (metadata.priority) {
     case 'ready':
-      return 'from-amber-500/50 to-amber-600/30'
-    case 'overdue':
-      return 'from-rose-500/50 to-rose-600/30'
-    case 'reply':
-      return 'from-blue-500/50 to-blue-600/30'
+      return 'from-emerald-500/50 to-emerald-600/30'
     case 'review':
-      return 'from-amber-500/50 to-amber-600/30'
+      return 'from-blue-500/50 to-blue-600/30'
     case 'archived':
       return 'from-slate-600/30 to-slate-700/20'
     default:
@@ -272,27 +184,8 @@ function getNextRecommendation(lead: MyLeadsLead, metadata: LeadMetadata): NextR
   }
 
   const quality = getLeadQuality(lead)
-  const hasActivity = hasContactActivity(lead)
+  const hasCommercialProfile = lead.ci_enrichment_status === 'completed' || Boolean(lead.commercial_profile)
 
-  // Overdue follow-up
-  if (lead.followup_due_at && new Date(lead.followup_due_at) < new Date()) {
-    const daysSince = Math.floor((Date.now() - new Date(lead.last_contact_at || lead.created_at || '').getTime()) / (1000 * 60 * 60 * 24))
-    return {
-      title: 'Follow-up overdue.',
-      action: `Last contact ${daysSince}d ago. Send follow-up.`,
-    }
-  }
-
-  // In campaign / waiting for reply
-  if (lead.outreach_attempts && lead.outreach_attempts > 0 && !hasActivity) {
-    const daysSince = Math.floor((Date.now() - new Date(lead.last_activity_at || lead.created_at || '').getTime()) / (1000 * 60 * 60 * 24))
-    return {
-      title: 'Awaiting response.',
-      action: `Last contact ${daysSince}d ago. Check for replies.`,
-    }
-  }
-
-  // Missing information
   if (quality === 'incomplete') {
     const missing = []
     if (!lead.email) missing.push('email')
@@ -300,7 +193,7 @@ function getNextRecommendation(lead: MyLeadsLead, metadata: LeadMetadata): NextR
     if (!lead.website) missing.push('website')
     return {
       title: 'Missing contact information.',
-      action: `Add ${missing.join(', ')} before starting outreach.`,
+      action: `Add ${missing.join(', ')} to make this business easier to evaluate.`,
     }
   }
 
@@ -311,32 +204,21 @@ function getNextRecommendation(lead: MyLeadsLead, metadata: LeadMetadata): NextR
     if (!lead.website) missing.push('website')
     return {
       title: 'Profile incomplete.',
-      action: `Add ${missing.join(', ')} to complete verification.`,
+      action: `Add ${missing.join(', ')} when available.`,
     }
   }
 
-  // Ready and never contacted
-  if (quality === 'ready' && !hasActivity) {
+  if (!hasCommercialProfile && lead.website) {
     return {
-      title: 'Ready to contact.',
-      action: 'All contact info verified. Start outreach.',
+      title: 'Ready for Commercial Intelligence.',
+      action: 'Analyze this business to understand fit, signals, and context.',
     }
   }
 
-  // Recently contacted, waiting
-  if (hasActivity && lead.followup_due_at) {
-    const daysUntil = Math.floor((new Date(lead.followup_due_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  if (hasCommercialProfile) {
     return {
-      title: 'Follow-up scheduled.',
-      action: `Next follow-up in ${daysUntil}d. Check back soon.`,
-    }
-  }
-
-  // In conversation
-  if (hasActivity) {
-    return {
-      title: 'Conversation in progress.',
-      action: 'Continue engagement strategy.',
+      title: 'Commercial profile ready.',
+      action: 'Review the business signals and decide whether to keep, export, or contact.',
     }
   }
 
@@ -347,12 +229,10 @@ export default function MyLeadsWorkspaceClient({
   totalCount,
   loadedCount,
   initialLeads,
-  campaignSignals,
 }: {
   totalCount: number
   loadedCount: number
   initialLeads: MyLeadsLead[]
-  campaignSignals: MyLeadsCampaignSignal[]
 }) {
   const router = useRouter()
   const [search, setSearch] = useState('')
@@ -495,14 +375,9 @@ export default function MyLeadsWorkspaceClient({
     }
   }, [router])
 
-  const campaignLeadIds = useMemo(
-    () => new Set(campaignSignals.map((signal) => signal.lead_id).filter(Boolean) as string[]),
-    [campaignSignals]
-  )
-
   const leadsWithMetadata = useMemo(
-    () => initialLeads.map((lead) => ({ ...lead, metadata: getLeadMetadata(lead, campaignLeadIds) })),
-    [initialLeads, campaignLeadIds]
+    () => initialLeads.map((lead) => ({ ...lead, metadata: getLeadMetadata(lead) })),
+    [initialLeads]
   )
 
   const priorities = useMemo(() => {
@@ -513,14 +388,10 @@ export default function MyLeadsWorkspaceClient({
     })
     return {
       ready: active.filter((l) => l.metadata.priority === 'ready').length,
-      overdue: active.filter((l) => l.metadata.priority === 'overdue').length,
-      reply: active.filter((l) => l.metadata.priority === 'reply').length,
       review: active.filter((l) => l.metadata.priority === 'review').length,
       archived: visibleLeads.filter((l) => archivedLeadIds.has(l.id) || l.metadata.priority === 'archived').length,
     }
   }, [leadsWithMetadata, archivedLeadIds, deletedLeadIds])
-
-  const totalPriority = priorities.ready + priorities.overdue + priorities.reply + priorities.review
 
   const filteredLeads = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -939,7 +810,7 @@ export default function MyLeadsWorkspaceClient({
                         {relationshipMemory.length > 0 && (
                           <div className="space-y-2">
                             <div className="text-xs font-medium text-slate-400 tracking-wide">
-                              Relationship
+                              Business record
                             </div>
                             <div className="text-sm text-slate-300">
                               {relationshipMemory.map((stage, idx) => (
@@ -1238,11 +1109,11 @@ export default function MyLeadsWorkspaceClient({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  router.push(`/dashboard/outreach?business_id=${lead.id}`)
+                                  router.push(`/dashboard/leads/${lead.id}`)
                                 }}
                                 className="flex-1 px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                               >
-                                Start outreach
+                                Open profile
                               </button>
                               <button
                                 onClick={(e) => {
