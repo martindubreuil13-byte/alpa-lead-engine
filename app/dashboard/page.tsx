@@ -1,16 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
-import {
-  ArrowRight,
-  BarChart3,
-  Inbox,
-  Loader2,
-  RotateCcw,
-  Search,
-  Sparkles,
-} from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
@@ -18,11 +9,6 @@ import { getGuestLeads } from '@/lib/guest-session'
 import { supabase } from '@/lib/supabase'
 import { GUEST_LEADS_UPDATED_EVENT } from '@/lib/trial'
 import { getLeadLimit } from '@/lib/usage/usage'
-
-type LeadUsageSnapshot = {
-  leadsUsed: number
-  leadsLimit: number
-}
 
 type RecentSearch = {
   id: string
@@ -34,102 +20,109 @@ type RecentSearch = {
 
 type DashboardData = {
   loading: boolean
-  leadsUsedThisMonth: number
-  leadsLimit: number
-  myLeads: number
-  commercialProfiles: number
+  discovered: number
+  allowance: number
+  paidCycle: boolean
+  saved: number
+  researched: number
   recentSearches: RecentSearch[]
-  recentSearchesAvailable: boolean
 }
 
 const EMPTY_DASHBOARD: DashboardData = {
   loading: true,
-  leadsUsedThisMonth: 0,
-  leadsLimit: 25,
-  myLeads: 0,
-  commercialProfiles: 0,
+  discovered: 0,
+  allowance: 25,
+  paidCycle: false,
+  saved: 0,
+  researched: 0,
   recentSearches: [],
-  recentSearchesAvailable: true,
 }
 
-function getGreeting() {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
-  return 'Good evening'
-}
+// Plans whose usage is tracked per billing period in the `usage` table.
+// Free accounts are counted from saved leads with contact details (same as Plan & Billing).
+const CYCLE_PLANS = new Set(['admin', 'prospector', 'starter', 'pro'])
 
-function getFirstName(userName: string | null | undefined, email: string | null | undefined) {
-  const name = userName?.trim()
-  if (name) return name.split(/\s+/)[0]
-  const localPart = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim()
-  if (!localPart) return null
-  return localPart.charAt(0).toUpperCase() + localPart.slice(1)
-}
-
-function formatDate(value: string | null) {
-  if (!value) return 'Recent'
-  try {
-    return new Intl.DateTimeFormat('en', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    }).format(new Date(value))
-  } catch {
-    return 'Recent'
-  }
-}
-
-function clampPercent(value: number, max: number) {
-  if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0
-  return Math.min(Math.max((value / max) * 100, 0), 100)
-}
+// scrape_completed and search_performed are both logged for one search, a second or so apart.
+const DUPLICATE_WINDOW_MS = 2 * 60 * 1000
+const MAX_RECENT_SEARCHES = 5
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en').format(value)
 }
 
-function getDefaultLeadLimit(plan: string | null | undefined, isGuest: boolean) {
-  if (isGuest) return 25
-  return getLeadLimit(plan || 'free')
-}
-
-function getNextBestStep(data: DashboardData) {
-  if (data.myLeads === 0) {
-    return {
-      title: 'Start by discovering businesses.',
-      detail: 'Run a focused search, review the results, and save the businesses worth understanding.',
-      href: '/dashboard/scraper',
-      cta: 'Discover businesses',
-    }
-  }
-
-  if (data.commercialProfiles < data.myLeads) {
-    return {
-      title: 'Build commercial intelligence on saved businesses.',
-      detail: 'Analyze more profiles so your library becomes easier to understand and act on.',
-      href: '/dashboard/my-leads',
-      cta: 'Review My Leads',
-    }
-  }
-
-  return {
-    title: 'Your business library is ready.',
-    detail: 'Review commercial profiles, export selected businesses, or take a simple action from a saved company.',
-    href: '/dashboard/my-leads',
-    cta: 'Open My Leads',
+function formatDate(value: string | null) {
+  if (!value) return 'Recent'
+  try {
+    return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(
+      new Date(value)
+    )
+  } catch {
+    return 'Recent'
   }
 }
 
-async function fetchCurrentLeadUsage(
-  userId: string,
-  plan: string | null | undefined
-): Promise<LeadUsageSnapshot> {
-  const fallbackLimit = getDefaultLeadLimit(plan, false)
+function dedupeSearches(rows: RecentSearch[]) {
+  const kept: RecentSearch[] = []
+
+  for (const row of rows) {
+    const key = `${row.query.trim().toLowerCase()}|${(row.location || '').trim().toLowerCase()}`
+    const time = row.createdAt ? new Date(row.createdAt).getTime() : NaN
+    const duplicate = kept.some((existing) => {
+      const existingKey = `${existing.query.trim().toLowerCase()}|${(existing.location || '').trim().toLowerCase()}`
+      const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : NaN
+      return existingKey === key && Math.abs(existingTime - time) <= DUPLICATE_WINDOW_MS
+    })
+
+    if (!duplicate) kept.push(row)
+    if (kept.length >= MAX_RECENT_SEARCHES) break
+  }
+
+  return kept
+}
+
+async function fetchRecentSearches(userId: string): Promise<RecentSearch[]> {
+  const { data, error } = await supabase
+    .from('activity_logs')
+    .select('id, query, location, leads_count, created_at')
+    .eq('user_id', userId)
+    .in('event', ['scrape_completed', 'search_performed', 'first_search_performed'])
+    .order('created_at', { ascending: false })
+    .limit(25)
+
+  if (error) {
+    console.warn('[dashboard] recent searches unavailable:', error.message)
+    return []
+  }
+
+  return dedupeSearches(
+    (data || [])
+      .map((row) => ({
+        id: row.id,
+        query: row.query || '',
+        location: row.location,
+        createdAt: row.created_at,
+        leadsCount: row.leads_count,
+      }))
+      .filter((row) => row.query.trim())
+  )
+}
+
+async function fetchDiscovered(userId: string, plan: string) {
+  if (!CYCLE_PLANS.has(plan)) {
+    const { count, error } = await supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .or('email.not.is.null,phone.not.is.null')
+
+    if (error) throw error
+    return { discovered: count ?? 0, allowance: getLeadLimit(plan), paidCycle: false }
+  }
+
   const nowIso = new Date().toISOString()
   const { data, error } = await supabase
     .from('usage')
-    .select('leads_used, leads_limit, period_start, period_end')
+    .select('leads_used, leads_limit')
     .eq('user_id', userId)
     .lte('period_start', nowIso)
     .gte('period_end', nowIso)
@@ -140,60 +133,10 @@ async function fetchCurrentLeadUsage(
   if (error) throw error
 
   return {
-    leadsUsed: data?.leads_used ?? 0,
-    leadsLimit: data?.leads_limit ?? fallbackLimit,
+    discovered: data?.leads_used ?? 0,
+    allowance: data?.leads_limit ?? getLeadLimit(plan),
+    paidCycle: true,
   }
-}
-
-async function fetchRecentSearches(userId: string): Promise<{ searches: RecentSearch[]; available: boolean }> {
-  const searchAnalytics = await supabase
-    .from('search_analytics')
-    .select('id, search_query, business_type, location, number_of_results_returned, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(5)
-
-  if (!searchAnalytics.error) {
-    const searches = (searchAnalytics.data || [])
-      .map((row) => ({
-        id: row.id,
-        query: row.search_query || row.business_type || '',
-        location: row.location,
-        createdAt: row.created_at,
-        leadsCount: row.number_of_results_returned,
-      }))
-      .filter((row) => row.query.trim())
-
-    return { searches, available: true }
-  }
-
-  const activityLogs = await supabase
-    .from('activity_logs')
-    .select('id, query, location, leads_count, created_at')
-    .eq('user_id', userId)
-    .in('event', ['search_performed', 'first_search_performed', 'scrape_completed'])
-    .order('created_at', { ascending: false })
-    .limit(5)
-
-  if (activityLogs.error) {
-    console.warn('[dashboard] recent searches unavailable:', {
-      searchAnalytics: searchAnalytics.error.message,
-      activityLogs: activityLogs.error.message,
-    })
-    return { searches: [], available: false }
-  }
-
-  const searches = (activityLogs.data || [])
-    .map((row) => ({
-      id: row.id,
-      query: row.query || '',
-      location: row.location,
-      createdAt: row.created_at,
-      leadsCount: row.leads_count,
-    }))
-    .filter((row) => row.query.trim())
-
-  return { searches, available: true }
 }
 
 export default function Page() {
@@ -201,14 +144,6 @@ export default function Page() {
   const { profile, loading: profileLoading } = useClientUserProfile()
   const [data, setData] = useState<DashboardData>(EMPTY_DASHBOARD)
   const [isGuest, setIsGuest] = useState(false)
-
-  const userName = user?.user_metadata?.full_name as string | undefined
-  const displayName =
-    userLoading || profileLoading
-      ? null
-      : getFirstName(userName, profile?.email || user?.email)
-  const nextStep = useMemo(() => getNextBestStep(data), [data])
-  const leadProgress = clampPercent(data.leadsUsedThisMonth, data.leadsLimit)
 
   useEffect(() => {
     if (userLoading || profileLoading) return
@@ -232,53 +167,46 @@ export default function Page() {
     setData((current) => ({ ...current, loading: true }))
 
     try {
-      const [leadUsageResult, myLeadsResult, commercialProfilesResult, recentSearchesResult] = await Promise.all([
-        fetchCurrentLeadUsage(user.id, profile?.plan),
-        supabase
-          .from('leads')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
+      const plan = profile?.plan || 'free'
+      const [discoveredResult, savedResult, researchedResult, recentSearches] = await Promise.all([
+        fetchDiscovered(user.id, plan),
+        supabase.from('leads').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        // Only research that actually produced a profile counts; failed/pending/skipped do not.
         supabase
           .from('leads')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('ci_enrichment_status', 'completed'),
+          .eq('ci_enrichment_status', 'completed')
+          .not('commercial_profile', 'is', null),
         fetchRecentSearches(user.id),
       ])
 
-      if (myLeadsResult.error) throw myLeadsResult.error
-      if (commercialProfilesResult.error) throw commercialProfilesResult.error
+      if (savedResult.error) throw savedResult.error
+      if (researchedResult.error) throw researchedResult.error
 
       setData({
         loading: false,
-        leadsUsedThisMonth: leadUsageResult.leadsUsed,
-        leadsLimit: leadUsageResult.leadsLimit,
-        myLeads: myLeadsResult.count ?? 0,
-        commercialProfiles: commercialProfilesResult.count ?? 0,
-        recentSearches: recentSearchesResult.searches,
-        recentSearchesAvailable: recentSearchesResult.available,
+        ...discoveredResult,
+        saved: savedResult.count ?? 0,
+        researched: researchedResult.count ?? 0,
+        recentSearches,
       })
     } catch (error) {
-      console.error('[dashboard] command center load failed:', error)
+      console.error('[dashboard] load failed:', error)
       setData((current) => ({ ...current, loading: false }))
     }
   }
 
   function loadGuestDashboard() {
-    const guestLeads = getGuestLeads()
-    const leadLimit = getDefaultLeadLimit(null, true)
-    const guestLeadCount = guestLeads.length
+    const guestLeadCount = getGuestLeads().length
 
     setIsGuest(true)
     setData({
       ...EMPTY_DASHBOARD,
       loading: false,
-      leadsUsedThisMonth: guestLeadCount,
-      leadsLimit: leadLimit,
-      myLeads: guestLeadCount,
-      commercialProfiles: 0,
-      recentSearches: [],
-      recentSearchesAvailable: false,
+      discovered: guestLeadCount,
+      allowance: 25,
+      saved: guestLeadCount,
     })
   }
 
@@ -286,275 +214,123 @@ export default function Page() {
     return null
   }
 
+  const discoveredLabel = data.paidCycle ? 'Discovered this cycle' : 'Discovered'
+  const discoveredDetail = data.paidCycle
+    ? `of ${formatNumber(data.allowance)} in your plan`
+    : `of ${formatNumber(data.allowance)} free leads`
+
   return (
-    <div className="space-y-6 pb-10 lg:-mt-2">
-      <HeroSection displayName={displayName} loading={data.loading} />
+    <div className="space-y-5 pb-8">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-400">Your business discovery overview.</p>
+        </div>
+        <Link href="/dashboard/scraper" className="btn-primary-gold sm:shrink-0">
+          Discover Businesses
+        </Link>
+      </header>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(220px,0.82fr)_minmax(220px,0.82fr)]">
-        <UsageCard
-          label="Businesses discovered"
-          value={data.leadsUsedThisMonth}
-          detail={`of ${formatNumber(data.leadsLimit)} this month`}
-          percent={leadProgress}
-          icon={BarChart3}
+      <section className="grid gap-3 sm:grid-cols-3">
+        <StatCard
+          label={discoveredLabel}
+          value={data.discovered}
+          detail={discoveredDetail}
+          loading={data.loading}
         />
-        <SnapshotCard
-          label="My Leads"
-          value={data.myLeads}
-          detail="Saved in your workspace"
-          icon={Inbox}
-        />
-        <SnapshotCard
-          label="Commercial profiles"
-          value={data.commercialProfiles}
-          detail="Businesses analyzed"
-          icon={Sparkles}
+        <StatCard label="Saved businesses" value={data.saved} detail="All-time total" loading={data.loading} />
+        <StatCard
+          label="Research completed"
+          value={data.researched}
+          detail="Businesses with a research profile"
+          loading={data.loading}
         />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-          <SectionHeader eyebrow="Progress" title="Usage this cycle" />
-          <div className="mt-5 space-y-5">
-            <ProgressBar
-              label="Businesses discovered this month"
-              percent={leadProgress}
-              detail={`${formatNumber(data.leadsUsedThisMonth)} of ${formatNumber(data.leadsLimit)} this month`}
-            />
-            <ProgressBar
-              label="Commercial profiles generated"
-              percent={clampPercent(data.commercialProfiles, Math.max(data.myLeads, 1))}
-              detail={
-                data.myLeads > 0
-                  ? `${formatNumber(data.commercialProfiles)} of ${formatNumber(data.myLeads)} saved businesses analyzed`
-                  : 'No saved businesses yet'
-              }
-            />
-          </div>
-        </div>
-
-        <div className="rounded-[28px] border border-cyan-200/14 bg-cyan-300/[0.055] p-5 sm:p-6">
-          <SectionHeader eyebrow="Next Best Step" title="What should I do next?" />
-          <h3 className="mt-5 text-2xl font-semibold tracking-[-0.035em] text-white">
-            {nextStep.title}
-          </h3>
-          <p className="mt-3 text-sm leading-6 text-cyan-50/80">{nextStep.detail}</p>
-          <Link href={nextStep.href} className="btn-primary-gold mt-5">
-            {nextStep.cta}
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-      </section>
-
-      <RecentSearches searches={data.recentSearches} available={data.recentSearchesAvailable} />
+      <RecentSearches searches={data.recentSearches} loading={data.loading} isGuest={isGuest} />
     </div>
   )
 }
 
-function HeroSection({
-  displayName,
+function StatCard({
+  label,
+  value,
+  detail,
   loading,
-}: {
-  displayName: string | null
-  loading: boolean
-}) {
-  return (
-    <section className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(145deg,rgba(2,8,23,0.98),rgba(8,18,34,0.94)_56%,rgba(4,10,22,0.98))] p-5 shadow-[0_32px_120px_rgba(2,8,23,0.42)] sm:p-7">
-      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/55 to-transparent" />
-      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
-            Command Center
-          </div>
-          <h1 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white sm:text-5xl">
-            {displayName ? `${getGreeting()} ${displayName}.` : `${getGreeting()}.`}
-          </h1>
-          <p className="mt-3 max-w-xl text-base leading-7 text-slate-300 sm:text-lg">
-            ALPA helps you discover businesses and build commercial intelligence about them.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-          <Link href="/dashboard/scraper" className="btn-primary-gold">
-            Discover businesses
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-          <Link
-            href="/dashboard/my-leads"
-            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.075]"
-          >
-            My Leads
-          </Link>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="relative mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Updating dashboard
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
-function SnapshotCard({
-  label,
-  value,
-  detail,
-  icon: Icon,
-}: {
-  label: string
-  value: number | string
-  detail: string
-  icon: typeof Search
-}) {
-  return (
-    <div className="rounded-[24px] border border-white/8 bg-white/[0.025] p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-medium text-slate-400">{label}</div>
-        <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-2 text-cyan-100">
-          <Icon className="h-4 w-4" />
-        </div>
-      </div>
-      <div className="mt-6 text-4xl font-semibold tracking-[-0.055em] text-white tabular-nums">
-        {typeof value === 'number' ? formatNumber(value) : value}
-      </div>
-      <div className="mt-2 text-sm text-slate-500">{detail}</div>
-    </div>
-  )
-}
-
-function UsageCard({
-  label,
-  value,
-  detail,
-  percent,
-  icon: Icon,
 }: {
   label: string
   value: number
   detail: string
-  percent: number
-  icon: typeof Search
+  loading: boolean
 }) {
   return (
-    <div className="rounded-[26px] border border-cyan-200/12 bg-cyan-300/[0.045] p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-cyan-50/70">{label}</div>
-          <div className="mt-5 text-5xl font-semibold tracking-[-0.06em] text-white tabular-nums">
-            {formatNumber(value)}
-          </div>
-          <div className="mt-2 text-sm text-cyan-50/60">{detail}</div>
+    <div className="flex h-full min-h-[112px] flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <div className="text-sm font-medium text-slate-400">{label}</div>
+      <div>
+        <div className="text-3xl font-semibold tracking-tight text-white tabular-nums">
+          {loading ? '–' : formatNumber(value)}
         </div>
-        <div className="rounded-2xl border border-cyan-200/14 bg-cyan-200/[0.08] p-2 text-cyan-50">
-          <Icon className="h-4 w-4" />
-        </div>
+        <div className="mt-1 text-xs text-slate-500">{detail}</div>
       </div>
-      <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/[0.08]">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-100 via-emerald-100 to-amber-100"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <div className="mt-2 text-xs text-cyan-50/45">{Math.round(percent)}% used</div>
-    </div>
-  )
-}
-
-function ProgressBar({
-  label,
-  percent,
-  detail,
-}: {
-  label: string
-  percent: number
-  detail: string
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <span className="font-medium text-slate-300">{label}</span>
-        <span className="text-slate-500 tabular-nums">{Math.round(percent)}%</span>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-white/[0.065]">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-200 via-emerald-200 to-amber-200"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <div className="mt-2 text-xs text-slate-500">{detail}</div>
     </div>
   )
 }
 
 function RecentSearches({
   searches,
-  available,
+  loading,
+  isGuest,
 }: {
   searches: RecentSearch[]
-  available: boolean
+  loading: boolean
+  isGuest: boolean
 }) {
-  if (!available) return null
-
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <SectionHeader eyebrow="Recent Searches" title="Run a search again" />
-        <Link
-          href="/dashboard/scraper"
-          className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.075]"
-        >
-          New search
-        </Link>
-      </div>
+    <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
+      <h2 className="text-lg font-semibold text-white">Recent searches</h2>
 
       {searches.length > 0 ? (
-        <div className="mt-5 divide-y divide-white/8 overflow-hidden rounded-2xl border border-white/8">
-          {searches.map((search) => (
-            <div
-              key={search.id}
-              className="grid gap-3 bg-slate-950/24 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-base font-semibold text-white">{search.query}</div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-                  {search.location ? <span>{search.location}</span> : null}
-                  <span>{formatDate(search.createdAt)}</span>
-                  {search.leadsCount !== null ? (
-                    <span>{search.leadsCount} businesses</span>
-                  ) : null}
-                </div>
-              </div>
-              <Link
-                href="/dashboard/scraper"
-                className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-2xl border border-cyan-200/16 bg-cyan-300/[0.07] px-4 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/[0.11]"
+        <div className="mt-3 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8">
+          {searches.map((search) => {
+            const params = new URLSearchParams({ q: search.query })
+            if (search.location) params.set('loc', search.location)
+
+            return (
+              <div
+                key={search.id}
+                className="flex flex-col gap-2 bg-slate-950/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <RotateCcw className="h-4 w-4" />
-                Run again
-              </Link>
-            </div>
-          ))}
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-white">
+                    {search.query}
+                    {search.location ? (
+                      <span className="font-normal text-slate-400"> · {search.location}</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {formatDate(search.createdAt)}
+                    {search.leadsCount !== null ? ` · ${formatNumber(search.leadsCount)} results` : ''}
+                  </div>
+                </div>
+                <Link
+                  href={`/dashboard/scraper?${params.toString()}`}
+                  className="inline-flex min-h-[36px] shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] px-3.5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.09]"
+                >
+                  Run Again
+                </Link>
+              </div>
+            )
+          })}
         </div>
       ) : (
-        <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/24 p-4 text-sm leading-6 text-slate-400">
-          Recent searches will appear here after you run business discovery.
-        </div>
+        <p className="mt-3 text-sm text-slate-500">
+          {loading
+            ? 'Loading your searches…'
+            : isGuest
+              ? 'Searches appear here once you create an account.'
+              : 'No searches yet. Start with Discover Businesses.'}
+        </p>
       )}
     </section>
-  )
-}
-
-function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
-  return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/60">
-        {eyebrow}
-      </div>
-      <h2 className="mt-1 text-2xl font-semibold tracking-[-0.035em] text-white">
-        {title}
-      </h2>
-    </div>
   )
 }

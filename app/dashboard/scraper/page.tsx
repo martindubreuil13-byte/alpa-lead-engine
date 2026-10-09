@@ -507,6 +507,19 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const [city, setCity] = useState('')
   const [maxLeads, setMaxLeads] = useState('25')
 
+  // "Run Again" from the dashboard links here with ?q=<business type>&loc=<location>.
+  // Prefill the form only; the search is never started automatically.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const q = params.get('q')?.trim()
+    const loc = params.get('loc')?.trim()
+    if (!q && !loc) return
+
+    if (q) setBusinessType(q.slice(0, 120))
+    if (loc) setCity(loc.slice(0, 120))
+    window.history.replaceState(null, '', window.location.pathname)
+  }, [])
+
   const [logs, setLogs] = useState<string[]>([])
   const [displayedLogs, setDisplayedLogs] = useState<string[]>([])
   const [discovered, setDiscovered] = useState(0)

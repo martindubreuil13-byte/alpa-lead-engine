@@ -23,8 +23,8 @@ function labels(source, constName) {
 
 const shell = read('components/dashboard/DashboardShell.tsx')
 
-test('customer sidebar has exactly the five approved entries, in order', () => {
-  assert.deepEqual(labels(shell, 'NAV_ITEMS'), ['Dashboard', 'Discover', 'My Leads', 'Plan & Billing', 'Settings'])
+test('customer sidebar has exactly the four approved entries, in order', () => {
+  assert.deepEqual(labels(shell, 'NAV_ITEMS'), ['Dashboard', 'Discover', 'My Leads', 'Plan & Billing'])
 })
 
 test('administrator navigation keeps Analytics, Lead Capture, Users and System', () => {
@@ -71,7 +71,8 @@ test('pipeline, templates and email features are administrator-only', () => {
 
 test('customer Settings renders no sender configuration; administrators keep it', () => {
   const page = read('app/dashboard/settings/page.tsx')
-  assert.match(page, /isAdmin\(profile\)\) return <SenderSettingsPanel \/>/)
+  assert.match(page, /if \(!isAdmin\(profile\)\) redirect\('\/dashboard\/billing'\)/)
+  assert.match(page, /return <SenderSettingsPanel \/>/)
   assert.doesNotMatch(page, /sender_settings|\/api\/send-email/)
   assert.ok(existsSync(join(root, 'app/dashboard/settings/SenderSettingsPanel.tsx')))
 })
@@ -131,6 +132,40 @@ test('results-email is administrator-only (no anonymous or customer delivery)', 
 })
 
 test('legacy sender/SMTP/template configuration is only reachable by administrators', () => {
-  assert.match(read('app/dashboard/settings/page.tsx'), /if \(isAdmin\(profile\)\) return <SenderSettingsPanel \/>/)
+  assert.match(read('app/dashboard/settings/page.tsx'), /if \(!isAdmin\(profile\)\) redirect\('\/dashboard\/billing'\)/)
   assert.doesNotMatch(read('app/dashboard/settings/page.tsx'), /sender_settings|smtp/i)
+})
+
+test('sidebar no longer shows the workspace information box', () => {
+  assert.doesNotMatch(shell, /Paid access active across discovery/)
+  assert.doesNotMatch(shell, />\s*Workspace\s*<\/div>/)
+})
+
+test('Kaia widget renders on public marketing pages only', () => {
+  const kaia = read('components/kaia/kaia-widget.tsx')
+  assert.match(kaia, /PUBLIC_KAIA_PATHS = \['\/', '\/plans', '\/about', '\/resources'\]/)
+  assert.match(kaia, /if \(!allowed\) return null/)
+  for (const path of ['/dashboard', '/admin', '/agent']) assert.ok(!kaia.includes(`'${path}'`), path)
+})
+
+test('dashboard shows three compact stats and de-duplicated recent searches with Run Again', () => {
+  const page = read('app/dashboard/page.tsx')
+  for (const label of ['Saved businesses', 'Research completed', 'Recent searches', 'Run Again', 'Discover Businesses']) {
+    assert.ok(page.includes(label), label)
+  }
+  assert.doesNotMatch(page, /search_analytics|Command Center|Next Best Step|Usage this cycle/)
+  assert.match(page, /\.from\('activity_logs'\)/)
+  assert.match(page, /ci_enrichment_status', 'completed'\)\s*\.not\('commercial_profile', 'is', null\)/)
+  assert.match(page, /DUPLICATE_WINDOW_MS/)
+  assert.doesNotMatch(page, /View Results/)
+})
+
+test('Run Again prefills Discover from the URL without starting a search', () => {
+  const discover = read('app/dashboard/scraper/page.tsx')
+  const a = discover.indexOf("params.get('q')")
+  assert.ok(a > 0)
+  const block = discover.slice(a - 200, a + 600)
+  assert.match(block, /setBusinessType\(/)
+  assert.match(block, /setCity\(/)
+  assert.doesNotMatch(block, /runScraper|handleSubmit|startSearch|fetch\(/)
 })

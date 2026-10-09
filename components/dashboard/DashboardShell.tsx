@@ -17,7 +17,6 @@ import {
   Menu,
   Rocket,
   ServerCog,
-  Settings,
   Users,
   UserRoundSearch,
   X,
@@ -60,14 +59,6 @@ const NAV_ITEMS: NavItem[] = [
     benefit: 'My Leads keeps the businesses worth understanding and acting on.',
   },
   { href: '/dashboard/billing', label: 'Plan & Billing', icon: CreditCard },
-  {
-    href: '/dashboard/settings',
-    label: 'Settings',
-    icon: Settings,
-    lockedOnFree: true,
-    description: 'Your account and plan details.',
-    benefit: 'Settings keep the business discovery workspace aligned to your account.',
-  },
 ]
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
@@ -220,20 +211,7 @@ export default function DashboardShell({
             </div>
           </Link>
 
-          <div className="mt-12 rounded-[28px] border border-white/10 bg-white/[0.04] p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60">
-              Workspace
-            </div>
-            <div className="mt-3 text-sm text-slate-200">
-              {viewerMode === 'authenticated_paid'
-                ? 'Paid access active across discovery, business intelligence, and exports.'
-                : viewerMode === 'authenticated_free'
-                  ? 'Free access active. Upgrade when you are ready for more discovery and intelligence.'
-                  : 'Trial mode active. Explore business discovery and upgrade when you need more capacity.'}
-            </div>
-          </div>
-
-          <nav className="mt-8 space-y-2">
+          <nav className="mt-12 space-y-2">
             {visibleNavItems.map((item) => {
               const href = getItemHref(item, viewerMode)
               const active = isActivePath(pathname, href)

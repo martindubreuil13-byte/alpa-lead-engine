@@ -1,9 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import Script from 'next/script'
 
+// Kaia is a pre-login sales assistant: shown on public marketing pages only,
+// never inside the authenticated app (dashboard, admin, agent).
+const PUBLIC_KAIA_PATHS = ['/', '/plans', '/about', '/resources']
+
+function isPublicKaiaPath(pathname: string | null) {
+  if (!pathname) return false
+  return PUBLIC_KAIA_PATHS.some((path) =>
+    path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`)
+  )
+}
+
 export default function KaiaWidget() {
+  const pathname = usePathname()
+  const allowed = isPublicKaiaPath(pathname)
   const [visible, setVisible] = useState(false)
   const [trialFlowActive, setTrialFlowActive] = useState(false)
 
@@ -37,6 +51,8 @@ export default function KaiaWidget() {
       window.removeEventListener('alpa:trial-flow-inactive', restoreAfterTrialFlow)
     }
   }, [])
+
+  if (!allowed) return null
 
   return (
     <>
