@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
@@ -19,7 +19,6 @@ type RecentSearch = {
 }
 
 type DashboardData = {
-  loading: boolean
   discovered: number
   allowance: number
   paidCycle: boolean
@@ -28,8 +27,10 @@ type DashboardData = {
   recentSearches: RecentSearch[]
 }
 
-const EMPTY_DASHBOARD: DashboardData = {
-  loading: true,
+// loading: nothing is known yet; error: a query failed; ready: all data loaded.
+type Status = 'loading' | 'error' | 'ready'
+
+const EMPTY_DATA: DashboardData = {
   discovered: 0,
   allowance: 25,
   paidCycle: false,
@@ -46,31 +47,74 @@ const CYCLE_PLANS = new Set(['admin', 'prospector', 'starter', 'pro'])
 const DUPLICATE_WINDOW_MS = 2 * 60 * 1000
 const MAX_RECENT_SEARCHES = 5
 
+// Example searches only prefill Discover (?q=&loc=); they never start a search.
+const EXAMPLE_SEARCHES = [
+  { query: 'Dental clinics', location: 'Austin' },
+  { query: 'Marketing agencies', location: 'Miami' },
+  { query: 'Accountants', location: 'Toronto' },
+]
+
+const STEPS = [
+  { title: 'Discover', body: 'Search by business type and place.' },
+  { title: 'Understand', body: 'ALPA studies each business’s website and summarizes what it does.' },
+  { title: 'Decide', body: 'Copy contact details or export your results as a CSV.' },
+]
+
+const SEEN_RESEARCH_KEY = 'alpa_dashboard_researched_seen'
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en').format(value)
 }
 
-function formatDate(value: string | null) {
-  if (!value) return 'Recent'
+function discoverHref(query: string, location: string | null) {
+  const params = new URLSearchParams({ q: query })
+  if (location) params.set('loc', location)
+  return `/dashboard/scraper?${params.toString()}`
+}
+
+function formatWhen(value: string | null) {
+  if (!value) return 'Recently'
+  const then = new Date(value)
+  if (Number.isNaN(then.getTime())) return 'Recently'
+
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const days = Math.round((startOfDay(new Date()) - startOfDay(then)) / 86_400_000)
+
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days} days ago`
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(then)
+}
+
+function readSeenResearch(userId: string): number | null {
   try {
-    return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(
-      new Date(value)
-    )
+    const raw = window.localStorage.getItem(`${SEEN_RESEARCH_KEY}:${userId}`)
+    if (raw === null) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
   } catch {
-    return 'Recent'
+    return null
+  }
+}
+
+function writeSeenResearch(userId: string, value: number) {
+  try {
+    window.localStorage.setItem(`${SEEN_RESEARCH_KEY}:${userId}`, String(value))
+  } catch {
+    // Storage can be unavailable (private windows); the notice is a convenience only.
   }
 }
 
 function dedupeSearches(rows: RecentSearch[]) {
   const kept: RecentSearch[] = []
+  const keyOf = (row: RecentSearch) =>
+    `${row.query.trim().toLowerCase()}|${(row.location || '').trim().toLowerCase()}`
 
   for (const row of rows) {
-    const key = `${row.query.trim().toLowerCase()}|${(row.location || '').trim().toLowerCase()}`
     const time = row.createdAt ? new Date(row.createdAt).getTime() : NaN
     const duplicate = kept.some((existing) => {
-      const existingKey = `${existing.query.trim().toLowerCase()}|${(existing.location || '').trim().toLowerCase()}`
       const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : NaN
-      return existingKey === key && Math.abs(existingTime - time) <= DUPLICATE_WINDOW_MS
+      return keyOf(existing) === keyOf(row) && Math.abs(existingTime - time) <= DUPLICATE_WINDOW_MS
     })
 
     if (!duplicate) kept.push(row)
@@ -89,10 +133,7 @@ async function fetchRecentSearches(userId: string): Promise<RecentSearch[]> {
     .order('created_at', { ascending: false })
     .limit(25)
 
-  if (error) {
-    console.warn('[dashboard] recent searches unavailable:', error.message)
-    return []
-  }
+  if (error) throw error
 
   return dedupeSearches(
     (data || [])
@@ -142,8 +183,19 @@ async function fetchDiscovered(userId: string, plan: string) {
 export default function Page() {
   const { user, loading: userLoading } = useCurrentUser()
   const { profile, loading: profileLoading } = useClientUserProfile()
-  const [data, setData] = useState<DashboardData>(EMPTY_DASHBOARD)
+  const [status, setStatus] = useState<Status>('loading')
+  const [data, setData] = useState<DashboardData>(EMPTY_DATA)
   const [isGuest, setIsGuest] = useState(false)
+  const [today, setToday] = useState<string | null>(null)
+  const [newResearch, setNewResearch] = useState(0)
+  const noticeHandled = useRef(false)
+
+  // The date is formatted after mount so server and browser time zones cannot disagree.
+  useEffect(() => {
+    setToday(
+      new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())
+    )
+  }, [])
 
   useEffect(() => {
     if (userLoading || profileLoading) return
@@ -164,7 +216,7 @@ export default function Page() {
     }
 
     setIsGuest(false)
-    setData((current) => ({ ...current, loading: true }))
+    setStatus('loading')
 
     try {
       const plan = profile?.plan || 'free'
@@ -184,16 +236,27 @@ export default function Page() {
       if (savedResult.error) throw savedResult.error
       if (researchedResult.error) throw researchedResult.error
 
+      const researched = researchedResult.count ?? 0
+
+      // Quiet feedback when research finished since the last visit. No polling: it is
+      // computed once per page view from data already loaded.
+      if (!noticeHandled.current) {
+        noticeHandled.current = true
+        const seen = readSeenResearch(user.id)
+        setNewResearch(seen !== null && researched > seen ? researched - seen : 0)
+        writeSeenResearch(user.id, researched)
+      }
+
       setData({
-        loading: false,
         ...discoveredResult,
         saved: savedResult.count ?? 0,
-        researched: researchedResult.count ?? 0,
+        researched,
         recentSearches,
       })
+      setStatus('ready')
     } catch (error) {
       console.error('[dashboard] load failed:', error)
-      setData((current) => ({ ...current, loading: false }))
+      setStatus('error')
     }
   }
 
@@ -201,136 +264,232 @@ export default function Page() {
     const guestLeadCount = getGuestLeads().length
 
     setIsGuest(true)
-    setData({
-      ...EMPTY_DASHBOARD,
-      loading: false,
-      discovered: guestLeadCount,
-      allowance: 25,
-      saved: guestLeadCount,
-    })
+    setData({ ...EMPTY_DATA, discovered: guestLeadCount, saved: guestLeadCount })
+    setStatus('ready')
   }
 
   if (!isGuest && !profile && !profileLoading) {
     return null
   }
 
+  // "Genuinely empty" is only decided once every query has succeeded.
+  const isEmpty =
+    status === 'ready' &&
+    data.saved === 0 &&
+    data.discovered === 0 &&
+    data.researched === 0 &&
+    data.recentSearches.length === 0
+
+  return (
+    <div className="mx-auto w-full max-w-4xl pb-16 pt-2 sm:pt-6">
+      <header className="dash-rise flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="h-4 text-xs font-medium uppercase tracking-[0.18em] text-white/55" aria-hidden={!today}>
+            {today}
+          </p>
+          <h1 className="mt-4 font-display text-[2.75rem] leading-[1.02] tracking-tight text-white/95 sm:text-[3.45rem]">
+            Your business universe.
+          </h1>
+          <p className="mt-4 max-w-xl text-base leading-7 text-white/70">
+            Discover businesses. Understand what they do. Find your next opportunity.
+          </p>
+        </div>
+        <Link href="/dashboard/scraper" className="btn-primary-gold btn-quiet sm:shrink-0">
+          Discover businesses
+        </Link>
+      </header>
+
+      <div className="mt-12 sm:mt-14" aria-busy={status === 'loading'}>
+        {status === 'loading' ? <LoadingState /> : null}
+        {status === 'error' ? <ErrorState onRetry={() => void loadDashboard()} /> : null}
+        {isEmpty ? <EmptyState /> : null}
+        {status === 'ready' && !isEmpty ? (
+          <PopulatedState data={data} newResearch={newResearch} isGuest={isGuest} />
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function LoadingState() {
+  return (
+    <div className="space-y-10" role="status" aria-label="Loading your overview">
+      <div className="grid gap-6 border-y border-white/10 py-8 sm:grid-cols-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="space-y-3 motion-safe:animate-pulse">
+            <div className="h-3 w-24 rounded bg-white/10" />
+            <div className="h-10 w-20 rounded bg-white/10" />
+            <div className="h-3 w-32 rounded bg-white/[0.06]" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-4 motion-safe:animate-pulse">
+        <div className="h-3 w-32 rounded bg-white/10" />
+        <div className="h-px w-full bg-white/10" />
+        <div className="h-5 w-2/3 rounded bg-white/[0.06]" />
+      </div>
+    </div>
+  )
+}
+
+function ErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="border-y border-white/10 py-10" role="alert">
+      <p className="text-lg text-white/90">We couldn’t load your overview.</p>
+      <p className="mt-2 text-sm text-white/60">Your data is safe. Check your connection and try again.</p>
+      <button type="button" onClick={onRetry} className="btn-secondary mt-6">
+        Try again
+      </button>
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div className="space-y-14">
+      <section aria-labelledby="how-it-works" className="dash-rise" style={{ animationDelay: '80ms' }}>
+        <h2 id="how-it-works" className="text-xs font-medium uppercase tracking-[0.18em] text-white/55">
+          Where to begin
+        </h2>
+        <ol className="mt-5 divide-y divide-white/10 border-y border-white/10">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="flex gap-5 py-5">
+              <span className="w-5 pt-0.5 text-sm tabular-nums text-white/55" aria-hidden="true">
+                {index + 1}
+              </span>
+              <div>
+                <div className="text-base font-medium text-white/95">{step.title}</div>
+                <p className="mt-1 text-sm leading-6 text-white/60">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section aria-labelledby="try-search" className="dash-rise" style={{ animationDelay: '160ms' }}>
+        <h2 id="try-search" className="text-xs font-medium uppercase tracking-[0.18em] text-white/55">
+          Or start from an example
+        </h2>
+        <ul className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
+          {EXAMPLE_SEARCHES.map((example) => (
+            <li key={`${example.query}-${example.location}`}>
+              <Link
+                href={discoverHref(example.query, example.location)}
+                className="group inline-flex min-h-[44px] items-center rounded text-base text-white/80 underline decoration-white/20 underline-offset-[6px] transition hover:text-white hover:decoration-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d8c28a]"
+                aria-label={`Prefill Discover with ${example.query} in ${example.location}`}
+              >
+                {example.query} <span className="px-1.5 text-white/40">·</span> {example.location}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-white/55">Examples only fill in the search form. Nothing runs until you start it.</p>
+      </section>
+    </div>
+  )
+}
+
+function PopulatedState({
+  data,
+  newResearch,
+  isGuest,
+}: {
+  data: DashboardData
+  newResearch: number
+  isGuest: boolean
+}) {
   const discoveredLabel = data.paidCycle ? 'Discovered this cycle' : 'Discovered'
   const discoveredDetail = data.paidCycle
     ? `of ${formatNumber(data.allowance)} in your plan`
     : `of ${formatNumber(data.allowance)} free leads`
 
   return (
-    <div className="space-y-5 pb-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-400">Your business discovery overview.</p>
-        </div>
-        <Link href="/dashboard/scraper" className="btn-primary-gold sm:shrink-0">
-          Discover Businesses
-        </Link>
-      </header>
+    <div className="space-y-12">
+      <section aria-label="Overview" className="dash-rise" style={{ animationDelay: '80ms' }}>
+        <dl className="grid divide-y divide-white/10 border-y border-white/10 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <Figure label={discoveredLabel} value={data.discovered} detail={discoveredDetail} first />
+          <Figure label="Saved businesses" value={data.saved} detail="All-time total" />
+          <Figure label="Research completed" value={data.researched} detail="Businesses with a research profile" accent />
+        </dl>
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        <StatCard
-          label={discoveredLabel}
-          value={data.discovered}
-          detail={discoveredDetail}
-          loading={data.loading}
-        />
-        <StatCard label="Saved businesses" value={data.saved} detail="All-time total" loading={data.loading} />
-        <StatCard
-          label="Research completed"
-          value={data.researched}
-          detail="Businesses with a research profile"
-          loading={data.loading}
-        />
+        {newResearch > 0 ? (
+          <p role="status" className="dash-fade mt-5 flex items-center gap-3 text-sm text-white/80">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#d8c28a]" aria-hidden="true" />
+            {newResearch === 1 ? '1 new research profile is ready.' : `${formatNumber(newResearch)} new research profiles are ready.`}
+            <Link
+              href="/dashboard/my-leads"
+              className="rounded text-[#d8c28a] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d8c28a]"
+            >
+              View in My Leads
+            </Link>
+          </p>
+        ) : null}
       </section>
 
-      <RecentSearches searches={data.recentSearches} loading={data.loading} isGuest={isGuest} />
+      <section aria-labelledby="recent-searches" className="dash-rise" style={{ animationDelay: '160ms' }}>
+        <h2 id="recent-searches" className="text-xs font-medium uppercase tracking-[0.18em] text-white/55">
+          Recent searches
+        </h2>
+
+        {data.recentSearches.length > 0 ? (
+          <ol className="mt-5 divide-y divide-white/10 border-y border-white/10">
+            {data.recentSearches.map((search) => (
+              <li key={search.id}>
+                <Link
+                  href={discoverHref(search.query, search.location)}
+                  aria-label={`Run again: ${search.query}${search.location ? ` in ${search.location}` : ''}`}
+                  className="dash-row group flex min-h-[76px] flex-col gap-1.5 py-5 transition-colors hover:bg-white/[0.02] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#d8c28a] sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-[1.0625rem] font-semibold leading-snug text-white">
+                      {search.query}
+                      {search.location ? <span className="font-normal text-white/70"> · {search.location}</span> : null}
+                    </span>
+                    <span className="mt-1 block text-sm text-white/65">
+                      {formatWhen(search.createdAt)}
+                      {search.leadsCount !== null ? ` · ${formatNumber(search.leadsCount)} results` : ''}
+                    </span>
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-2 text-sm text-white/70 transition-colors group-hover:text-[#d8c28a]" aria-hidden="true">
+                    Run again
+                    <span className="dash-row-arrow">→</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-4 border-y border-white/10 py-6 text-sm text-white/60">
+            {isGuest ? 'Create an account to keep a history of your searches.' : 'Your searches will appear here.'}
+          </p>
+        )}
+      </section>
     </div>
   )
 }
 
-function StatCard({
+function Figure({
   label,
   value,
   detail,
-  loading,
+  first = false,
+  accent = false,
 }: {
   label: string
   value: number
   detail: string
-  loading: boolean
+  first?: boolean
+  accent?: boolean
 }) {
   return (
-    <div className="flex h-full min-h-[112px] flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-      <div className="text-sm font-medium text-slate-400">{label}</div>
-      <div>
-        <div className="text-3xl font-semibold tracking-tight text-white tabular-nums">
-          {loading ? '–' : formatNumber(value)}
-        </div>
-        <div className="mt-1 text-xs text-slate-500">{detail}</div>
-      </div>
+    <div className={`py-7 sm:py-8 ${first ? 'sm:pr-8' : 'sm:px-8'}`}>
+      <dt className="text-sm text-white/75">{label}</dt>
+      <dd className="mt-3">
+        <span className={`block font-display text-6xl leading-none tabular-nums ${accent ? 'text-[#d8c28a]' : 'text-white/95'}`}>
+          {formatNumber(value)}
+        </span>
+        <span className="mt-3 block text-xs text-white/65">{detail}</span>
+      </dd>
     </div>
-  )
-}
-
-function RecentSearches({
-  searches,
-  loading,
-  isGuest,
-}: {
-  searches: RecentSearch[]
-  loading: boolean
-  isGuest: boolean
-}) {
-  return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
-      <h2 className="text-lg font-semibold text-white">Recent searches</h2>
-
-      {searches.length > 0 ? (
-        <div className="mt-3 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8">
-          {searches.map((search) => {
-            const params = new URLSearchParams({ q: search.query })
-            if (search.location) params.set('loc', search.location)
-
-            return (
-              <div
-                key={search.id}
-                className="flex flex-col gap-2 bg-slate-950/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-white">
-                    {search.query}
-                    {search.location ? (
-                      <span className="font-normal text-slate-400"> · {search.location}</span>
-                    ) : null}
-                  </div>
-                  <div className="mt-0.5 text-xs text-slate-500">
-                    {formatDate(search.createdAt)}
-                    {search.leadsCount !== null ? ` · ${formatNumber(search.leadsCount)} results` : ''}
-                  </div>
-                </div>
-                <Link
-                  href={`/dashboard/scraper?${params.toString()}`}
-                  className="inline-flex min-h-[36px] shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] px-3.5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.09]"
-                >
-                  Run Again
-                </Link>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="mt-3 text-sm text-slate-500">
-          {loading
-            ? 'Loading your searches…'
-            : isGuest
-              ? 'Searches appear here once you create an account.'
-              : 'No searches yet. Start with Discover Businesses.'}
-        </p>
-      )}
-    </section>
   )
 }

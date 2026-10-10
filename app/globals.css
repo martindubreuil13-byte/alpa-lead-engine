@@ -550,3 +550,61 @@ select:-webkit-autofill:focus {
   animation: commandCursorPulse 2.4s ease-in-out infinite;
   will-change: opacity;
 }
+
+/* Dashboard V3 — quiet intelligence */
+@layer components {
+  .btn-primary-gold.btn-quiet {
+    min-height: 48px;
+    padding: 0 1.25rem;
+    font-size: 0.9375rem;
+    box-shadow:
+      0 10px 24px rgba(2, 8, 23, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  .btn-primary-gold.btn-quiet:hover {
+    box-shadow:
+      0 12px 28px rgba(2, 8, 23, 0.36),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  }
+}
+
+@keyframes dashRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dashFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Motion is opt-in: users who prefer reduced motion get the final state immediately. */
+@media (prefers-reduced-motion: no-preference) {
+  .dash-rise {
+    animation: dashRise 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .dash-fade {
+    animation: dashFade 0.6s ease-out both;
+  }
+
+  .dash-row-arrow {
+    transition: transform 0.2s ease;
+  }
+
+  .dash-row:hover .dash-row-arrow,
+  .dash-row:focus-visible .dash-row-arrow {
+    transform: translateX(4px);
+  }
+}

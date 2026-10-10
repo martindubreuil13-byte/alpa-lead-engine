@@ -148,16 +148,52 @@ test('Kaia widget renders on public marketing pages only', () => {
   for (const path of ['/dashboard', '/admin', '/agent']) assert.ok(!kaia.includes(`'${path}'`), path)
 })
 
-test('dashboard shows three compact stats and de-duplicated recent searches with Run Again', () => {
+test('Dashboard V3: editorial header, three statistics, de-duplicated recent searches', () => {
   const page = read('app/dashboard/page.tsx')
-  for (const label of ['Saved businesses', 'Research completed', 'Recent searches', 'Run Again', 'Discover Businesses']) {
-    assert.ok(page.includes(label), label)
+  for (const text of ['Your business universe.', 'Discover businesses. Understand what they do. Find your next opportunity.', 'Saved businesses', 'Research completed', 'Recent searches', 'Run again', 'Discover businesses']) {
+    assert.ok(page.includes(text), text)
   }
-  assert.doesNotMatch(page, /search_analytics|Command Center|Next Best Step|Usage this cycle/)
+  assert.doesNotMatch(page, /search_analytics|Command Center|Next Best Step|Usage this cycle|Good (morning|afternoon|evening)/)
   assert.match(page, /\.from\('activity_logs'\)/)
   assert.match(page, /ci_enrichment_status', 'completed'\)\s*\.not\('commercial_profile', 'is', null\)/)
   assert.match(page, /DUPLICATE_WINDOW_MS/)
+  assert.match(page, /CYCLE_PLANS/)
   assert.doesNotMatch(page, /View Results/)
+})
+
+test('Dashboard V3 distinguishes loading, error, empty and populated states', () => {
+  const page = read('app/dashboard/page.tsx')
+  assert.match(page, /type Status = 'loading' \| 'error' \| 'ready'/)
+  // the welcome screen can only be chosen once every query has succeeded
+  assert.match(page, /const isEmpty =\s*status === 'ready' &&/)
+  assert.match(page, /\{status === 'loading' \? <LoadingState \/> : null\}/)
+  assert.match(page, /\{status === 'error' \? <ErrorState/)
+  assert.match(page, /\{isEmpty \? <EmptyState \/> : null\}/)
+  assert.match(page, /\{status === 'ready' && !isEmpty \? \(\s*<PopulatedState/)
+  // a failed recent-searches query is an error, not an empty list
+  assert.match(page, /if \(error\) throw error\s*\n\s*\n\s*return dedupeSearches/)
+})
+
+test('Dashboard V3 example searches and Run again only link to the Discover prefill', () => {
+  const page = read('app/dashboard/page.tsx')
+  assert.match(page, /\/dashboard\/scraper\?\$\{params\.toString\(\)\}/)
+  assert.match(page, /EXAMPLE_SEARCHES = \[/)
+  assert.doesNotMatch(page, /api\/scrape|runScrape|fetch\(/)
+})
+
+test('Dashboard V3 has no polling and respects reduced motion', () => {
+  const page = read('app/dashboard/page.tsx')
+  assert.doesNotMatch(page, /setInterval|setTimeout|refetchInterval|supabase\.channel|\.subscribe\(/)
+  const css = read('app/globals.css')
+  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{\s*\.dash-rise/)
+  assert.doesNotMatch(css.replace(/@media \(prefers-reduced-motion: no-preference\)[\s\S]*?\n\}\n/, ''), /animation: dash(Rise|Fade)/)
+})
+
+test('Instrument Serif is wired through the dashboard layout display slot only', () => {
+  const layout = read('app/dashboard/layout.tsx')
+  assert.match(layout, /Instrument_Serif/)
+  assert.match(layout, /variable: '--font-display'/)
+  assert.doesNotMatch(read('app/layout.tsx'), /Instrument_Serif/)
 })
 
 test('Run Again prefills Discover from the URL without starting a search', () => {
