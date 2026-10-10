@@ -1,22 +1,18 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import * as cheerio from 'cheerio'
 
 import { searchGooglePlaces } from '@/lib/sources/google'
 import { searchSerperMaps } from '@/lib/sources/serper'
 import {
   type EmailConfidence,
-  extractEmailCandidatesFromHtml,
   getWebsiteHost,
-  hostsClearlyRelated,
   isBlockedWebsiteHost,
   normalizePhone,
-  pickBestEmailCandidate,
-  sanitizeWebsite,
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
+import { enrichEmail } from '@/lib/scraper/email-enrichment'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -26,14 +22,12 @@ import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/co
 export const runtime = 'nodejs'
 
 const ENRICHMENT_WORKERS = 4
-const FETCH_TIMEOUT = 6000
 const MAX_SERPER_QUERIES = 2
 const MAX_GOOGLE_CALLS = 1
 const SERPER_EARLY_STOP_LEADS = 10
 const HIGH_CONFIDENCE_TARGET = 5
 const MIN_WEBSITE_TARGET = 7
 const MIN_ENRICHMENT_RATE = 0.5
-const MAX_SECONDARY_PAGE_FETCHES = 3
 
 // Internal relative cost estimates used for source prioritization reporting.
 const SERPER_DISCOVERY_COST_ESTIMATE = 0.01
@@ -54,11 +48,6 @@ type ScrapeConfig = {
   outputLeadLimit: number
   userId: string | null
   workerEligible: boolean
-}
-
-type HtmlPage = {
-  html: string
-  resolvedUrl: string
 }
 
 type DiscoverySource = 'serper' | 'google' | 'hybrid'
@@ -669,161 +658,6 @@ function createGuestLead(lead: DiscoveryLead): TrialLead {
     cost_estimate: lead.cost_estimate,
     created_at: new Date().toISOString(),
   }
-}
-
-async function fetchHtml(url: string) {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeout)
-
-    if (!res.ok) return null
-
-    return {
-      html: await res.text(),
-      resolvedUrl: res.url || url,
-    } satisfies HtmlPage
-  } catch {
-    return null
-  }
-}
-
-function buildSecondaryPageUrls(base: string, homepage: HtmlPage | null) {
-  const baseHost = getWebsiteHost(base)
-  if (!baseHost) {
-    return []
-  }
-
-  const candidates = new Map<string, number>()
-  const anchorBase = homepage?.resolvedUrl || base
-  const defaultPaths = [
-    { path: '/contact', priority: 4 },
-    { path: '/contact-us', priority: 4 },
-    { path: '/about', priority: 3 },
-    { path: '/about-us', priority: 3 },
-    { path: '/team', priority: 2 },
-  ]
-
-  const addCandidate = (value: string, priority: number) => {
-    try {
-      const url = new URL(value, anchorBase)
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        return
-      }
-
-      const host = getWebsiteHost(url.toString())
-      if (!host || isBlockedWebsiteHost(host) || !hostsClearlyRelated(baseHost, host)) {
-        return
-      }
-
-      url.hash = ''
-      url.search = ''
-
-      const pathname = url.pathname.replace(/\/+$/, '') || '/'
-      if (pathname === '/') {
-        return
-      }
-
-      const normalizedUrl = `${url.origin}${pathname}`
-      const previousPriority = candidates.get(normalizedUrl) || 0
-      if (priority > previousPriority) {
-        candidates.set(normalizedUrl, priority)
-      }
-    } catch {}
-  }
-
-  defaultPaths.forEach(({ path, priority }) => addCandidate(path, priority))
-
-  if (homepage) {
-    const $ = cheerio.load(homepage.html)
-
-    $('a[href]').each((_, element) => {
-      const href = $(element).attr('href')
-      if (!href) {
-        return
-      }
-
-      const text = $(element).text().trim().toLowerCase()
-      const hrefLower = href.toLowerCase()
-      let priority = 0
-
-      if (hrefLower.includes('contact') || text.includes('contact')) {
-        priority = 4
-      } else if (hrefLower.includes('about') || text.includes('about')) {
-        priority = 3
-      } else if (hrefLower.includes('team') || text.includes('team')) {
-        priority = 2
-      }
-
-      if (priority > 0) {
-        addCandidate(href, priority)
-      }
-    })
-  }
-
-  return [...candidates.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, MAX_SECONDARY_PAGE_FETCHES)
-    .map(([url]) => url)
-}
-
-async function enrichEmail(website: string | null) {
-  const base = sanitizeWebsite(website)
-  if (!base) return null
-
-  const originalHost = getWebsiteHost(base)
-  if (!originalHost || isBlockedWebsiteHost(originalHost)) {
-    return null
-  }
-
-  const candidates: Awaited<ReturnType<typeof extractEmailCandidatesFromHtml>> = []
-  const homepage = await fetchHtml(base)
-  const pages: HtmlPage[] = []
-
-  if (homepage) {
-    const resolvedHost = getWebsiteHost(homepage.resolvedUrl)
-    if (resolvedHost && !isBlockedWebsiteHost(resolvedHost) && hostsClearlyRelated(originalHost, resolvedHost)) {
-      pages.push(homepage)
-    }
-  }
-
-  const secondaryPageUrls = buildSecondaryPageUrls(base, homepage)
-  const secondaryPages = await Promise.all(
-    secondaryPageUrls.map(async (url) => fetchHtml(url))
-  )
-
-  for (const page of secondaryPages) {
-    if (page) {
-      pages.push(page)
-    }
-  }
-
-  for (const page of pages) {
-    const resolvedHost = getWebsiteHost(page.resolvedUrl)
-    if (!resolvedHost || isBlockedWebsiteHost(resolvedHost)) {
-      continue
-    }
-
-    if (!hostsClearlyRelated(originalHost, resolvedHost)) {
-      continue
-    }
-
-    candidates.push(
-      ...extractEmailCandidatesFromHtml({
-        html: page.html,
-        pageUrl: page.resolvedUrl,
-        websiteHost: resolvedHost,
-      })
-    )
-  }
-
-  return pickBestEmailCandidate(candidates)
 }
 
 async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: DiscoveryLead, userId: string) {
