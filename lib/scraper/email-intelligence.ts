@@ -249,6 +249,35 @@ export function deobfuscateEmailText(text: string): string {
   return text.replace(OBFUSCATED_AT, '@').replace(OBFUSCATED_DOT, '.')
 }
 
+const ENCODED_VALUE = /^[A-Za-z0-9._%+\-[\]()]{3,254}$/
+const BRACKETED_AT = /\[\s*at\s*\]/i
+
+/**
+ * Decodes the value WordPress email-encoder plugins write into `data-enc-email`, for example
+ * "vasb[at]cebivfb.pn": the letters are ROT13 and "[at]" stands for "@". The page ships this for every
+ * visitor and a browser decodes it on load, so reading it is reading what the site publishes.
+ *
+ * Deliberately strict: only the "[at]" form is decoded, only plain address characters are allowed, and a
+ * value that already contains "@" is not touched. The result is only a candidate; whether it is trusted is
+ * decided by the same validation and classification as every other address.
+ */
+export function decodeRot13Email(encoded: string): string | null {
+  const value = encoded.trim()
+  if (!ENCODED_VALUE.test(value) || value.includes('@')) return null
+  if ((value.match(new RegExp(BRACKETED_AT.source, 'gi')) ?? []).length !== 1) return null // exactly one "[at]"
+
+  const rot13 = (text: string) =>
+    text.replace(/[a-z]/gi, (letter) => {
+      const base = letter <= 'Z' ? 65 : 97
+      return String.fromCharCode(((letter.charCodeAt(0) - base + 13) % 26) + base)
+    })
+
+  // The marker is written in the clear; only the address parts around it are ROT13.
+  const decoded = rot13(value.replace(BRACKETED_AT, '@'))
+  // Plain address characters only, something on both sides of the "@", and a dotted domain.
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(decoded) ? decoded : null
+}
+
 function splitMailtoRecipients(href: string): string[] {
   const body = href.replace(/^\s*mailto:/i, '').split('?')[0] || ''
   let decoded = body
@@ -465,6 +494,13 @@ export function extractEmailCandidatesV2({ html, pageUrl, websiteHost }: Extract
     const hash = ($(element).attr('href') || '').split('#')[1] || ''
     const decoded = decodeCloudflareEmail(hash)
     if (decoded) add(decoded, 'cloudflare')
+  })
+
+  // 2b. ROT13-encoded address attributes (WordPress email-encoder plugins). The same third-party test
+  // as a mailto link applies: an encoded address in a "Site by ..." credit is not the business's.
+  $('[data-enc-email]').each((_, element) => {
+    const decoded = decodeRot13Email($(element).attr('data-enc-email') || '')
+    if (decoded) add(decoded, 'obfuscated', false, inThirdPartyContext($, element))
   })
 
   // 3. Drop everything that is not visible content.

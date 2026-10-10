@@ -117,7 +117,7 @@ test('no customer-facing page offers to email results or compose email', () => {
 
 test('CSV export is available without email on Discover, the trial flow and the leads list', () => {
   assert.match(read('app/dashboard/scraper/page.tsx'), /Export CSV/)
-  assert.match(read('app/dashboard/scraper/page.tsx'), /onExportCsv=\{\(\) => \{\s*setShowFirstSuccessModal\(false\)\s*downloadPreviewLeads\(\)/)
+  assert.match(read('app/dashboard/scraper/page.tsx'), /onExportCsv=\{\(\) => \{\s*setShowTrialLimitModal\(false\)\s*downloadPreviewLeads\(\)/)
   assert.match(read('components/landing/FreeTrialCommandFlow.tsx'), /downloadLeadCsv\(allLeads\)/)
   assert.match(read('app/dashboard/leads/LeadsPageClient.tsx'), /Download CSV/)
 })

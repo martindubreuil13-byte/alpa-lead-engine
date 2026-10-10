@@ -72,8 +72,10 @@ test('V1 and V2 selection do not depend on each other', async () => {
 test('both scraper entry points use the single switchable enrichEmail and nothing else', () => {
   for (const file of ENTRY_POINTS) {
     const source = read(file)
-    assert.match(source, /import \{ enrichEmail \} from '@\/lib\/scraper\/email-enrichment'/, file)
-    assert.match(source, /await enrichEmail\(lead\.website\)/, file)
+    // Either public function goes through the same single version switch (enrichEmail delegates to
+    // enrichEmailWithInspection); neither names a version.
+    assert.match(source, /import \{ (enrichEmail|enrichEmailWithInspection) \} from '@\/lib\/scraper\/email-enrichment'/, file)
+    assert.match(source, /await (enrichEmail|enrichEmailWithInspection)\(lead\.website\)/, file)
     for (const forbidden of ['enrichEmailV1', 'enrichEmailV2', 'email-enrichment-v1', 'extractEmailCandidatesFromHtml', 'pickBestEmailCandidate', 'fetchHtml(', 'buildSecondaryPageUrls']) {
       assert.ok(!source.includes(forbidden), `${file} must not reference ${forbidden}`)
     }

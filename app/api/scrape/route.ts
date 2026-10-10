@@ -13,6 +13,9 @@ import {
 import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { enrichEmail } from '@/lib/scraper/email-enrichment'
+import type { EmailInspection } from '@/lib/scraper/email-inspection'
+import { buildLeadInsertPayload, buildResultLead, toLeadRow } from '@/lib/scraper/lead-payload'
+import { createSaveTracker, type ScrapeProgressEvent } from '@/lib/scraper/progress-events'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -72,6 +75,7 @@ type DiscoveryLead = {
   is_generic_email: boolean
   enrichment_attempted: boolean
   enriched_website_host: string | null
+  email_inspection?: EmailInspection | null
 }
 
 type ScrapeMetrics = {
@@ -122,22 +126,6 @@ type UsageRow = {
   leads_limit: number
   period_start: string
   period_end: string
-}
-
-type LeadInsertPayload = {
-  user_id: string
-  company_name: string
-  email: string | null
-  phone: string | null
-  website: string | null
-  city: string | null
-  status: 'inbox'
-  source: DiscoverySource
-  email_confidence: EmailConfidence
-  email_source: string | null
-  is_generic_email: boolean
-  cost_estimate: number
-  last_activity_at?: string
 }
 
 function roundCostEstimate(value: number) {
@@ -543,30 +531,6 @@ function buildSerperQueries(query: string, city: string) {
   ).slice(0, MAX_SERPER_QUERIES)
 }
 
-function buildLeadInsertPayload(lead: DiscoveryLead, userId: string): LeadInsertPayload {
-  const payload: LeadInsertPayload = {
-    user_id: userId,
-    company_name: lead.company_name,
-    email: lead.email,
-    phone: lead.phone,
-    website: lead.website,
-    city: lead.city || null,
-    status: 'inbox',
-    source: lead.source || 'serper',
-    email_confidence: lead.email_confidence || 'low',
-    email_source: lead.email_source || lead.website || 'scraper',
-    is_generic_email: lead.is_generic_email ?? false,
-    cost_estimate: lead.cost_estimate ?? 0,
-    last_activity_at: new Date().toISOString(),
-  }
-
-  if (!payload.source) payload.source = 'serper'
-  if (!payload.email_confidence) payload.email_confidence = 'low'
-  if (payload.is_generic_email === undefined) payload.is_generic_email = false
-
-  return payload
-}
-
 function describeDbError(error: any) {
   return {
     code: error?.code ? String(error.code) : null,
@@ -641,23 +605,7 @@ function canSpend(currentCost: number, nextCost: number) {
 }
 
 function createGuestLead(lead: DiscoveryLead): TrialLead {
-  return {
-    id: crypto.randomUUID(),
-    company_name: lead.company_name,
-    city: lead.city || null,
-    industry: lead.industry || null,
-    email: lead.email,
-    email_source: lead.email_source,
-    is_generic_email: lead.is_generic_email,
-    phone: lead.phone || null,
-    website: lead.website || null,
-    status: 'inbox',
-    pipeline_stage: null,
-    close_reason: null,
-    source: lead.source,
-    cost_estimate: lead.cost_estimate,
-    created_at: new Date().toISOString(),
-  }
+  return buildResultLead(lead, crypto.randomUUID())
 }
 
 async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: DiscoveryLead, userId: string) {
@@ -700,23 +648,8 @@ async function saveLead(supabase: ReturnType<typeof createServerClient>, lead: D
     } satisfies SaveLeadResult
   }
 
-  const basePayload = buildLeadInsertPayload(lead, userId)
-
-  const payload: LeadInsertPayload = {
-    user_id: basePayload.user_id,
-    company_name: basePayload.company_name,
-    email: basePayload.email || null,
-    phone: basePayload.phone || null,
-    website: basePayload.website || null,
-    city: basePayload.city || null,
-    status: 'inbox',
-    source: basePayload.source || 'serper',
-    email_source: basePayload.email_source || null,
-    email_confidence: basePayload.email_confidence || 'low',
-    is_generic_email: basePayload.is_generic_email ?? false,
-    cost_estimate: basePayload.cost_estimate ?? 0,
-    last_activity_at: basePayload.last_activity_at,
-  }
+  // The row inserted, including the provider's category (`industry`), which used to be dropped here.
+  const payload = toLeadRow(buildLeadInsertPayload(lead, userId))
 
   console.log('INSERT PAYLOAD:', payload)
   console.log('FINAL CLEAN PAYLOAD:', JSON.stringify(payload, null, 2))
@@ -857,6 +790,7 @@ async function runScraper(
     guestMode?: boolean
     onGuestLead?: (lead: TrialLead) => void
     onResult?: (result: ScrapeResultPayload) => void
+    onProgress?: (event: ScrapeProgressEvent) => void
   }
 ) {
   try {
@@ -876,7 +810,8 @@ async function runScraper(
         maxLeads,
         mode: 'deep',
       },
-      send
+      send,
+      options?.onProgress
     )
     const validDiscoveredLeads = discovery.discoveredLeads
     const finalEnrichedLeads = discovery.finalEnrichedLeads
@@ -892,6 +827,13 @@ async function runScraper(
     let dbErrorCount = 0
     const addedLeads: TrialLead[] = []
 
+    // Save progress: announced once up front, then after each attempt finishes.
+    const saveTracker = createSaveTracker(
+      Math.min(finalEnrichedLeads.length, allowedOutputCount),
+      options?.onProgress
+    )
+    saveTracker.start()
+
     if (options?.guestMode) {
       for (const lead of finalEnrichedLeads) {
         if (addedCount >= allowedOutputCount) {
@@ -902,6 +844,7 @@ async function runScraper(
         addedLeads.push(guestLead)
         options.onGuestLead?.(guestLead)
         addedCount += 1
+        saveTracker.record('saved')
       }
     } else {
       for (const lead of finalEnrichedLeads) {
@@ -953,6 +896,7 @@ async function runScraper(
             console.error(`[CI-SCRAPER] Queue: Failed to enqueue ${saved.id} - ${enqueueResult.error}`)
           }
 
+          saveTracker.record('saved')
           continue
         }
         console.log(
@@ -979,18 +923,22 @@ async function runScraper(
             if (!requeue.ok) {
               console.error(`[CI-SCRAPER] Queue: Failed to requeue ${existingId} - ${requeue.error}`)
             }
+            saveTracker.record('saved')
             continue
           }
         }
 
         if (saved.reason === 'duplicate') {
           duplicateCount += 1
+          saveTracker.record('duplicate')
           send(`⚠️ duplicate skipped: ${lead.company_name} | ${errorSummary}`)
         } else if (saved.reason === 'invalid') {
           invalidCount += 1
+          saveTracker.record('invalid')
           send(`⚠️ invalid lead skipped: ${lead.company_name} | ${errorSummary}`)
         } else {
           dbErrorCount += 1
+          saveTracker.record('failed')
           send(`❌ db error: ${lead.company_name} | ${errorSummary}`)
         }
       }
@@ -1208,6 +1156,14 @@ export async function POST(req: Request) {
         },
         onResult(result) {
           latestResult = result
+        },
+        // Additive event type. A failed emit must never interrupt discovery.
+        onProgress(event) {
+          try {
+            emit(event)
+          } catch {
+            // stream already closed or cancelled
+          }
         },
       })
 

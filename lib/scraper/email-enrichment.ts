@@ -32,6 +32,7 @@ import { getWebsiteUserAgent } from '../commercial-intelligence/user-agent.ts'
 import { getWebsiteHost, hostsClearlyRelated, isBlockedWebsiteHost, sanitizeWebsite } from '../validation.ts'
 import type { EmailValidationResult } from '../validation.ts'
 import { enrichEmailV1 } from './email-enrichment-v1.ts'
+import { inspectionFromOutcome, type EmailInspection } from './email-inspection.ts'
 import {
   classifyEmailOutcome,
   extractEmailCandidatesV2,
@@ -45,7 +46,10 @@ import {
 
 export const FETCH_TIMEOUT_MS = 6_000
 export const MAX_PAGE_BYTES = 1_500_000
-export const ROBOTS_TIMEOUT_MS = 3_000
+// A real site (cirrusconsultinggroup.com) answers robots.txt in about 3.0 s, which the previous limit of
+// 3 s turned into "permission unknown" and therefore "no pages read". Six seconds matches the page limit.
+// A robots.txt that is still unanswered after that remains UNKNOWN: nothing on the site is requested.
+export const ROBOTS_TIMEOUT_MS = 6_000
 
 export type FetchedPage = { html: string; resolvedUrl: string; truncated?: boolean }
 
@@ -518,13 +522,26 @@ function logOutcome(website: string | null, outcome: EmailEnrichmentOutcome) {
   console.info(formatEmailIntelLog(website, outcome))
 }
 
-const DEFAULT_ENRICHERS: EmailEnrichers = {
-  v1: (website) => enrichEmailV1(website),
+/** An address (if any) together with how well the website was inspected. V1 cannot tell, so it reports null. */
+export type EmailEnrichmentResult = { record: EmailValidationResult | null; inspection: EmailInspection | null }
+
+export type DetailedEmailEnrichers = {
+  v1: (website: string | null) => Promise<EmailEnrichmentResult>
+  v2: (website: string | null) => Promise<EmailEnrichmentResult>
+}
+
+const DEFAULT_DETAILED_ENRICHERS: DetailedEmailEnrichers = {
+  v1: async (website) => ({ record: await enrichEmailV1(website), inspection: null }),
   v2: async (website) => {
     const outcome = await enrichEmailV2(website)
     logOutcome(website, outcome)
-    return outcome.best
+    return { record: outcome.best, inspection: inspectionFromOutcome(outcome) }
   },
+}
+
+const DEFAULT_ENRICHERS: EmailEnrichers = {
+  v1: async (website) => (await DEFAULT_DETAILED_ENRICHERS.v1(website)).record,
+  v2: async (website) => (await DEFAULT_DETAILED_ENRICHERS.v2(website)).record,
 }
 
 /**
@@ -535,5 +552,20 @@ export async function enrichEmail(
   website: string | null,
   enrichers: EmailEnrichers = DEFAULT_ENRICHERS
 ): Promise<EmailValidationResult | null> {
+  const detailed: DetailedEmailEnrichers = {
+    v1: async (site) => ({ record: await enrichers.v1(site), inspection: null }),
+    v2: async (site) => ({ record: await enrichers.v2(site), inspection: null }),
+  }
+  return (await enrichEmailWithInspection(website, detailed)).record
+}
+
+/**
+ * Same as enrichEmail, and also reports how well the website was inspected (see email-inspection.ts).
+ * This is the one place the version switch is read, so V1 and V2 can still be swapped by one variable.
+ */
+export async function enrichEmailWithInspection(
+  website: string | null,
+  enrichers: DetailedEmailEnrichers = DEFAULT_DETAILED_ENRICHERS
+): Promise<EmailEnrichmentResult> {
   return enrichers[selectEmailIntelligenceVersion(process.env.EMAIL_INTELLIGENCE_VERSION)](website)
 }

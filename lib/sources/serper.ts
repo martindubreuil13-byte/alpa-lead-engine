@@ -1,3 +1,4 @@
+import { serperPlaceCategory } from "./category"
 import { SourceLead, SourceSearchInput } from "./types"
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY!
@@ -165,7 +166,8 @@ export async function searchSerperMaps(
         phone,
         website,
         email: null,
-        industry: place.type || place.types?.[0] || query,
+        // The provider's own category. The search query is not a category and is never used in its place.
+        industry: serperPlaceCategory(place),
         city,
         source: "serper_maps",
         source_url: website,

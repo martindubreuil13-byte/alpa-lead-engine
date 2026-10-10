@@ -1,3 +1,5 @@
+import type { EmailInspection } from '@/lib/scraper/email-inspection'
+
 export const FREE_TRIAL_LEAD_LIMIT = 25
 export const GUEST_SESSION_STORAGE_KEY = 'alpa_guest_session_id'
 export const GUEST_LEADS_STORAGE_KEY = 'alpa_guest_leads'
@@ -12,6 +14,11 @@ export type TrialLead = {
   email: string | null
   email_source: string | null
   email_confidence?: 'high' | 'medium' | 'low' | null
+  /**
+   * How well the website was inspected for an email during this search. Carried in the Discover stream and
+   * results only; it is not stored in the database, so it is absent for leads loaded later.
+   */
+  email_inspection?: EmailInspection | null
   is_generic_email: boolean
   phone: string | null
   website: string | null

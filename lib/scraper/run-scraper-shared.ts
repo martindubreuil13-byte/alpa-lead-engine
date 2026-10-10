@@ -1,8 +1,14 @@
 import { searchGooglePlaces } from '@/lib/sources/google'
 import { searchSerperMaps } from '@/lib/sources/serper'
 import { type EmailConfidence, getWebsiteHost, isBlockedWebsiteHost, normalizePhone } from '@/lib/validation'
-import { enrichEmail } from '@/lib/scraper/email-enrichment'
+import { enrichEmailWithInspection } from '@/lib/scraper/email-enrichment'
+import { mergeInspection, type EmailInspection } from '@/lib/scraper/email-inspection'
 import { isCountableLead } from '@/lib/usage/usage'
+import {
+  createWebsiteCheckTracker,
+  type ScrapeProgressEvent,
+  type WebsiteCheckTracker,
+} from '@/lib/scraper/progress-events'
 
 const ENRICHMENT_WORKERS = 4
 const MAX_SERPER_QUERIES = 2
@@ -52,6 +58,8 @@ export type DiscoveryLead = {
   is_generic_email: boolean
   enrichment_attempted: boolean
   enriched_website_host: string | null
+  /** How well the website was inspected for an email (see email-inspection.ts). Not persisted. */
+  email_inspection?: EmailInspection | null
 }
 
 type ScrapeMetrics = {
@@ -193,6 +201,7 @@ function createDiscoveryLead(
     is_generic_email: false,
     enrichment_attempted: false,
     enriched_website_host: null,
+    email_inspection: null,
   }
 }
 
@@ -281,6 +290,8 @@ function mergeDiscoveryLead(existing: DiscoveryLead, incoming: DiscoveryLead): D
     is_generic_email: websiteChanged ? false : existing.is_generic_email,
     enrichment_attempted: websiteChanged ? false : existing.enrichment_attempted,
     enriched_website_host: websiteChanged ? null : existing.enriched_website_host,
+    // A different website means a different inspection: what was learned about the old one does not carry over.
+    email_inspection: websiteChanged ? null : (existing.email_inspection ?? null),
   }
 }
 
@@ -456,7 +467,8 @@ function canSpend(currentCost: number, nextCost: number) {
 async function enrichLeadQueue(
   queue: DiscoveryLead[],
   send: (msg: string) => void,
-  sendPhase: (phase: ScrapePhase) => void
+  sendPhase: (phase: ScrapePhase) => void,
+  tracker?: WebsiteCheckTracker
 ) {
   if (queue.length === 0) {
     return
@@ -475,16 +487,22 @@ async function enrichLeadQueue(
       lead.enriched_website_host = websiteHost
 
       if (!websiteHost || isBlockedWebsiteHost(websiteHost)) {
+        lead.email_inspection = mergeInspection(lead.email_inspection, { state: 'no_website', partial: false })
         send(`⛔ no website: ${lead.company_name}`)
+        tracker?.complete(false)
         continue
       }
 
       send(`🔬 ${lead.company_name}`)
 
-      const emailRecord = await enrichEmail(lead.website)
+      const { record: emailRecord, inspection } = await enrichEmailWithInspection(lead.website)
+      lead.email_inspection = mergeInspection(lead.email_inspection, inspection)
 
+      // The log line (and the progress counters built from it) is unchanged: "no email" here means no
+      // address was found. How well the site was inspected travels separately, on the lead itself.
       if (!emailRecord) {
         send(`⛔ no email: ${lead.company_name}`)
+        tracker?.complete(false)
         continue
       }
 
@@ -494,6 +512,7 @@ async function enrichLeadQueue(
       lead.is_generic_email = emailRecord.isGenericEmail
 
       send(`✨ ${lead.company_name}`)
+      tracker?.complete(true)
     }
 
     send(`🧵 worker ${id} done`)
@@ -506,7 +525,9 @@ async function enrichLeadQueue(
 
 export async function runSharedProspectorDiscovery(
   config: SharedScrapeConfig,
-  send: (msg: string) => void
+  send: (msg: string) => void,
+  // Optional and additive: callers that omit it (agent missions) behave exactly as before.
+  onProgress?: (event: ScrapeProgressEvent) => void
 ): Promise<SharedProspectorDiscoveryResult> {
   const { query, defaultCity, region, country, maxLeads, mode = 'deep' } = config
 
@@ -520,6 +541,7 @@ export async function runSharedProspectorDiscovery(
   let googleCalls = 0
   const discoveredLeads: DiscoveryLead[] = []
   const sentPhases = new Set<ScrapePhase>()
+  const websiteChecks = createWebsiteCheckTracker(onProgress)
 
   const targetStrongSignalLeads = Math.min(HIGH_CONFIDENCE_TARGET, maxLeads)
   const websiteTarget = Math.min(MIN_WEBSITE_TARGET, maxLeads)
@@ -606,11 +628,10 @@ export async function runSharedProspectorDiscovery(
   const validDiscoveredLeads = discoveredLeads.filter(isValidDiscoveredLead).slice(0, maxLeads)
   send(`📦 discovered: ${validDiscoveredLeads.length}`)
 
-  await enrichLeadQueue(
-    validDiscoveredLeads.filter(shouldAttemptEnrichment),
-    send,
-    sendPhase
-  )
+  const initialCheckQueue = validDiscoveredLeads.filter(shouldAttemptEnrichment)
+  // Announce exactly how many websites will be checked (zero is a valid, explicit answer).
+  websiteChecks.plan(initialCheckQueue.length)
+  await enrichLeadQueue(initialCheckQueue, send, sendPhase, websiteChecks)
 
   let metrics = calculateMetrics(validDiscoveredLeads)
 
@@ -754,7 +775,8 @@ export async function runSharedProspectorDiscovery(
         googleEnrichmentTargets.push(upserted.lead)
       }
 
-      await enrichLeadQueue(googleEnrichmentTargets, send, sendPhase)
+      websiteChecks.plan(googleEnrichmentTargets.length)
+      await enrichLeadQueue(googleEnrichmentTargets, send, sendPhase, websiteChecks)
       metrics = calculateMetrics(validDiscoveredLeads)
 
       send(

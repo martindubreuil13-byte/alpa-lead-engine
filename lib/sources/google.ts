@@ -1,3 +1,4 @@
+import { firstProviderCategory } from "./category"
 import { SourceLead, SourceSearchInput } from "./types"
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY!
@@ -206,7 +207,8 @@ export async function searchGooglePlaces(
       phone: details?.formatted_phone_number || null,
       website,
       email: null,
-      industry: details?.types?.[0] || null,
+      // Google's own type codes, minus the ones that only say "this is a place".
+      industry: firstProviderCategory(details?.types),
       city: cityName,
       source: "google_places",
       source_url: details?.url || null,

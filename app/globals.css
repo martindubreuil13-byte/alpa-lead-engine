@@ -608,3 +608,128 @@ select:-webkit-autofill:focus {
     transform: translateX(4px);
   }
 }
+
+/* Discover V3 / A2.
+   Motion communicates state; it does not decorate. Three kinds, kept visibly different:
+   - AMBIENT (engine-pulse): ONE thin ring, transform and opacity only (compositor work, no repaint).
+     It is rendered only while a search is genuinely searching, the tab is visible and the engine is on
+     screen; otherwise it does not exist. It says "working", never "done".
+   - EVENT-DRIVEN (engine-reveal, signal-pop, signals-in, results-in): short, one-shot, replayed only
+     when something real changes.
+   - SETTLING (transitions on the count and the stage): a single slow movement when the search ends.
+   Nothing here uses blur filters, box-shadow animation or full-area gradients. All motion sits inside
+   `prefers-reduced-motion: no-preference`; reduced motion gets the same final layout instantly. */
+/* A static field of dots: painted once, never animated. */
+.engine-field {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.16) 1px, transparent 1.6px);
+  background-size: 28px 28px;
+  opacity: 0.4;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 15%, transparent 68%);
+  mask-image: radial-gradient(ellipse at center, #000 15%, transparent 68%);
+}
+
+.engine-pulse,
+.engine-reveal,
+.signal-pop,
+.signals-in,
+.results-in {
+  opacity: 1;
+}
+
+.engine-pulse {
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+@keyframes enginePulse {
+  0% {
+    transform: scale(0.28);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes engineReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes resultIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes signalPop {
+  0% {
+    transform: scale(1.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes signalsIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .engine-pulse {
+    animation: enginePulse 6s ease-out infinite;
+  }
+
+  .engine-reveal {
+    animation: engineReveal 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .signal-pop {
+    animation: signalPop 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .signals-in {
+    animation: signalsIn 0.6s ease-out both;
+  }
+
+  /* One settling movement when the search ends: the engine shrinks into its summary. */
+  .engine-stage {
+    transition: min-height 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .engine-count {
+    transition: font-size 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), color 0.6s ease;
+  }
+
+  /* Results arrive in a short stagger. --i is capped in the component so a long list never waits. */
+  .results-in {
+    animation: resultIn 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--i, 0) * 45ms + 120ms);
+  }
+
+  .result-arrow {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+}
