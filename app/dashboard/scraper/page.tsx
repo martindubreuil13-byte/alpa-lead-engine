@@ -42,6 +42,7 @@ import {
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { withIntelligence } from '@/lib/intelligence/row-intelligence'
 import { describeProfileNote } from '@/lib/intelligence/run-progress'
+import { computeRunElapsed } from '@/lib/intelligence/run-clock'
 import { getAccessibleResults } from '@/lib/scraper/results-access'
 import { useResearchProgress } from '@/components/scraper/useResearchProgress'
 import {
@@ -430,6 +431,14 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     : null
   // Business Intelligence (B2 Phase 1): the server's real state for this run, refreshed while anything is unresolved.
   const research = useResearchProgress({ runId: researchRunId, enabled: isAuthenticated && !privatePreview })
+  // The run stopwatch needs a tick of its own once the search has ended, for as long as Business Intelligence is live.
+  const researchLive = Boolean(research?.stage?.live)
+  useEffect(() => {
+    if (!researchLive || loading) return
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [researchLive, loading])
+  const runElapsed = computeRunElapsed(runTimings.startedAt, research?.clock ?? null, nowMs || Date.now())
   const baseRows = displayedPreviewLeads.map((lead) =>
     toResultRow(lead, { researchState: privatePreview ? getPrivatePreviewResearchStatus(lead) : null })
   )
@@ -1255,6 +1264,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             footnote="Times are measured in your browser."
             rootRef={engineRef}
             intelligence={research?.stage ?? null}
+            runElapsed={runElapsed}
           />
         ) : null}
 

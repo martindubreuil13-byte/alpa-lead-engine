@@ -31,6 +31,8 @@ type DiscoverEngineProps = {
   rootRef?: MutableRefObject<HTMLElement | null>
   /** Business Intelligence for this run, from the server. Absent keeps the A2.3 third-stage wording. */
   intelligence?: IntelligenceStage | null
+  /** Run stopwatch (Discover start to the final Business Intelligence state) and Business Intelligence alone, in ms. */
+  runElapsed?: { totalMs: number | null; intelligenceMs: number | null }
 }
 
 function formatClock(milliseconds: number) {
@@ -75,6 +77,7 @@ export default function DiscoverEngine({
   footnote,
   rootRef,
   intelligence,
+  runElapsed,
 }: DiscoverEngineProps) {
   const { focus, discover, enrich } = view
   const fallbackRef = useRef<HTMLElement | null>(null)
@@ -82,6 +85,9 @@ export default function DiscoverEngine({
   const reducedMotion = usePrefersReducedMotion()
 
   const settled = focus === 'settled'
+  // With Business Intelligence on the run, the clock is the whole run's stopwatch: it keeps going after the results
+  // are in and freezes when Business Intelligence reaches its final state.
+  const stopwatch = intelligence ? (runElapsed?.totalMs ?? null) : null
   // Decorative motion exists only while the search itself is under way.
   const ambient = useAmbientMotion(ref, {
     enabled: focus === 'search' && view.running && !view.stalled,
@@ -119,18 +125,21 @@ export default function DiscoverEngine({
       <div className="flex min-h-[2.25rem] items-baseline justify-between gap-4 text-xs uppercase tracking-[0.2em] text-white/70">
         <span className="truncate">{view.context}</span>
         {settled ? (
-          onNewSearch ? (
-            <button
-              type="button"
-              onClick={onNewSearch}
-              className="-my-2 rounded px-1 py-2 uppercase tracking-[0.16em] text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
-            >
-              New search
-            </button>
-          ) : null
+          <span className="flex items-baseline gap-4">
+            {stopwatch !== null ? <span className="tabular-nums text-white/80">{formatClock(stopwatch)}</span> : null}
+            {onNewSearch ? (
+              <button
+                type="button"
+                onClick={onNewSearch}
+                className="-my-2 rounded px-1 py-2 uppercase tracking-[0.16em] text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
+              >
+                New search
+              </button>
+            ) : null}
+          </span>
         ) : focus !== 'search' ? (
           // While searching, the large clock below is the real elapsed time; avoid repeating it.
-          <span className="tabular-nums text-white/80">{formatClock(view.elapsedMs)}</span>
+          <span className="tabular-nums text-white/80">{formatClock(stopwatch ?? view.elapsedMs)}</span>
         ) : null}
       </div>
 
@@ -259,7 +268,7 @@ export default function DiscoverEngine({
       </div>
 
       {/* In search, the stage above is the only focus; the rail is a quiet footnote to it. */}
-      <EngineRail view={view} intelligence={intelligence} />
+      <EngineRail view={view} intelligence={intelligence} intelligenceMs={runElapsed?.intelligenceMs ?? null} />
 
       {settled ? null : (
         <div className="mt-8 space-y-4">

@@ -89,6 +89,8 @@ export type IntelligenceStage = {
   total: number
   /** True only while a job is actually running or the page should keep checking for new profiles. */
   live: boolean
+  /** Resolved profiles over authorized ones (0 to 1); null when nothing was authorized. Below 1 while anything is unresolved. */
+  progress?: number | null
 }
 
 const noun = (count: number) => (count === 1 ? 'profile' : 'profiles')
@@ -107,6 +109,17 @@ function resolvedNote(summary: RunSummary): string {
  * confirmed); it is never inferred from the existence of queued jobs.
  */
 export function describeIntelligence(summary: RunSummary | null, researchRunning: boolean): IntelligenceStage | null {
+  const stage = describeStage(summary, researchRunning)
+  if (!stage || !summary) return stage
+  // Authorized profiles are the ones that were ever going to be researched (not those without a website or over the cap).
+  // A profile is resolved once it is ready or has ended; queued, researching and retrying ones are not, so the line
+  // cannot reach 100% while anything is pending.
+  const authorized = summary.total - summary.unavailable
+  const resolved = summary.ready + summary.partial + summary.failed + summary.cancelled
+  return { ...stage, progress: authorized > 0 ? Math.min(resolved / authorized, 1) : null }
+}
+
+function describeStage(summary: RunSummary | null, researchRunning: boolean): IntelligenceStage | null {
   if (!summary) return null
   const { ready, total } = summary
   const counts = `${ready} of ${total} ${noun(total)} ready`

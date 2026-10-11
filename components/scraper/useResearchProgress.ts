@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { toRunClock, type RunClock, type RunTiming } from '@/lib/intelligence/run-clock'
 import type { IntelligenceStage, ProfileCard, ProfileReason, ProfileState } from '@/lib/intelligence/run-progress'
 
 export type ResearchProgress = {
@@ -10,6 +11,8 @@ export type ResearchProgress = {
   stage: IntelligenceStage | null
   rows: Array<{ leadId: string; state: ProfileState; reason: ProfileReason }>
   profiles: Record<string, ProfileCard>
+  /** Run start and end on this browser's clock, from timestamps the server persisted. Null before the run is known. */
+  clock: RunClock | null
 }
 
 // How often the page asks the server for the real state. It is a read: it never starts, claims or retries research.
@@ -53,9 +56,9 @@ export function useResearchProgress({ runId, enabled, fetcher }: { runId: string
       try {
         const response = await (fetcher ?? fetch)(`/api/research/runs/${runId}`, { cache: 'no-store', signal: controller.signal })
         if (response.ok) {
-          const data = (await response.json()) as { ok?: boolean } & Partial<ResearchProgress>
+          const data = (await response.json()) as { ok?: boolean; timing?: RunTiming | null } & Partial<Omit<ResearchProgress, 'clock'>>
           if (data.ok && data.runId) {
-            setProgress({ runId: data.runId, running: Boolean(data.running), stage: data.stage ?? null, rows: data.rows ?? [], profiles: data.profiles ?? {} })
+            setProgress({ runId: data.runId, running: Boolean(data.running), stage: data.stage ?? null, rows: data.rows ?? [], profiles: data.profiles ?? {}, clock: toRunClock(data.timing, Date.now()) })
             const phase = data.stage?.phase
             if (phase === 'complete' || phase === 'stopped') {
               if (!data.stage?.live) return // everything resolved: stop polling

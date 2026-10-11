@@ -58,8 +58,19 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
     }
   }
 
-  const status = await getEffectiveResearchStatus(createAdminClient() as any)
+  const admin = createAdminClient() as any
+  const status = await getEffectiveResearchStatus(admin)
   const summary = summarizeRun(progressRows)
+
+  // Persisted timestamps for the stopwatch: the run's creation, and (once nothing is unresolved) the end of its last
+  // job. The run id was just proven to be the caller's own by the progress read above.
+  const { data: runRow } = await (supabase as any).from('ci_research_runs').select('created_at, cancelled_at').eq('run_id', id).maybeSingle()
+  let endedAt: string | null = null
+  if (runRow?.created_at && summary && summary.unresolved === 0) {
+    const { data: lastJob } = await admin.from('commercial_intelligence_queue').select('completed_at').eq('run_id', id).not('completed_at', 'is', null).order('completed_at', { ascending: false }).limit(1)
+    endedAt = lastJob?.[0]?.completed_at ?? runRow.cancelled_at ?? runRow.created_at
+  }
+  const timing = runRow?.created_at ? { startedAt: runRow.created_at as string, endedAt, serverNow: new Date().toISOString() } : null
   return NextResponse.json(
     {
       ok: true,
@@ -67,6 +78,7 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       running: status.running,
       summary,
       stage: describeIntelligence(summary, status.running),
+      timing,
       rows: progressRows.map((row) => ({ leadId: row.lead_id, state: row.state, reason: toProfileReason(row.state, row.last_error) })),
       profiles,
     },

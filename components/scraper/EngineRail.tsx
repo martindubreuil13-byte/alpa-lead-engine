@@ -9,6 +9,8 @@ type EngineRailProps = {
    * (research is not authorized for this search) the third stage keeps its A2.3 wording.
    */
   intelligence?: IntelligenceStage | null
+  /** How long Business Intelligence has taken (live while it runs, frozen when it ends); null when unknown. */
+  intelligenceMs?: number | null
 }
 
 type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
@@ -27,6 +29,8 @@ function RailItem({
   tone,
   value,
   sub,
+  working,
+  progress,
 }: {
   /** Omitted for a capability that is not a step of this search. */
   index?: string
@@ -36,12 +40,17 @@ function RailItem({
   tone: RailTone
   value: string
   sub?: string
+  /** Gold highlight and a quiet pulse while this stage is genuinely working. */
+  working?: boolean
+  /** Thin gold line, 0 to 1; omitted for stages without one. */
+  progress?: number | null
 }) {
   const style = TONE[tone]
   return (
     <li className={`border-t pt-3 transition-colors duration-700 ${style.rule}`}>
-      <div className={`text-[10px] font-medium uppercase tracking-[0.14em] sm:text-xs sm:tracking-[0.2em] ${style.label}`}>
-        {index ? <span className="tabular-nums text-white/45">{index}</span> : null}
+      <div className={`flex items-center text-[10px] font-medium uppercase tracking-[0.14em] sm:text-xs sm:tracking-[0.2em] ${working ? 'text-[#d8c28a]' : style.label}`}>
+        {working ? <span aria-hidden="true" className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#d8c28a] motion-safe:animate-pulse" /> : null}
+        {index ? <span className={`tabular-nums ${working ? 'text-[#d8c28a]/70' : 'text-white/45'}`}>{index}</span> : null}
         <span className={index ? 'ml-2 sm:ml-3' : undefined}>
           {shortName ? (
             <>
@@ -54,6 +63,18 @@ function RailItem({
         </span>
       </div>
       <p className={`mt-2 text-sm tabular-nums ${style.value}`}>{value}</p>
+      {progress != null ? (
+        <div
+          role="progressbar"
+          aria-label="Profiles completed"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          className="mt-2 h-px w-full bg-white/10"
+        >
+          <div className="h-px bg-[#d8c28a] transition-[width] duration-700 ease-out" style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
+      ) : null}
       <p className="mt-1 min-h-[1rem] text-xs text-white/50">{sub}</p>
     </li>
   )
@@ -62,7 +83,7 @@ function RailItem({
 // The slim stage map beneath the focal area. It is deliberately quiet: small type, hairlines, no
 // large numbers. The active stage is marked by a gold hairline; completed stages stay as small
 // facts; Business Profiles are stated honestly as a separate step, never as part of this search.
-export default function EngineRail({ view, intelligence }: EngineRailProps) {
+export default function EngineRail({ view, intelligence, intelligenceMs }: EngineRailProps) {
   const { discover, enrich } = view
 
   // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
@@ -110,7 +131,9 @@ export default function EngineRail({ view, intelligence }: EngineRailProps) {
           shortName="Intelligence"
           tone={intelligence.phase === 'complete' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
           value={intelligence.headline}
-          sub={intelligence.detail}
+          sub={[intelligence.detail, formatStageDuration(intelligenceMs ?? null)].filter(Boolean).join(' · ')}
+          working={intelligence.live && intelligence.phase !== 'not_running'}
+          progress={intelligence.progress}
         />
       ) : (
         // A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words.
