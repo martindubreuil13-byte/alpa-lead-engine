@@ -247,10 +247,10 @@ import { OPENAI_PROFILE_REQUEST_OPTIONS } from '../lib/commercial-intelligence/c
 import { findExistingOwnerLeadId } from '../lib/commercial-intelligence/private-preview.ts'
 
 test('worker defaults are conservative and adjustable by env', () => {
-  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, staleTimeoutSeconds: 600 })
+  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, maxRounds: 8, staleTimeoutSeconds: 600 })
   assert.deepEqual(
     resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '8', CI_WORKER_CONCURRENCY: '3', CI_WORKER_STALE_SECONDS: '900' }),
-    { batchSize: 8, concurrency: 3, staleTimeoutSeconds: 900 }
+    { batchSize: 8, concurrency: 3, maxRounds: 8, staleTimeoutSeconds: 900 }
   )
   assert.equal(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '999' }).batchSize, 20)
   assert.equal(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: 'abc' }).batchSize, WORKER_DEFAULTS.batchSize)

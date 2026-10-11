@@ -96,7 +96,7 @@ test('the application only INSERTS into the queue directly, so revoking UPDATE a
 
   const manager = read(path.join(ROOT, 'lib/commercial-intelligence/queue-manager.ts'))
   assert.match(manager, /\.from\('commercial_intelligence_queue'\)\s*\.insert\(payload\)/)
-  for (const rpc of ['claim_ci_queue_items_worker', 'complete_ci_enrichment_worker', 'reset_stale_ci_processing_worker']) {
+  for (const rpc of ['claim_ci_run_items', 'complete_ci_run_item', 'recover_ci_run_items']) {
     assert.ok(manager.includes(`'${rpc}'`), `${rpc} is still called as an RPC with the same name`)
   }
   // the payload the app inserts is exactly what the new insert guard allows

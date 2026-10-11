@@ -201,45 +201,44 @@ export async function getQueueStats(client?: QueueClient): Promise<{
   }
 }
 
-/** Service-role-only worker claim. The RPC atomically locks rows and returns a
- * claim token used to fence late or duplicate completions. */
-export async function claimWorkerQueueItems(
-  client: QueueClient,
-  limit = 5
-): Promise<WorkerQueueItem[]> {
-  const { data, error } = await client.rpc('claim_ci_queue_items_worker', {
-    p_limit: limit,
-  })
+// ---------------------------------------------------------------------------------------------------------------
+// Run-scoped execution (B2 Phase 1). These are the only claim / recover / complete calls the application makes.
+// Each is a service-role RPC that (a) only ever sees jobs of an authorized, unexpired, uncancelled Discover run of the
+// same customer, (b) checks the operator switch and every budget inside the database, and (c) fences completion with
+// the claim token. The old first-in-first-out claim over `worker_eligible` rows is no longer callable at all.
+// ---------------------------------------------------------------------------------------------------------------
 
-  if (error) throw new Error(`Worker claim failed: ${error.message}`)
-  return (data || []) as WorkerQueueItem[]
+export type RunQueueItem = WorkerQueueItem & { user_id: string; run_id: string; reserved_usd: number }
+
+/** Claims at most `limit` jobs from authorized runs. Returns nothing while research is off or a budget is missing. */
+export async function claimRunItems(client: QueueClient, limit = 5): Promise<RunQueueItem[]> {
+  const { data, error } = await client.rpc('claim_ci_run_items', { p_limit: limit })
+  if (error) throw new Error(`Run claim failed: ${error.message}`)
+  return (data || []) as RunQueueItem[]
 }
 
-export async function resetStaleWorkerItems(
+/** Recovers claims that were never completed: counted as an attempt, billed at the reservation, failed when exhausted. */
+export async function recoverRunItems(
   client: QueueClient,
-  timeoutSeconds = 300
+  timeoutSeconds = 600
 ): Promise<{ resetCount: number; failedCount: number }> {
-  const { data, error } = await client.rpc('reset_stale_ci_processing_worker', {
-    p_timeout_seconds: timeoutSeconds,
-  })
-
-  if (error) throw new Error(`Worker stale recovery failed: ${error.message}`)
-  return {
-    resetCount: data?.[0]?.reset_count || 0,
-    failedCount: data?.[0]?.failed_count || 0,
-  }
+  const { data, error } = await client.rpc('recover_ci_run_items', { p_timeout_seconds: timeoutSeconds })
+  if (error) throw new Error(`Run recovery failed: ${error.message}`)
+  return { resetCount: data?.[0]?.reset_count || 0, failedCount: data?.[0]?.failed_count || 0 }
 }
 
-export async function completeWorkerEnrichment(
+/** Completes a claimed job and settles its reservation with the actual cost, in one transaction. */
+export async function completeRunItem(
   client: QueueClient,
   item: WorkerQueueItem,
   snapshot: any,
   signals: any,
   profile: any,
   success: boolean,
-  errorMsg?: string
+  errorMsg?: string,
+  actualCostUsd = 0
 ): Promise<{ ok: boolean; nextStatus?: string }> {
-  const { data, error } = await client.rpc('complete_ci_enrichment_worker', {
+  const { data, error } = await client.rpc('complete_ci_run_item', {
     p_queue_id: item.id,
     p_lead_id: item.lead_id,
     p_claim_token: item.claim_token,
@@ -248,9 +247,10 @@ export async function completeWorkerEnrichment(
     p_profile: profile,
     p_success: success,
     p_error_msg: errorMsg || null,
+    p_actual_cost_usd: Number.isFinite(actualCostUsd) && actualCostUsd > 0 ? actualCostUsd : 0,
   })
 
-  if (error) throw new Error(`Worker completion failed: ${error.message}`)
+  if (error) throw new Error(`Run completion failed: ${error.message}`)
   const result = data?.[0]
   return { ok: Boolean(result?.success), nextStatus: result?.message }
 }

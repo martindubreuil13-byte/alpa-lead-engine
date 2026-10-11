@@ -5,6 +5,8 @@ import { useRef, type MutableRefObject } from 'react'
 import { describeCheckSummary, getSignalStates, type EngineView } from '@/lib/scraper/engine-view'
 import { describeContacts, describePossibleEmails, type ContactSummary } from '@/lib/scraper/results-summary'
 
+import type { IntelligenceStage } from '@/lib/intelligence/run-progress'
+
 import ActivityStrip, { type ActivityStripItem } from './ActivityStrip'
 import EngineRail from './EngineRail'
 import SignalField from './SignalField'
@@ -27,6 +29,8 @@ type DiscoverEngineProps = {
   footnote?: string
   /** The root element, so the page can scroll to it and tell whether focus is inside it. */
   rootRef?: MutableRefObject<HTMLElement | null>
+  /** Business Intelligence for this run, from the server. Absent keeps the A2.3 third-stage wording. */
+  intelligence?: IntelligenceStage | null
 }
 
 function formatClock(milliseconds: number) {
@@ -70,6 +74,7 @@ export default function DiscoverEngine({
   onNewSearch,
   footnote,
   rootRef,
+  intelligence,
 }: DiscoverEngineProps) {
   const { focus, discover, enrich } = view
   const fallbackRef = useRef<HTMLElement | null>(null)
@@ -254,7 +259,7 @@ export default function DiscoverEngine({
       </div>
 
       {/* In search, the stage above is the only focus; the rail is a quiet footnote to it. */}
-      <EngineRail view={view} />
+      <EngineRail view={view} intelligence={intelligence} />
 
       {settled ? null : (
         <div className="mt-8 space-y-4">

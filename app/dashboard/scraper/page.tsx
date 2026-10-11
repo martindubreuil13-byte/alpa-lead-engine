@@ -25,6 +25,7 @@ import {
   requestInboxFocus,
   readStoredGuestClaimResult,
   readStoredScrapeResult,
+  rememberResearchRun,
   type StoredGuestClaimResult,
   writeStoredScrapeResult,
 } from '@/lib/session/scrape-result'
@@ -39,7 +40,10 @@ import {
   writeStoredUsage,
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import { withIntelligence } from '@/lib/intelligence/row-intelligence'
+import { describeProfileNote } from '@/lib/intelligence/run-progress'
 import { getAccessibleResults } from '@/lib/scraper/results-access'
+import { useResearchProgress } from '@/components/scraper/useResearchProgress'
 import {
   createAnalyticsSearchId,
   trackEvent,
@@ -258,6 +262,8 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const [progress, setProgress] = useState<DiscoveryProgress>(INITIAL_DISCOVERY_PROGRESS)
   const [activity, setActivity] = useState('Idle')
   const [completionResult, setCompletionResult] = useState<ScrapeResultPayload | null>(null)
+  // Business Intelligence follows one authorized Discover run (B2 Phase 1); null when research is not authorized.
+  const [researchRunId, setResearchRunId] = useState<string | null>(null)
   // Why the last search failed. Persists after loading ends and is cleared when a new search starts.
   const [searchFailureKind, setSearchFailureKind] = useState<SearchFailureKind | null>(null)
   const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
@@ -422,9 +428,12 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
         unreadable: countUnreadableWebsites(completionResult.addedLeads),
       })].filter(Boolean).join(' · ') || null
     : null
-  const resultRows = displayedPreviewLeads.map((lead) =>
+  // Business Intelligence (B2 Phase 1): the server's real state for this run, refreshed while anything is unresolved.
+  const research = useResearchProgress({ runId: researchRunId, enabled: isAuthenticated && !privatePreview })
+  const baseRows = displayedPreviewLeads.map((lead) =>
     toResultRow(lead, { researchState: privatePreview ? getPrivatePreviewResearchStatus(lead) : null })
   )
+  const resultRows = withIntelligence(baseRows, research?.rows, research?.profiles)
   // Only a guest preview is ever truncated; entitled users see (and export) everything they saved.
   const shownNote = describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)
   const resultsNote = shownNote ? `${fullResultsAccess ? '' : 'Preview · '}${shownNote}` : null
@@ -582,6 +591,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     setShowValidation(false)
     setCompletionResult(null)
     setSearchFailureKind(null)
+    setResearchRunId(null)
     setGuestClaimResult(null)
     setToastMessage('')
     setActivity('Idle')
@@ -666,7 +676,9 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     setAnalyticsSessionId(null)
     setViewerEmail(user.email || '')
     setGuestLeadCount(0)
-    setSessionSavedLeads(readStoredScrapeResult()?.latestSavedLeads ?? [])
+    const storedResult = readStoredScrapeResult()
+    setSessionSavedLeads(storedResult?.latestSavedLeads ?? [])
+    setResearchRunId(storedResult?.researchRunId ?? null)
     setAuthenticatedLeadCount(cachedUsage)
     await refreshAuthenticatedUsage(user.id, effectivePlan)
   }
@@ -802,6 +814,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
       setValidationMessage('')
       setShowValidation(false)
       setCompletionResult(null)
+      setResearchRunId(null)
       setToastMessage('')
       setActivity('Finding businesses...')
       runStartUsageRef.current = resolvedUsageCount
@@ -972,6 +985,15 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
         }
       }
 
+      // B2 Phase 1: the server says which run's Business Intelligence to follow (sent after the results).
+      const handleIntelligence = (raw: unknown) => {
+        const payload = raw as { runId?: unknown; authorized?: unknown } | null
+        if (payload && payload.authorized === true && typeof payload.runId === 'string') {
+          setResearchRunId(payload.runId)
+          rememberResearchRun(payload.runId)
+        }
+      }
+
       const handleProgress = (raw: unknown) => {
         const event = parseProgressEvent(raw)
         if (event) {
@@ -1020,6 +1042,10 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
               if (parsed?.type === 'progress') {
                 handleProgress(parsed)
               }
+
+              if (parsed?.type === 'intelligence') {
+                handleIntelligence(parsed.payload)
+              }
             } catch {
               handleMessage(payload)
             }
@@ -1053,6 +1079,10 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
 
             if (parsed?.type === 'progress') {
               handleProgress(parsed)
+            }
+
+            if (parsed?.type === 'intelligence') {
+              handleIntelligence(parsed.payload)
             }
           } catch {
             handleMessage(payload)
@@ -1224,6 +1254,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             onNewSearch={resetSearchFlow}
             footnote="Times are measured in your browser."
             rootRef={engineRef}
+            intelligence={research?.stage ?? null}
           />
         ) : null}
 
@@ -1237,7 +1268,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
               rows={resultRows}
               headingRef={resultsHeadingRef}
               note={resultsNote}
-              profileNote={profileNote}
+              profileNote={describeProfileNote(research?.stage) ?? profileNote}
               showResearchStatus={privatePreview}
               emptyMessage="No businesses were added from this search. Try a different business type or location."
               actions={

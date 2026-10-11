@@ -226,19 +226,19 @@ test('nothing in the app calls a retired endpoint or a customer-session executio
   for (const rpc of ['claim_ci_queue_items', 'complete_ci_enrichment', 'reset_stale_ci_processing']) {
     assert.ok(!new RegExp(`'${rpc}'`).test(manager), `queue-manager no longer calls ${rpc}`)
   }
-  for (const rpc of ['claim_ci_queue_items_worker', 'complete_ci_enrichment_worker', 'reset_stale_ci_processing_worker']) {
+  for (const rpc of ['claim_ci_run_items', 'complete_ci_run_item', 'recover_ci_run_items']) {
     assert.ok(manager.includes(`'${rpc}'`), `${rpc} is the execution path`)
   }
+  // Phase 1: the old first-in-first-out claim is not called by any application code
+  assert.ok(!/claim_ci_queue_items_worker/.test(manager))
 })
 
-test('the application sends only parameters that exist in the production worker RPCs today (no B1.2 SQL needed)', () => {
+test('the application sends only parameters the run-scoped RPCs define (production contract test covers the rest)', () => {
   const manager = read('lib/commercial-intelligence/queue-manager.ts')
-  const complete = manager.slice(manager.indexOf("rpc('complete_ci_enrichment_worker'"))
+  const complete = manager.slice(manager.indexOf("rpc('complete_ci_run_item'"))
   const params = [...complete.slice(0, complete.indexOf('})')).matchAll(/(p_[a-z_]+):/g)].map((match) => match[1])
-  assert.deepEqual(params, ['p_queue_id', 'p_lead_id', 'p_claim_token', 'p_snapshot', 'p_signals', 'p_profile', 'p_success', 'p_error_msg'])
-  assert.ok(!/p_expected_retry_count/.test(manager), 'the 8-argument customer completion is no longer called')
-  const proposal = read('supabase/proposed/20261013_ci_completion_integrity.sql')
-  assert.match(proposal, /CREATE OR REPLACE FUNCTION public\.complete_ci_enrichment_worker\(p_queue_id uuid, p_lead_id uuid, p_claim_token uuid, p_snapshot jsonb, p_signals jsonb, p_profile jsonb, p_success boolean, p_error_msg text\)/)
+  assert.deepEqual(params, ['p_queue_id', 'p_lead_id', 'p_claim_token', 'p_snapshot', 'p_signals', 'p_profile', 'p_success', 'p_error_msg', 'p_actual_cost_usd'])
+  assert.ok(!/p_expected_retry_count/.test(manager), 'the 8-argument customer completion is not called')
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -247,9 +247,9 @@ test('the application sends only parameters that exist in the production worker 
 
 test('configuration can lower the execution limits but never raise them above the hard ceilings', () => {
   assert.deepEqual(RESEARCH_HARD_LIMITS, { maxBatchSize: 20, maxConcurrency: 4, maxStaleSeconds: 3600, minStaleSeconds: 60 })
-  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, staleTimeoutSeconds: 600 })
-  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '9999', CI_WORKER_CONCURRENCY: '99', CI_WORKER_STALE_SECONDS: '999999' }), { batchSize: 20, concurrency: 4, staleTimeoutSeconds: 3600 })
-  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '-5', CI_WORKER_CONCURRENCY: 'abc', CI_WORKER_STALE_SECONDS: '5' }), { batchSize: 2, concurrency: 1, staleTimeoutSeconds: 600 })
+  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, maxRounds: 8, staleTimeoutSeconds: 600 })
+  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '9999', CI_WORKER_CONCURRENCY: '99', CI_WORKER_STALE_SECONDS: '999999' }), { batchSize: 20, concurrency: 4, maxRounds: 8, staleTimeoutSeconds: 3600 })
+  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '-5', CI_WORKER_CONCURRENCY: 'abc', CI_WORKER_STALE_SECONDS: '5' }), { batchSize: 2, concurrency: 1, maxRounds: 8, staleTimeoutSeconds: 600 })
 })
 
 test('a tick never claims more than the hard ceiling, whatever is asked', async () => {
@@ -297,7 +297,7 @@ test('Discover still saves atomically and queues only inert, non-worker-eligible
 // 5. Proposed SQL and documentation
 // ---------------------------------------------------------------------------------------------
 
-const LOCKDOWN = 'supabase/proposed/20261015_ci_phase0_lockdown.sql'
+const LOCKDOWN = 'supabase/applied-records/20261015_ci_phase0_lockdown.sql'
 const LOCKDOWN_ROLLBACK = 'supabase/proposed/20261015_ci_phase0_lockdown_rollback.sql'
 const topLevelSql = (text) => text.replace(/\$(\w*)\$[\s\S]*?\$\1\$/g, '$$$$').replace(/--.*$/gm, '').replace(/'(?:[^']|'')*'/g, "''")
 

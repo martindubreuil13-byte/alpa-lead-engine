@@ -10,6 +10,7 @@
 //   - a phone number was found
 //   - a Business Profile exists                     (only when a real summary is stored)
 
+import type { ProfileCard, ProfileReason, ProfileState } from '../intelligence/run-progress.ts'
 import { isEmailInspection } from './email-inspection.ts'
 import type { TrialLead } from '../trial.ts'
 
@@ -73,6 +74,14 @@ export function describePossibleEmails(summary: ContactSummary): string | null {
 
 export type ResearchState = 'researching' | 'ready' | 'unavailable'
 
+/** Business Intelligence for one row (B2 Phase 1): the real state of its profile, and the profile once it is ready. */
+export type RowIntelligence = {
+  state: ProfileState
+  label: string
+  reason: ProfileReason
+  card: ProfileCard | null
+}
+
 export type ResultRowModel = {
   id: string
   name: string
@@ -93,6 +102,8 @@ export type ResultRowModel = {
   research: ResearchState | null
   /** The existing lead detail page. Opening it never starts research. */
   detailHref: string
+  /** Set only while a Discover run's Business Intelligence is followed. Absent otherwise. */
+  intelligence?: RowIntelligence | null
 }
 
 // Customer wording for the email line. Plain language only: no error codes, no status names. The primary

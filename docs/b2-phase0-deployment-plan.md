@@ -69,7 +69,7 @@ If any check fails: roll back (below) and stop.
 
 ## 3. Database lockdown (separate approval, after step 2 is verified)
 
-`supabase/proposed/20261015_ci_phase0_lockdown.sql` — independent of the B1.2 migration. Apply it **as a script**, not as a
+`supabase/applied-records/20261015_ci_phase0_lockdown.sql` — independent of the B1.2 migration. Apply it **as a script**, not as a
 tracked migration: use the Supabase SQL editor (or `execute_sql` with the exact file text). Do **not** use
 `supabase db push` or `apply_migration`: the project's migration history is out of sync with what was applied by hand, and
 `apply_migration` would add a history row for a file that is meant to stay a record.

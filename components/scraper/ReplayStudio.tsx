@@ -5,11 +5,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildEngineView, ACHIEVEMENT_HOLD_MS } from '@/lib/scraper/engine-view'
 import { replayStateAt } from '@/lib/scraper/replay'
 import { getReplayScenario, REPLAY_SCENARIOS } from '@/lib/scraper/replay-fixture'
+import { withIntelligence } from '@/lib/intelligence/row-intelligence'
+import { describeProfileNote } from '@/lib/intelligence/run-progress'
+import { buildReplayResearchResponse, REPLAY_INTELLIGENCE_MODES, type ReplayIntelligenceMode } from '@/lib/scraper/replay-intelligence'
 import { describeSettledNote, summarizeContacts, toResultRow } from '@/lib/scraper/results-summary'
 
 import DiscoverEngine from './DiscoverEngine'
 import ResultsIndex from './ResultsIndex'
 import usePrefersReducedMotion from './usePrefersReducedMotion'
+import { useResearchProgress, type ProgressFetcher } from './useResearchProgress'
 import useResultsReveal from './useResultsReveal'
 
 const TICK_MS = 80
@@ -25,6 +29,8 @@ export default function ReplayStudio() {
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
   const [runKey, setRunKey] = useState(0)
+  // Business Intelligence review mode (?bi=disabled|queued|progress|live|complete|mixed); 'off' keeps the A2.3 wording.
+  const [bi, setBi] = useState<ReplayIntelligenceMode>('off')
   const reducedMotion = usePrefersReducedMotion()
   const engineRef = useRef<HTMLElement | null>(null)
   const headingRef = useRef<HTMLHeadingElement | null>(null)
@@ -38,6 +44,8 @@ export default function ReplayStudio() {
     const params = new URLSearchParams(window.location.search)
     const requestedScenario = params.get('scenario')
     if (requestedScenario) setScenarioId(getReplayScenario(requestedScenario).id)
+    const requestedBi = params.get('bi') as ReplayIntelligenceMode | null
+    if (requestedBi && REPLAY_INTELLIGENCE_MODES.includes(requestedBi)) setBi(requestedBi)
     const at = Number(params.get('t'))
     if (params.has('t') && Number.isFinite(at) && at >= 0) {
       setT(at)
@@ -90,6 +98,19 @@ export default function ReplayStudio() {
     invalid: 0,
   })
 
+  // Business Intelligence: the REAL polling hook and components, answered by a local fixture instead of the network
+  // (development only). Nothing global is patched and nothing leaves the page.
+  const pollRef = useRef(0)
+  const fixtureFetcher = useMemo<ProgressFetcher>(
+    () => async () => {
+      pollRef.current += 1
+      return new Response(JSON.stringify(buildReplayResearchResponse(scenario.leads, bi, pollRef.current)), { status: 200 })
+    },
+    [bi, scenario]
+  )
+  const research = useResearchProgress({ runId: bi === 'off' ? null : `replay-${bi}`, enabled: settled && bi !== 'off', fetcher: fixtureFetcher })
+  const intelligenceRows = useMemo(() => withIntelligence(rows, research?.rows, research?.profiles), [rows, research])
+
   useResultsReveal({ ready: settled, reducedMotion, anchorRef: engineRef, headingRef, engineRef })
 
   function restart(nextScenario = scenarioId) {
@@ -133,6 +154,20 @@ export default function ReplayStudio() {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-white/70">
+          Business Intelligence
+          <select
+            value={bi}
+            onChange={(event) => setBi(event.target.value as ReplayIntelligenceMode)}
+            className="rounded-lg border border-white/15 bg-[#07111f] px-3 py-2 text-xs text-white"
+          >
+            {REPLAY_INTELLIGENCE_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="ml-auto flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-white/70">
           Scenario
           <select
@@ -160,12 +195,13 @@ export default function ReplayStudio() {
           onNewSearch={() => restart()}
           footnote="Replay: all timings are illustrative."
           rootRef={engineRef}
+          intelligence={research?.stage ?? null}
         />
         {settled ? (
           <ResultsIndex
-            rows={rows}
+            rows={intelligenceRows}
             headingRef={headingRef}
-            profileNote="Business Profiles are available separately."
+            profileNote={describeProfileNote(research?.stage) ?? "Business Profiles are available separately."}
             note={null}
             actions={<span className="text-sm text-[#5b6372]">Replay data: fictional businesses</span>}
           />

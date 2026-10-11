@@ -8,6 +8,8 @@ export type StoredScrapeResult = {
   totalFoundLeads: number
   savedLeads: number
   latestSavedLeads: TrialLead[]
+  /** The Discover run whose Business Intelligence this page follows (B2 Phase 1). Absent when research is not authorized. */
+  researchRunId?: string | null
 }
 
 export type StoredGuestClaimResult = {
@@ -38,6 +40,7 @@ export function readStoredScrapeResult(): StoredScrapeResult | null {
         totalFoundLeads: parsed.totalFoundLeads,
         savedLeads: parsed.savedLeads,
         latestSavedLeads: parsed.latestSavedLeads as TrialLead[],
+        researchRunId: typeof parsed.researchRunId === 'string' ? parsed.researchRunId : null,
       }
     }
   } catch {}
@@ -48,6 +51,12 @@ export function readStoredScrapeResult(): StoredScrapeResult | null {
 export function writeStoredScrapeResult(result: StoredScrapeResult) {
   if (!canUseStorage()) return
   window.sessionStorage.setItem(SCRAPE_RESULT_STORAGE_KEY, JSON.stringify(result))
+}
+
+/** Remembers which run to follow, so a refresh or a return visit resumes progress from the server. */
+export function rememberResearchRun(runId: string | null) {
+  const stored = readStoredScrapeResult()
+  if (stored) writeStoredScrapeResult({ ...stored, researchRunId: runId })
 }
 
 export function readStoredGuestClaimResult(): StoredGuestClaimResult | null {

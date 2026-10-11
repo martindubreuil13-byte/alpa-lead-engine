@@ -1,8 +1,14 @@
+import type { IntelligenceStage } from '@/lib/intelligence/run-progress'
 import type { EngineView } from '@/lib/scraper/engine-view'
 import { formatStageDuration } from '@/lib/scraper/stage-timing'
 
 type EngineRailProps = {
   view: EngineView
+  /**
+   * The real state of Business Intelligence for this run (B2 Phase 1), from server-confirmed counts. When absent
+   * (research is not authorized for this search) the third stage keeps its A2.3 wording.
+   */
+  intelligence?: IntelligenceStage | null
 }
 
 type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
@@ -34,7 +40,7 @@ function RailItem({
   const style = TONE[tone]
   return (
     <li className={`border-t pt-3 transition-colors duration-700 ${style.rule}`}>
-      <div className={`text-[11px] font-medium uppercase tracking-[0.18em] sm:text-xs sm:tracking-[0.2em] ${style.label}`}>
+      <div className={`text-[10px] font-medium uppercase tracking-[0.14em] sm:text-xs sm:tracking-[0.2em] ${style.label}`}>
         {index ? <span className="tabular-nums text-white/45">{index}</span> : null}
         <span className={index ? 'ml-2 sm:ml-3' : undefined}>
           {shortName ? (
@@ -56,7 +62,7 @@ function RailItem({
 // The slim stage map beneath the focal area. It is deliberately quiet: small type, hairlines, no
 // large numbers. The active stage is marked by a gold hairline; completed stages stay as small
 // facts; Business Profiles are stated honestly as a separate step, never as part of this search.
-export default function EngineRail({ view }: EngineRailProps) {
+export default function EngineRail({ view, intelligence }: EngineRailProps) {
   const { discover, enrich } = view
 
   // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
@@ -95,14 +101,27 @@ export default function EngineRail({ view }: EngineRailProps) {
         value={enrichValue}
         sub={enrich.state === 'pending' ? undefined : formatStageDuration(enrich.durationMs)}
       />
-      {/* A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words. */}
-      <RailItem
-        name="Business Profiles"
-        shortName="Profiles"
-        tone="separate"
-        value="Not included in this search"
-        sub="Available separately"
-      />
+      {intelligence ? (
+        // A real third stage: only server-confirmed counts. "Complete" is shown only when nothing is unresolved, and a
+        // queued profile is never described as being researched.
+        <RailItem
+          index="03"
+          name="Business Intelligence"
+          shortName="Intelligence"
+          tone={intelligence.phase === 'complete' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
+          value={intelligence.headline}
+          sub={intelligence.detail}
+        />
+      ) : (
+        // A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words.
+        <RailItem
+          name="Business Profiles"
+          shortName="Profiles"
+          tone="separate"
+          value="Not included in this search"
+          sub="Available separately"
+        />
+      )}
     </ol>
   )
 }

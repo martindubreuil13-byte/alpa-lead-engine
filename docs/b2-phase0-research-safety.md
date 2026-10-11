@@ -67,7 +67,7 @@ until stale recovery.
 - `/api/leads/process-ci-queue-batch`, `/api/leads/[id]/enrich-commercial-intelligence` and
   `/api/admin/process-ci-jobs` answer `410 Gone` and do nothing.
 - Customer-session claim, completion and reset functions were removed from the application. The database
-  proposal `supabase/proposed/20261015_ci_phase0_lockdown.sql` revokes the matching RPCs from customers and
+  proposal `supabase/applied-records/20261015_ci_phase0_lockdown.sql` revokes the matching RPCs from customers and
   blocks customer writes to `leads.ci_*`, `commercial_profile`, `website_snapshot` and `business_signals`.
   **Until that proposal is applied, those database-level exposures still exist** (the application no longer
   uses them).

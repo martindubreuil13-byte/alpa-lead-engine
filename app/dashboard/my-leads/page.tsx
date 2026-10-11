@@ -4,6 +4,7 @@ import MyLeadsWorkspaceClient, { type MyLeadsLead } from './MyLeadsWorkspaceClie
 import CommercialIntelligenceStatus from './CommercialIntelligenceStatus'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { deriveLeadProfileState } from '@/lib/intelligence/run-progress'
 import { createServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -63,13 +64,28 @@ export default async function MyLeadsPage() {
     console.error('[my-leads] lead fetch failed:', leadsResult.error)
   }
 
+  // Read-only: each lead's research state comes from its stored profile and its own Discover-run job. Jobs without a
+  // run id are historical and mean nothing; the `pending` column default is never read as progress.
+  const jobsResult = await supabase
+    .from('commercial_intelligence_queue')
+    .select('lead_id, status, retry_count, last_error, run_id, created_at')
+    .eq('user_id', userId)
+    .not('run_id', 'is', null)
+    .order('created_at', { ascending: true })
+  const jobByLead = new Map<string, { status: string; retry_count: number | null; last_error: string | null; run_id: string | null }>()
+  for (const job of jobsResult.data || []) jobByLead.set(job.lead_id, job) // the newest run job wins
+  const leadsWithProfileState = (leadsResult.data || []).map((lead: any) => ({
+    ...lead,
+    profile_state: deriveLeadProfileState(lead, jobByLead.get(lead.id)),
+  }))
+
   return (
     <>
       <CommercialIntelligenceStatus />
       <MyLeadsWorkspaceClient
         totalCount={totalLeadCount}
         loadedCount={leadsResult.data?.length ?? 0}
-        initialLeads={(leadsResult.data || []) as unknown as MyLeadsLead[]}
+        initialLeads={leadsWithProfileState as unknown as MyLeadsLead[]}
       />
     </>
   )

@@ -1,5 +1,5 @@
 import { buildCompletion } from './research-completion.ts'
-import { createResearchDeadline, jobsThatFit, RESEARCH_DEADLINE_GRACE_MS, RESEARCH_DEADLINE_MS } from './research-deadline.ts'
+import { createResearchDeadline, jobsThatFit, RESEARCH_BATCH_BUDGET_MS, RESEARCH_DEADLINE_GRACE_MS, RESEARCH_DEADLINE_MS } from './research-deadline.ts'
 import { RESEARCH_HARD_LIMITS } from './research-limits.ts'
 import { isResearchEnabled } from './research-switch.ts'
 import { WORKER_DEFAULTS } from './worker-config.ts'
@@ -34,13 +34,13 @@ export type BackgroundWorkerDependencies = {
   claim: (client: WorkerClient, limit: number) => Promise<WorkerQueueItem[]>
   recover: (client: WorkerClient, timeoutSeconds: number) => Promise<{ resetCount: number; failedCount: number }>
   enrich: (leadId: string, options: { client: WorkerClient; persist: 'deferred'; deadlineMs: number }) => Promise<WorkerEnrichmentResult>
-  complete: (client: WorkerClient, item: WorkerQueueItem, snapshot: unknown, signals: unknown, profile: unknown, success: boolean, errorMsg?: string) => Promise<{ ok: boolean; nextStatus?: string }>
+  complete: (client: WorkerClient, item: WorkerQueueItem, snapshot: unknown, signals: unknown, profile: unknown, success: boolean, errorMsg?: string, actualCostUsd?: number) => Promise<{ ok: boolean; nextStatus?: string }>
 }
 
 export async function runBackgroundWorkerCore(
   client: WorkerClient,
   dependencies: BackgroundWorkerDependencies,
-  options: { batchSize?: number; concurrency?: number; staleTimeoutSeconds?: number; jobDeadlineMs?: number; graceMs?: number; researchEnabled?: boolean } = {}
+  options: { batchSize?: number; concurrency?: number; staleTimeoutSeconds?: number; jobDeadlineMs?: number; graceMs?: number; researchEnabled?: boolean; maxRounds?: number; tickBudgetMs?: number; now?: () => number } = {}
 ) {
   // The emergency switch is checked before anything else: no recovery, no claim, no database call.
   // Jobs and profiles stay exactly as they are while research is off.
@@ -50,53 +50,72 @@ export async function runBackgroundWorkerCore(
   const jobDeadlineMs = options.jobDeadlineMs ?? RESEARCH_DEADLINE_MS
   const graceMs = options.graceMs ?? RESEARCH_DEADLINE_GRACE_MS
   const concurrency = Math.min(Math.max(options.concurrency || WORKER_DEFAULTS.concurrency, 1), RESEARCH_HARD_LIMITS.maxConcurrency)
-  // Never claim more than one tick can finish: unfinished claims sit in 'processing' until stale recovery.
-  const batchSize = jobsThatFit(Math.min(Math.max(options.batchSize || WORKER_DEFAULTS.batchSize, 1), RESEARCH_HARD_LIMITS.maxBatchSize), { parallel: concurrency })
+  const requestedBatch = Math.min(Math.max(options.batchSize || WORKER_DEFAULTS.batchSize, 1), RESEARCH_HARD_LIMITS.maxBatchSize)
+  const tickBudgetMs = options.tickBudgetMs ?? RESEARCH_BATCH_BUDGET_MS
+  const now = options.now ?? Date.now
+  const tickEnd = now() + tickBudgetMs
+  // One round is the original behaviour. Several rounds let one tick keep a customer's run moving: each round claims
+  // only what can still finish before the tick ends, and a new round starts only if one whole job still fits.
+  const maxRounds = Math.min(Math.max(options.maxRounds ?? 1, 1), 20)
   const recovery = await dependencies.recover(client, options.staleTimeoutSeconds || WORKER_DEFAULTS.staleTimeoutSeconds)
-  const claimed = await dependencies.claim(client, batchSize)
-  let nextIndex = 0
   const results: Array<{ queueId: string; leadId: string; status: string; cost: number }> = []
+  let claimedTotal = 0
 
-  const workers = Array.from({ length: Math.min(concurrency, claimed.length) }, async () => {
-    while (nextIndex < claimed.length) {
-      const item = claimed[nextIndex]
-      nextIndex += 1
-      if (!item) continue
+  for (let round = 0; round < maxRounds; round += 1) {
+    const remainingMs = tickEnd - now()
+    if (round > 0 && remainingMs < jobDeadlineMs + graceMs) break
+    // Never claim more than this round can finish: unfinished claims sit in 'processing' until stale recovery.
+    const batchSize = jobsThatFit(requestedBatch, { parallel: concurrency, budgetMs: round === 0 ? undefined : remainingMs })
+    const claimed = await dependencies.claim(client, batchSize)
+    if (claimed.length === 0) break
+    claimedTotal += claimed.length
+    await processRound(claimed)
+  }
 
-      let enrichment: WorkerEnrichmentResult | null = null
-      try {
-        // The job's own deadline aborts its fetches and AI request. This outer guard is the backstop for
-        // anything that cannot be cancelled: the job is then reported as failed and left to the retry policy.
-        const guard = createResearchDeadline(jobDeadlineMs + graceMs)
+  async function processRound(claimed: WorkerQueueItem[]) {
+    let nextIndex = 0
+    const workers = Array.from({ length: Math.min(concurrency, claimed.length) }, async () => {
+      while (nextIndex < claimed.length) {
+        const item = claimed[nextIndex]
+        nextIndex += 1
+        if (!item) continue
+
+        let enrichment: WorkerEnrichmentResult | null = null
         try {
-          enrichment = await guard.guard(
-            dependencies.enrich(item.lead_id, { client, persist: 'deferred', deadlineMs: jobDeadlineMs }),
-            'research'
-          )
-        } finally {
-          guard.dispose()
-        }
-        const outcome = buildCompletion(enrichment)
-        const completion = await dependencies.complete(client, item, outcome.snapshot, outcome.signals, outcome.profile, outcome.success, outcome.errorMessage)
-        results.push({ queueId: item.id, leadId: item.lead_id, status: completion.ok ? completion.nextStatus || 'completed' : 'claim_lost', cost: enrichment.ci_cost_estimate })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown worker error'
-        console.error('[CI-BACKGROUND] Job failed', { queueId: item.id, leadId: item.lead_id, error: message })
-        try {
-          const completion = await dependencies.complete(client, item, null, null, null, false, message)
-          results.push({ queueId: item.id, leadId: item.lead_id, status: completion.ok ? completion.nextStatus || 'failed' : 'claim_lost', cost: enrichment?.ci_cost_estimate || 0 })
-        } catch (completionError) {
-          console.error('[CI-BACKGROUND] Could not record job failure', { queueId: item.id, leadId: item.lead_id, error: completionError instanceof Error ? completionError.message : 'Unknown completion error' })
-          results.push({ queueId: item.id, leadId: item.lead_id, status: 'interrupted', cost: enrichment?.ci_cost_estimate || 0 })
+          // The job's own deadline aborts its fetches and AI request. This outer guard is the backstop for
+          // anything that cannot be cancelled: the job is then reported as failed and left to the retry policy.
+          const guard = createResearchDeadline(jobDeadlineMs + graceMs)
+          try {
+            enrichment = await guard.guard(
+              dependencies.enrich(item.lead_id, { client, persist: 'deferred', deadlineMs: jobDeadlineMs }),
+              'research'
+            )
+          } finally {
+            guard.dispose()
+          }
+          const outcome = buildCompletion(enrichment)
+          const completion = await dependencies.complete(client, item, outcome.snapshot, outcome.signals, outcome.profile, outcome.success, outcome.errorMessage, enrichment.ci_cost_estimate)
+          results.push({ queueId: item.id, leadId: item.lead_id, status: completion.ok ? completion.nextStatus || 'completed' : 'claim_lost', cost: enrichment.ci_cost_estimate })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown worker error'
+          console.error('[CI-BACKGROUND] Job failed', { queueId: item.id, leadId: item.lead_id, error: message })
+          try {
+            const completion = await dependencies.complete(client, item, null, null, null, false, message, enrichment?.ci_cost_estimate ?? (item as { reserved_usd?: number }).reserved_usd ?? 0)
+            results.push({ queueId: item.id, leadId: item.lead_id, status: completion.ok ? completion.nextStatus || 'failed' : 'claim_lost', cost: enrichment?.ci_cost_estimate ?? (item as { reserved_usd?: number }).reserved_usd ?? 0 })
+          } catch (completionError) {
+            console.error('[CI-BACKGROUND] Could not record job failure', { queueId: item.id, leadId: item.lead_id, error: completionError instanceof Error ? completionError.message : 'Unknown completion error' })
+            results.push({ queueId: item.id, leadId: item.lead_id, status: 'interrupted', cost: enrichment?.ci_cost_estimate || 0 })
+          }
         }
       }
-    }
-  })
+    })
 
-  await Promise.all(workers)
+    await Promise.all(workers)
+  }
+
   return {
     ok: true,
-    claimed: claimed.length,
+    claimed: claimedTotal,
     recovered: recovery.resetCount,
     permanentlyFailedDuringRecovery: recovery.failedCount,
     completed: results.filter((result) => result.status === 'enrichment_completed').length,

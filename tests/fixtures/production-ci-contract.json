@@ -1,16 +1,260 @@
 {
   "_source": "Read-only catalog query against Supabase project hnhptrqdirqofkwimapo on 2026-10-11 (before B2 Phase 0). Update it only from a new read-only catalog query.",
   "functions": {
-    "claim_ci_queue_items_worker": { "params": ["p_limit"], "returns": ["id", "lead_id", "retry_count", "max_retries", "claim_token"] },
-    "reset_stale_ci_processing_worker": { "params": ["p_timeout_seconds"], "returns": ["reset_count", "failed_count"] },
-    "complete_ci_enrichment_worker": { "params": ["p_queue_id", "p_lead_id", "p_claim_token", "p_snapshot", "p_signals", "p_profile", "p_success", "p_error_msg"], "returns": ["success", "message"] },
-    "enqueue_private_preview_ci_worker": { "params": ["p_lead_id", "p_user_id"], "returns": ["text"] },
-    "get_ci_statistics": { "params": ["p_user_id"], "returns": ["total_leads", "not_started", "pending", "processing", "completed", "failed", "skipped", "completion_percentage", "avg_processing_seconds", "last_completed_at", "actively_processing"] },
-    "get_discover_capacity": { "params": ["p_user_id", "p_leads_limit", "p_monthly"], "returns": ["jsonb"] },
-    "save_discover_results": { "params": ["p_run_id", "p_user_id", "p_leads_limit", "p_monthly", "p_leads"], "returns": ["jsonb"] }
+    "enqueue_private_preview_ci_worker": {
+      "params": [
+        "p_lead_id",
+        "p_user_id"
+      ],
+      "returns": [
+        "text"
+      ]
+    },
+    "get_ci_statistics": {
+      "params": [
+        "p_user_id"
+      ],
+      "returns": [
+        "total_leads",
+        "not_started",
+        "pending",
+        "processing",
+        "completed",
+        "failed",
+        "skipped",
+        "completion_percentage",
+        "avg_processing_seconds",
+        "last_completed_at",
+        "actively_processing"
+      ]
+    },
+    "get_discover_capacity": {
+      "params": [
+        "p_user_id",
+        "p_leads_limit",
+        "p_monthly"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "save_discover_results": {
+      "params": [
+        "p_run_id",
+        "p_user_id",
+        "p_leads_limit",
+        "p_monthly",
+        "p_leads"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    }
   },
-  "outOfScope": ["increment_email_usage", "pg_notify"],
-  "leadsColumns": ["id", "user_id", "company_name", "website", "website_snapshot", "business_signals", "commercial_profile", "ci_enrichment_status", "ci_started_at", "ci_completed_at", "ci_last_error", "ci_retry_count", "ci_processing_duration_ms", "ci_cost_estimate", "ci_model_versions"],
-  "queueColumns": ["id", "lead_id", "user_id", "status", "retry_count", "max_retries", "last_retry_at", "last_error", "created_at", "started_at", "completed_at", "updated_at", "processing_duration_ms", "total_cost", "worker_eligible", "claim_token", "run_id"],
-  "customerExecutable": ["get_ci_statistics"]
+  "outOfScope": [
+    "increment_email_usage",
+    "pg_notify"
+  ],
+  "leadsColumns": [
+    "id",
+    "user_id",
+    "company_name",
+    "website",
+    "website_snapshot",
+    "business_signals",
+    "commercial_profile",
+    "ci_enrichment_status",
+    "ci_started_at",
+    "ci_completed_at",
+    "ci_last_error",
+    "ci_retry_count",
+    "ci_processing_duration_ms",
+    "ci_cost_estimate",
+    "ci_model_versions"
+  ],
+  "queueColumns": [
+    "id",
+    "lead_id",
+    "user_id",
+    "status",
+    "retry_count",
+    "max_retries",
+    "last_retry_at",
+    "last_error",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "updated_at",
+    "processing_duration_ms",
+    "total_cost",
+    "worker_eligible",
+    "claim_token",
+    "run_id"
+  ],
+  "customerExecutable": [
+    "get_ci_statistics"
+  ],
+  "workerFunctionsInProduction": {
+    "claim_ci_queue_items_worker": {
+      "params": [
+        "p_limit"
+      ],
+      "returns": [
+        "id",
+        "lead_id",
+        "retry_count",
+        "max_retries",
+        "claim_token"
+      ]
+    },
+    "reset_stale_ci_processing_worker": {
+      "params": [
+        "p_timeout_seconds"
+      ],
+      "returns": [
+        "reset_count",
+        "failed_count"
+      ]
+    },
+    "complete_ci_enrichment_worker": {
+      "params": [
+        "p_queue_id",
+        "p_lead_id",
+        "p_claim_token",
+        "p_snapshot",
+        "p_signals",
+        "p_profile",
+        "p_success",
+        "p_error_msg"
+      ],
+      "returns": [
+        "success",
+        "message"
+      ]
+    }
+  },
+  "proposedPhase1": {
+    "_source": "supabase/proposed/20261016_ci_phase1_run_scoped.sql (NOT applied). The application calls these only behind CI_RUN_AUTHORIZATION_ENABLED / CI_RESEARCH_ENABLED, both OFF.",
+    "authorize_ci_research_run": {
+      "params": [
+        "p_run_id",
+        "p_user_id",
+        "p_plan_leads_limit"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "claim_ci_run_items": {
+      "params": [
+        "p_limit"
+      ],
+      "returns": [
+        "id",
+        "lead_id",
+        "user_id",
+        "run_id",
+        "retry_count",
+        "max_retries",
+        "claim_token",
+        "reserved_usd"
+      ]
+    },
+    "complete_ci_run_item": {
+      "params": [
+        "p_queue_id",
+        "p_lead_id",
+        "p_claim_token",
+        "p_snapshot",
+        "p_signals",
+        "p_profile",
+        "p_success",
+        "p_error_msg",
+        "p_actual_cost_usd"
+      ],
+      "returns": [
+        "success",
+        "message"
+      ]
+    },
+    "recover_ci_run_items": {
+      "params": [
+        "p_timeout_seconds"
+      ],
+      "returns": [
+        "reset_count",
+        "failed_count",
+        "settled_count"
+      ]
+    },
+    "cancel_ci_research_run": {
+      "params": [
+        "p_run_id",
+        "p_user_id"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "set_ci_research_enabled": {
+      "params": [
+        "p_enabled",
+        "p_operator"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "get_ci_research_status": {
+      "params": [],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "get_ci_run_progress": {
+      "params": [
+        "p_run_id"
+      ],
+      "returns": [
+        "lead_id",
+        "state",
+        "retry_count",
+        "last_error",
+        "run_status",
+        "expires_at",
+        "queued_at"
+      ]
+    },
+    "set_ci_research_access": {
+      "params": [
+        "p_allow_all",
+        "p_allowed_user_ids",
+        "p_operator"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    },
+    "set_ci_research_limits": {
+      "params": [
+        "p_per_job_reserve_usd",
+        "p_per_profile_ceiling_usd",
+        "p_per_run_cap_usd",
+        "p_per_lead_monthly_usd",
+        "p_global_monthly_limit_usd",
+        "p_max_leads_per_run",
+        "p_per_user_concurrency",
+        "p_max_attempts",
+        "p_run_ttl_hours",
+        "p_operator"
+      ],
+      "returns": [
+        "jsonb"
+      ]
+    }
+  },
+  "customerExecutableAfterPhase1": [
+    "get_ci_statistics",
+    "get_ci_run_progress"
+  ]
 }

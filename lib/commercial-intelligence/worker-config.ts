@@ -4,6 +4,8 @@ export const WORKER_DEFAULTS = {
   batchSize: 2,
   concurrency: 1,
   staleTimeoutSeconds: 600,
+  /** Claim rounds one tick may run while time remains (B2 Phase 1). The scheduler's tick keeps a run moving. */
+  maxRounds: 8,
 } as const
 
 function positiveInteger(value: string | undefined, fallback: number, maximum: number, minimum = 1) {
@@ -15,6 +17,7 @@ export function resolveWorkerConfig(env: Record<string, string | undefined> = pr
   return {
     batchSize: positiveInteger(env.CI_WORKER_BATCH_SIZE, WORKER_DEFAULTS.batchSize, RESEARCH_HARD_LIMITS.maxBatchSize),
     concurrency: positiveInteger(env.CI_WORKER_CONCURRENCY, WORKER_DEFAULTS.concurrency, RESEARCH_HARD_LIMITS.maxConcurrency),
+    maxRounds: positiveInteger(env.CI_WORKER_ROUNDS, WORKER_DEFAULTS.maxRounds, 20),
     staleTimeoutSeconds: positiveInteger(
       env.CI_WORKER_STALE_SECONDS,
       WORKER_DEFAULTS.staleTimeoutSeconds,

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode, Ref } from 'react'
 
-import type { ResearchState, ResultRowModel } from '@/lib/scraper/results-summary'
+import type { ResearchState, ResultRowModel, RowIntelligence } from '@/lib/scraper/results-summary'
 
 type ResultsIndexProps = {
   rows: ResultRowModel[]
@@ -95,6 +95,76 @@ function ContactLine({ icon, muted = false, children }: { icon: ReactNode; muted
   )
 }
 
+const REASON_TEXT: Record<'budget' | 'cancelled' | 'research_failed', string> = {
+  budget: 'This search reached its research limit.',
+  cancelled: 'Research was stopped for this search.',
+  research_failed: 'The website could not be researched.',
+}
+
+// A business profile, kept honest. What the website itself shows (pages read, rule-detected features, source links) is
+// listed apart from what the AI wrote about it, and the limits of the profile are stated. Interactive parts sit above the
+// row's stretched link (relative z-10) so they stay clickable and keyboard reachable.
+function IntelligenceBlock({ intelligence }: { intelligence: RowIntelligence }) {
+  const { state, card, label, reason } = intelligence
+
+  if (state !== 'ready' || !card) {
+    return (
+      <div className="mt-3 max-w-prose">
+        <p className={`text-sm ${MUTED}`}>{label}</p>
+        {reason && reason in REASON_TEXT ? <p className={`text-xs ${MUTED}`}>{REASON_TEXT[reason as keyof typeof REASON_TEXT]}</p> : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 max-w-prose border-l border-[#b89a5a]/60 pl-4">
+      <p className={`text-[11px] font-medium uppercase tracking-[0.16em] ${GOLD}`}>Business profile</p>
+      <p className="mt-2 text-sm leading-6 text-[#243049]">{card.summary}</p>
+      {card.services.length > 0 ? (
+        <p className="mt-2 text-sm leading-6 text-[#3b4455]">
+          <span className={MUTED}>Offers </span>
+          {card.services.join(' · ')}
+        </p>
+      ) : null}
+      {card.audience ? (
+        <p className="text-sm leading-6 text-[#3b4455]">
+          <span className={MUTED}>Serves </span>
+          {card.audience}
+        </p>
+      ) : null}
+      <details className="group relative z-10 mt-2">
+        <summary className={`inline-flex min-h-[44px] cursor-pointer list-none items-center rounded-sm text-xs underline decoration-[#0b1a33]/25 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27] sm:min-h-0 [&::-webkit-details-marker]:hidden ${MUTED}`}>
+          How this profile was built
+        </summary>
+        <div className="mt-2 space-y-3 pb-1 text-xs leading-5 text-[#3b4455]">
+          <div>
+            <p className={`font-medium uppercase tracking-[0.14em] ${MUTED}`}>From their website</p>
+            {card.facts.pagesRead.length > 0 ? <p>Pages read: {card.facts.pagesRead.join(', ')}.</p> : null}
+            {card.facts.signals.length > 0 ? <p>{card.facts.signals.join(' · ')}.</p> : null}
+            {card.facts.sources.length > 0 ? (
+              <p className="flex flex-wrap gap-x-3">
+                {card.facts.sources.map((source) => (
+                  <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`Source: ${source.label} (opens in a new tab)`} className="underline decoration-[#0b1a33]/25 underline-offset-4 hover:decoration-[#7a5f27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27]">
+                    {source.label}
+                  </a>
+                ))}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <p className={`font-medium uppercase tracking-[0.14em] ${MUTED}`}>Written by AI</p>
+            <p>The summary, what the business offers and who it serves were written from that text.</p>
+          </div>
+          <ul className={`list-disc space-y-0.5 pl-4 ${MUTED}`}>
+            {card.limitations.map((limit) => (
+              <li key={limit}>{limit}</li>
+            ))}
+          </ul>
+        </div>
+      </details>
+    </div>
+  )
+}
 function Missing({ children, reason }: { children: string; reason?: string | null }) {
   // Understated, not alarming: absence of a contact is information, not an error.
   return (
@@ -129,6 +199,7 @@ function ResultRow({ row, index, showResearchStatus }: { row: ResultRowModel; in
           ) : researchText ? (
             <p className={`mt-3 text-sm ${MUTED}`}>{researchText}</p>
           ) : null}
+          {row.intelligence ? <IntelligenceBlock intelligence={row.intelligence} /> : null}
         </div>
 
         <div className="relative z-10 min-w-0 space-y-1 text-sm">

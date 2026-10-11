@@ -22,6 +22,7 @@ import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getDiscoverCapacity, saveDiscoverResults, type DiscoverCapacity } from '@/lib/scraper/save-discover-results'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
+import { authorizeResearchRun, isRunAuthorizationEnabled } from '@/lib/commercial-intelligence/run-authorization'
 import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
 export const runtime = 'nodejs'
@@ -871,12 +872,16 @@ async function runScraper(
         if (outcome.status === 'saved' && outcome.id) {
           addedLeads.push({ ...createGuestLead(lead), id: outcome.id })
           addedCount += 1
-          // Queueing occurs after the atomic save and cannot discard its confirmed result.
-          try {
-            const queued = await enqueueLeadEnrichment(outcome.id, supabase, { workerEligible: false })
-            if (!queued.ok) console.error('[scrape] queue handoff failed', outcome.id)
-          } catch {
-            console.error('[scrape] queue handoff unavailable', outcome.id)
+          // Queueing occurs after the atomic save and cannot discard its confirmed result. With run authorization on
+          // (B2 Phase 1) no per-lead inert job is created here: the whole run is authorized once, from the save
+          // receipt, after the results have been sent (see POST below).
+          if (!isRunAuthorizationEnabled()) {
+            try {
+              const queued = await enqueueLeadEnrichment(outcome.id, supabase, { workerEligible: false })
+              if (!queued.ok) console.error('[scrape] queue handoff failed', outcome.id)
+            } catch {
+              console.error('[scrape] queue handoff unavailable', outcome.id)
+            }
           }
           saveTracker.record('saved')
         } else if (outcome.status === 'duplicate') {
@@ -1291,6 +1296,23 @@ export async function POST(req: Request) {
         }
 
         emit({ type: 'result', payload: resultPayload })
+
+        // B2 Phase 1: authorize research for exactly the businesses this run saved. It happens AFTER the results were
+        // sent, so it can never delay them; it never throws; and with CI_RUN_AUTHORIZATION_ENABLED off (the default)
+        // nothing here runs and Discover behaves exactly as before.
+        if (isRunAuthorizationEnabled() && !isGuestMode && config.accounting && config.userId && finalResult.addedCount > 0) {
+          const authorization = await authorizeResearchRun(createAdminClient(), {
+            runId: config.accounting.runId,
+            userId: config.userId,
+            planLeadsLimit: config.accounting.limit,
+          })
+          emit({
+            type: 'intelligence',
+            payload: authorization.ok
+              ? { runId: authorization.runId, authorized: true, saved: authorization.saved, queued: authorization.queued }
+              : { runId: config.accounting.runId, authorized: false },
+          })
+        }
 
         if (!isGuestMode && finalResult.addedCount > 0) {
           console.log(

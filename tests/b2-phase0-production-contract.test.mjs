@@ -31,30 +31,31 @@ test('every RPC the application calls exists in production, with exactly the par
       const [, name, argument] = match
       seen.add(name)
       if (contract.outOfScope.includes(name)) continue
-      const known = contract.functions[name]
-      assert.ok(known, `${file} calls ${name}, which is not in the production contract`)
+      // production today, or the Phase 1 proposal (the application calls those only behind switches that are OFF)
+      const known = contract.functions[name] ?? contract.proposedPhase1[name]
+      assert.ok(known, `${file} calls ${name}, which is in neither the production contract nor the Phase 1 proposal`)
       if (argument?.startsWith('{')) {
         const keys = [...argument.matchAll(/\b(p_[a-z_]+)\b\s*[:,}]/g)].map((entry) => entry[1])
         assert.deepEqual([...new Set(keys)].sort(), [...known.params].sort(), `${file}: ${name} parameters`)
       }
     }
   }
-  // the execution path the worker uses is fully present
-  for (const required of ['claim_ci_queue_items_worker', 'reset_stale_ci_processing_worker', 'complete_ci_enrichment_worker', 'enqueue_private_preview_ci_worker', 'get_ci_statistics']) {
+  // the execution path the worker uses is fully present (Phase 1: run-scoped functions)
+  for (const required of ['claim_ci_run_items', 'recover_ci_run_items', 'complete_ci_run_item', 'enqueue_private_preview_ci_worker', 'get_ci_statistics']) {
     assert.ok(seen.has(required), `${required} is called by the application`)
   }
 })
 
 test('the application reads only result fields that production returns', () => {
   const manager = read('lib/commercial-intelligence/queue-manager.ts')
-  const reset = contract.functions.reset_stale_ci_processing_worker.returns
+  const reset = contract.proposedPhase1.recover_ci_run_items.returns
   for (const field of ['reset_count', 'failed_count']) assert.ok(reset.includes(field) && manager.includes(field))
-  const complete = contract.functions.complete_ci_enrichment_worker.returns
+  const complete = contract.proposedPhase1.complete_ci_run_item.returns
   assert.ok(complete.includes('success') && complete.includes('message'))
   assert.match(manager, /result\?\.success/)
   assert.match(manager, /result\?\.message/)
   // the worker core only relies on fields the claim returns
-  const claim = contract.functions.claim_ci_queue_items_worker.returns
+  const claim = contract.proposedPhase1.claim_ci_run_items.returns
   const core = read('lib/commercial-intelligence/background-worker-core.ts')
   for (const field of ['item.id', 'item.lead_id']) assert.ok(core.includes(field), field)
   assert.ok(manager.includes('item.claim_token'), 'the completion sends the claim token the claim returned')
@@ -77,7 +78,7 @@ test('queue and lead columns the application names exist in production', () => {
     assert.ok(contract.leadsColumns.includes(name), `unknown lead column ${name}`)
   }
   // every protected column the lockdown names exists in production
-  const lock = read('supabase/proposed/20261015_ci_phase0_lockdown.sql')
+  const lock = read('supabase/applied-records/20261015_ci_phase0_lockdown.sql')
   for (const name of new Set([...lock.matchAll(/NEW\.([a-z_]+) IS DISTINCT FROM OLD\./g)].map((entry) => entry[1]))) {
     assert.ok(contract.leadsColumns.includes(name), `lockdown names ${name}`)
   }
@@ -85,8 +86,20 @@ test('queue and lead columns the application names exist in production', () => {
 
 test('the only research RPC a customer session may still call is the read-only statistics function', () => {
   assert.deepEqual(contract.customerExecutable, ['get_ci_statistics'])
+  assert.deepEqual(contract.customerExecutableAfterPhase1, ['get_ci_statistics', 'get_ci_run_progress'])
   for (const [file, source] of sources) {
     if (/ci-stats\/route\.ts$/.test(file)) continue
     assert.ok(!/rpc\(\s*'get_ci_statistics'/.test(source), `${file} calls the statistics RPC`)
+  }
+})
+
+test('the Phase 1 proposal defines exactly the functions and parameters the contract (and the application) expect', () => {
+  const sql = read('supabase/proposed/20261016_ci_phase1_run_scoped.sql')
+  for (const [name, spec] of Object.entries(contract.proposedPhase1)) {
+    if (name.startsWith('_')) continue
+    const match = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(([^)]*)\\)`, 's'))
+    assert.ok(match, `${name} is defined`)
+    const params = [...match[1].matchAll(/\b(p_[a-z_]+)\b/g)].map((entry) => entry[1])
+    assert.deepEqual(params, spec.params, `${name} parameters`)
   }
 })

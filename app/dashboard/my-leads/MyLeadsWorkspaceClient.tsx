@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X, Sparkles } from 'lucide-react'
 
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
+import { LEAD_PROFILE_LABEL, type LeadProfileState } from '@/lib/intelligence/run-progress'
 import { type Lead as LifecycleLead } from '@/lib/pipeline/lifecycle'
 import { cn } from '@/lib/utils'
 import { archiveLeads, restoreLeads, deleteLead, deleteLeads } from './actions'
@@ -35,6 +36,8 @@ export type MyLeadsLead = LifecycleLead & {
   ci_processing_duration_ms: number | null
   ci_cost_estimate: number | null
   ci_model_versions: any | null
+  /** Derived on the server from the stored profile and the lead's own research run job (B2 Phase 1). */
+  profile_state?: LeadProfileState
 }
 
 type Priority = 'ready' | 'review' | 'archived'
@@ -208,10 +211,18 @@ function getNextRecommendation(lead: MyLeadsLead, metadata: LeadMetadata): NextR
     }
   }
 
+  // No profile yet: say what is true for this lead. Nothing on this page can start research, so it never suggests an action.
   if (!hasCommercialProfile && lead.website) {
-    return {
-      title: 'Ready for Commercial Intelligence.',
-      action: 'Analyze this business to understand fit, signals, and context.',
+    const status: Partial<Record<NonNullable<MyLeadsLead['profile_state']>, { title: string; action: string }>> = {
+      queued: { title: 'Business profile queued.', action: 'It will appear here when research on this search has finished.' },
+      researching: { title: 'Business profile in progress.', action: 'It will appear here as soon as it is ready.' },
+      retry_pending: { title: 'Business profile will be retried.', action: 'It will appear here if the retry succeeds.' },
+      failed: { title: "Business profile couldn't be completed.", action: 'Your contact details are unaffected. Review the business using them.' },
+      cancelled: { title: 'Business profile stopped.', action: 'Research was stopped for this search. Your contact details are unaffected.' },
+    }
+    return status[lead.profile_state ?? 'not_started'] ?? {
+      title: 'Business profile not generated for this lead.',
+      action: 'Review the business using its contact details.',
     }
   }
 
@@ -286,7 +297,7 @@ export default function MyLeadsWorkspaceClient({
 
     // Apply CI filter
     const withCiFilter = showCompletedOnly
-      ? byView.filter((lead) => lead.ci_enrichment_status === 'completed')
+      ? byView.filter((lead) => (lead.profile_state ?? (lead.commercial_profile ? 'ready' : 'not_started')) === 'ready')
       : byView
 
     if (!normalizedSearch) return withCiFilter
@@ -515,7 +526,7 @@ export default function MyLeadsWorkspaceClient({
                   : 'text-slate-400 hover:text-slate-300'
               )}
             >
-              ✓ Analyzed
+              Profile ready
             </button>
           )}
         </div>
@@ -858,25 +869,13 @@ export default function MyLeadsWorkspaceClient({
                                     )}
                                   </div>
                                 </div>
-                              ) : ciStatus === 'processing' || ciStatus === 'pending' ? (
-                                <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
-                                  <Sparkles className="h-3 w-3" />
-                                  Business profile not available yet
-                                </div>
-                              ) : ciStatus === 'failed' ? (
-                                <div className="space-y-3">
-                                  <div className="flex items-start gap-2 text-xs text-rose-500">
-                                    <X className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                                    <div>
-                                      <p className="font-medium">{lead.ci_last_error || 'Analysis failed'}</p>
-                                      <p className="text-slate-600 mt-1">Check that a website is present and valid.</p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : hasWebsite ? (
-                                <div className="text-xs text-slate-500 py-2">Business profile not available yet.</div>
                               ) : (
-                                <div className="text-xs text-slate-500 py-2">A website is needed for a business profile.</div>
+                                // The state comes from the lead's stored profile and its own run job, never from the
+                                // `pending` column default. Nothing here starts or retries research.
+                                <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+                                  <Sparkles className="h-3 w-3" />
+                                  {LEAD_PROFILE_LABEL[lead.profile_state ?? 'not_started']}
+                                </div>
                               )}
                             </div>
                           )
