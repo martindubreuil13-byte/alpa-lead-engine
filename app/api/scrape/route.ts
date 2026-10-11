@@ -28,6 +28,7 @@ import { kickResearch } from '@/lib/commercial-intelligence/kick-research'
 import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
 export const runtime = 'nodejs'
+export const maxDuration = 300
 
 const ENRICHMENT_WORKERS = 4
 const MAX_SERPER_QUERIES = 2
