@@ -134,7 +134,7 @@
     }
   },
   "proposedPhase1": {
-    "_source": "supabase/proposed/20261016_ci_phase1_run_scoped.sql (NOT applied). The application calls these only behind CI_RUN_AUTHORIZATION_ENABLED / CI_RESEARCH_ENABLED, both OFF.",
+    "_source": "supabase/applied-records/20261016_ci_phase1_run_scoped.sql (NOT applied). The application calls these only behind CI_RUN_AUTHORIZATION_ENABLED / CI_RESEARCH_ENABLED, both OFF.",
     "authorize_ci_research_run": {
       "params": [
         "p_run_id",

@@ -1,7 +1,7 @@
 # B2 Phase 1 — run-scoped Business Intelligence
 
 Status: **built, tested locally, not deployed, not activated.** Both switches below default OFF and the database
-migration (`supabase/proposed/20261016_ci_phase1_run_scoped.sql`) is not applied.
+migration (`supabase/applied-records/20261016_ci_phase1_run_scoped.sql`) is not applied.
 
 ## 1. How a customer's search becomes research (and nothing else does)
 

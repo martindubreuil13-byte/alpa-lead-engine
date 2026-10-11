@@ -28,7 +28,7 @@ production deployment). Verify the tree is clean and equals the validated tree.
 
 ## 2. Database migration (separate approval; SQL Editor, as a script: not `supabase db push`, not `apply_migration`)
 
-Apply `supabase/proposed/20261016_ci_phase1_run_scoped.sql` exactly. It is additive and idempotent. It stops, changing nothing,
+Apply `supabase/applied-records/20261016_ci_phase1_run_scoped.sql` exactly. It is additive and idempotent. It stops, changing nothing,
 if the schema is not what it expects. After it, the application that is live today (Phase 0) is unaffected: it calls none
 of these functions, and its research route returns before any database call while `CI_RESEARCH_ENABLED` is unset.
 

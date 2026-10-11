@@ -94,7 +94,7 @@ test('the only research RPC a customer session may still call is the read-only s
 })
 
 test('the Phase 1 proposal defines exactly the functions and parameters the contract (and the application) expect', () => {
-  const sql = read('supabase/proposed/20261016_ci_phase1_run_scoped.sql')
+  const sql = read('supabase/applied-records/20261016_ci_phase1_run_scoped.sql')
   for (const [name, spec] of Object.entries(contract.proposedPhase1)) {
     if (name.startsWith('_')) continue
     const match = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(([^)]*)\\)`, 's'))

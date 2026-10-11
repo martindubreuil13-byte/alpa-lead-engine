@@ -322,7 +322,7 @@ test('Discover authorizes only after the results were sent, only when enabled, n
 test('the stored authorization result is the receipt\'s: the application never names lead ids', () => {
   const authorization = read('lib/commercial-intelligence/run-authorization.ts')
   assert.ok(!/p_lead_ids|leadIds|lead_ids/.test(authorization))
-  const proposal = read('supabase/proposed/20261016_ci_phase1_run_scoped.sql')
+  const proposal = read('supabase/applied-records/20261016_ci_phase1_run_scoped.sql')
   assert.match(proposal, /FROM public\.discover_save_receipts WHERE run_id = p_run_id/)
   assert.match(proposal, /o->>'status' = 'saved'/)
   assert.ok(!/worker_eligible = true|SET worker_eligible/.test(proposal.replace(/--.*$/gm, '')), 'the proposal never sets the broad flag')

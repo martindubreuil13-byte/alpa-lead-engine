@@ -16,6 +16,13 @@ Applied to production before 2026-10-11 and verified read-only against project `
   `authenticated`.
 - Its rollback, `supabase/proposed/20261012_ci_queue_integrity_rollback.sql`, was never applied.
 
+## 20261016_ci_phase1_run_scoped.sql  (B2 Phase 1)
+
+Applied to production by the owner through the SQL Editor on 2026-10-11, verified read-only (all 10 function bodies match the
+file). Kept exactly as applied. Evidence: `20261016_ci_phase1_run_scoped.evidence.md`. Never replay it. Its undo scripts
+(`disable`, which keeps every record, and `teardown_unused`, which refuses once any record exists) are in `supabase/proposed/`
+and were never applied.
+
 ## 20261015_ci_phase0_lockdown.sql  (B2 Phase 0)
 
 Applied to production by the owner through the SQL Editor on 2026-10-11 and verified read-only. The file is kept exactly as

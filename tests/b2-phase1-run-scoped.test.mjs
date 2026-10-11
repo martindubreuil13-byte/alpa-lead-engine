@@ -29,7 +29,7 @@ const FILES = {
   b11: path.join(ROOT, 'supabase/applied-records/20261012_ci_queue_integrity.sql'),
   lockdown: path.join(ROOT, 'supabase/applied-records/20261015_ci_phase0_lockdown.sql'),
   atomic: path.join(ROOT, 'supabase/applied-records/20261014_discover_atomic_saves.sql'),
-  phase1: path.join(ROOT, 'supabase/proposed/20261016_ci_phase1_run_scoped.sql'),
+  phase1: path.join(ROOT, 'supabase/applied-records/20261016_ci_phase1_run_scoped.sql'),
   disable: path.join(ROOT, 'supabase/proposed/20261016_ci_phase1_run_scoped_disable.sql'),
   teardown: path.join(ROOT, 'supabase/proposed/20261016_ci_phase1_run_scoped_teardown_unused.sql'),
 }
