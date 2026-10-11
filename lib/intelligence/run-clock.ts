@@ -4,6 +4,9 @@
 // that moment. Each is converted to the browser's clock using the moment the answer arrived, so a browser whose clock
 // is off still shows the right durations, and a refresh gives the same numbers from what the database persisted.
 
+/** How long Business Intelligence is presented as an active waiting experience before it carries on in the background. */
+export const FOREGROUND_BUDGET_MS = 20_000
+
 export type RunTiming = { startedAt: string | null; endedAt: string | null; serverNow: string }
 
 export type RunClock = { startedAtMs: number; endedAtMs: number | null }
@@ -28,12 +31,19 @@ export function toRunClock(timing: RunTiming | null | undefined, receivedAtMs: n
  * Business Intelligence, and stops there. `intelligenceMs` is Business Intelligence alone. Both are null without a run.
  */
 export function computeRunElapsed(discoverStartedAtMs: number | null, clock: RunClock | null, nowMs: number) {
-  if (!clock) return { totalMs: null, intelligenceMs: null, final: false }
+  if (!clock) return { totalMs: null, intelligenceMs: null, foregroundMs: null, final: false, backgrounded: false }
   const end = clock.endedAtMs ?? nowMs
   const start = discoverStartedAtMs ?? clock.startedAtMs
+  const foregroundEnd = clock.startedAtMs + FOREGROUND_BUDGET_MS
+  const final = clock.endedAtMs !== null
+  // Research that outlasts the foreground budget carries on in the background. Total and intelligence stay the true
+  // elapsed times; `foregroundMs` is the frozen length of the presented experience and is never the research duration.
+  const backgrounded = !final && nowMs >= foregroundEnd
   return {
     totalMs: Math.max(end - start, 0),
     intelligenceMs: Math.max(end - clock.startedAtMs, 0),
-    final: clock.endedAtMs !== null,
+    foregroundMs: Math.max(Math.min(end, foregroundEnd) - start, 0),
+    final,
+    backgrounded,
   }
 }

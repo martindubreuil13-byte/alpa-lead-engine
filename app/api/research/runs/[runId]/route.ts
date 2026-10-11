@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { decideRetry } from '@/lib/commercial-intelligence/retry-run-item'
 import { getEffectiveResearchStatus } from '@/lib/commercial-intelligence/research-status'
 import {
   buildProfileCard,
@@ -71,10 +72,17 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
     endedAt = lastJob?.[0]?.completed_at ?? runRow.cancelled_at ?? runRow.created_at
   }
   const timing = runRow?.created_at ? { startedAt: runRow.created_at as string, endedAt, serverNow: new Date().toISOString() } : null
+  // Only profiles the server would really accept a retry for (attempts left and budget available) are offered one.
+  const retryable: string[] = []
+  for (const row of progressRows) {
+    if (row.state !== 'failed' && row.state !== 'partial') continue
+    if ((await decideRetry(admin, { runId: id, leadId: row.lead_id, userId: profile.id })).ok) retryable.push(row.lead_id)
+  }
   return NextResponse.json(
     {
       ok: true,
       runId: id,
+      retryable,
       running: status.running,
       summary,
       stage: describeIntelligence(summary, status.running),

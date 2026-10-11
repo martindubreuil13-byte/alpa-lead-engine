@@ -3,6 +3,8 @@ import type { ReactNode, Ref } from 'react'
 
 import type { ResearchState, ResultRowModel, RowIntelligence } from '@/lib/scraper/results-summary'
 
+import RetryProfile from './RetryProfile'
+
 type ResultsIndexProps = {
   rows: ResultRowModel[]
   /** Moved to by the page when the results appear, so keyboard and screen-reader users land here. */
@@ -16,6 +18,8 @@ type ResultsIndexProps = {
   /** Owner preview only: show the real state of background research on each row. */
   showResearchStatus?: boolean
   emptyMessage?: string
+  /** Retries one failed business profile; resolves to a customer-facing message when it was refused, else null. */
+  onRetryProfile?: (leadId: string) => Promise<string | null>
 }
 
 // The palette is the dashboard's, inverted for a reading surface: a warm near-white sheet, deep navy
@@ -104,7 +108,7 @@ const REASON_TEXT: Record<'budget' | 'cancelled' | 'research_failed', string> = 
 // A business profile, kept honest. What the website itself shows (pages read, rule-detected features, source links) is
 // listed apart from what the AI wrote about it, and the limits of the profile are stated. Interactive parts sit above the
 // row's stretched link (relative z-10) so they stay clickable and keyboard reachable.
-function IntelligenceBlock({ intelligence }: { intelligence: RowIntelligence }) {
+function IntelligenceBlock({ intelligence, leadId, onRetry }: { intelligence: RowIntelligence; leadId: string; onRetry?: (leadId: string) => Promise<string | null> }) {
   const { state, card, label, reason } = intelligence
 
   if (state !== 'ready' || !card) {
@@ -112,6 +116,7 @@ function IntelligenceBlock({ intelligence }: { intelligence: RowIntelligence }) 
       <div className="mt-3 max-w-prose">
         <p className={`text-sm ${MUTED}`}>{label}</p>
         {reason && reason in REASON_TEXT ? <p className={`text-xs ${MUTED}`}>{REASON_TEXT[reason as keyof typeof REASON_TEXT]}</p> : null}
+        {intelligence.retryable && onRetry ? <RetryProfile leadId={leadId} onRetry={onRetry} /> : null}
       </div>
     )
   }
@@ -175,7 +180,7 @@ function Missing({ children, reason }: { children: string; reason?: string | nul
   )
 }
 
-function ResultRow({ row, index, showResearchStatus }: { row: ResultRowModel; index: number; showResearchStatus: boolean }) {
+function ResultRow({ row, index, showResearchStatus, onRetry }: { row: ResultRowModel; index: number; showResearchStatus: boolean; onRetry?: (leadId: string) => Promise<string | null> }) {
   const researchText = showResearchStatus && row.research ? RESEARCH_LABEL[row.research] : ''
 
   return (
@@ -199,7 +204,7 @@ function ResultRow({ row, index, showResearchStatus }: { row: ResultRowModel; in
           ) : researchText ? (
             <p className={`mt-3 text-sm ${MUTED}`}>{researchText}</p>
           ) : null}
-          {row.intelligence ? <IntelligenceBlock intelligence={row.intelligence} /> : null}
+          {row.intelligence ? <IntelligenceBlock intelligence={row.intelligence} leadId={row.id} onRetry={onRetry} /> : null}
         </div>
 
         <div className="relative z-10 min-w-0 space-y-1 text-sm">
@@ -271,6 +276,7 @@ export default function ResultsIndex({
   profileNote,
   showResearchStatus = false,
   emptyMessage = 'No businesses to show for this search.',
+  onRetryProfile,
 }: ResultsIndexProps) {
   return (
     <section aria-labelledby="discover-results-heading" className="results-in mt-8 scroll-mt-6 rounded-sm bg-[#f7f5ef] shadow-[0_1px_0_rgba(255,255,255,0.04)]">
@@ -298,7 +304,7 @@ export default function ResultsIndex({
       ) : (
         <ul role="list" className="border-t border-[#d9d3c4]">
           {rows.map((row, index) => (
-            <ResultRow key={row.id} row={row} index={index} showResearchStatus={showResearchStatus} />
+            <ResultRow key={row.id} row={row} index={index} showResearchStatus={showResearchStatus} onRetry={onRetryProfile} />
           ))}
         </ul>
       )}

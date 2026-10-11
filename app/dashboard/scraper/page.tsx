@@ -41,7 +41,7 @@ import {
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { withIntelligence } from '@/lib/intelligence/row-intelligence'
-import { describeProfileNote } from '@/lib/intelligence/run-progress'
+import { describeProfileNote, toBackgroundStage } from '@/lib/intelligence/run-progress'
 import { computeRunElapsed } from '@/lib/intelligence/run-clock'
 import { getAccessibleResults } from '@/lib/scraper/results-access'
 import { useResearchProgress } from '@/components/scraper/useResearchProgress'
@@ -439,10 +439,33 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     return () => clearInterval(timer)
   }, [researchLive, loading])
   const runElapsed = computeRunElapsed(runTimings.startedAt, research?.clock ?? null, nowMs || Date.now())
+  const researchWorking = researchLive && research?.stage?.phase !== 'not_running' && !runElapsed.backgrounded
+  const intelligenceStage = toBackgroundStage(research?.stage, research?.rows, runElapsed.backgrounded)
+  // Retry of one failed profile: the server re-checks ownership, the attempt allowance and every budget, and says why
+  // when it cannot. On success the progress is fetched again so the row and Stage 03 follow the retry automatically.
+  const retryProfile = async (leadId: string): Promise<string | null> => {
+    if (!researchRunId) return null
+    try {
+      const response = await fetch(`/api/research/runs/${researchRunId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId }),
+      })
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; message?: string } | null
+      if (response.ok && data?.ok) {
+        research?.refresh()
+        return null
+      }
+      research?.refresh()
+      return data?.message ?? 'The retry could not be requested right now. Try again shortly.'
+    } catch {
+      return 'The retry could not be requested right now. Try again shortly.'
+    }
+  }
   const baseRows = displayedPreviewLeads.map((lead) =>
     toResultRow(lead, { researchState: privatePreview ? getPrivatePreviewResearchStatus(lead) : null })
   )
-  const resultRows = withIntelligence(baseRows, research?.rows, research?.profiles)
+  const resultRows = withIntelligence(baseRows, research?.rows, research?.profiles, research?.retryable)
   // Only a guest preview is ever truncated; entitled users see (and export) everything they saved.
   const shownNote = describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)
   const resultsNote = shownNote ? `${fullResultsAccess ? '' : 'Preview · '}${shownNote}` : null
@@ -1263,7 +1286,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             onNewSearch={resetSearchFlow}
             footnote="Times are measured in your browser."
             rootRef={engineRef}
-            intelligence={research?.stage ?? null}
+            intelligence={intelligenceStage}
             runElapsed={runElapsed}
           />
         ) : null}
@@ -1274,12 +1297,19 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
               <p className="text-sm text-[#d8c28a]">{completionResult.limitMessage}</p>
             ) : null}
 
+            {/* While Business Intelligence works, the results are gently subdued (never blurred or disabled) so attention stays on
+                the engine; they return to full clarity when it reaches its final state. Names, scrolling, clicks and export are untouched. */}
+            <div
+              data-research-working={researchWorking ? 'true' : undefined}
+              className={`rounded-sm motion-safe:transition-[opacity,filter] motion-safe:duration-1000 motion-safe:ease-out ${researchWorking ? 'opacity-[0.88] saturate-[0.82]' : 'opacity-100 saturate-100'}`}
+            >
             <ResultsIndex
               rows={resultRows}
               headingRef={resultsHeadingRef}
               note={resultsNote}
-              profileNote={describeProfileNote(research?.stage) ?? profileNote}
+              profileNote={describeProfileNote(intelligenceStage) ?? profileNote}
               showResearchStatus={privatePreview}
+              onRetryProfile={researchRunId ? retryProfile : undefined}
               emptyMessage="No businesses were added from this search. Try a different business type or location."
               actions={
                 <>
@@ -1304,6 +1334,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
                 </>
               }
             />
+            </div>
 
             {showGuestClaimHelper ? (
               <div className="space-y-1 text-xs text-white/55">

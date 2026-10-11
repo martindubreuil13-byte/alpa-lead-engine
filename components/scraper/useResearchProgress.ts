@@ -13,6 +13,8 @@ export type ResearchProgress = {
   profiles: Record<string, ProfileCard>
   /** Run start and end on this browser's clock, from timestamps the server persisted. Null before the run is known. */
   clock: RunClock | null
+  /** Businesses whose failed profile the server would accept a retry for. */
+  retryable: string[]
 }
 
 // How often the page asks the server for the real state. It is a read: it never starts, claims or retries research.
@@ -31,6 +33,8 @@ export type ProgressFetcher = (url: string, init: { cache: RequestCache; signal:
 
 export function useResearchProgress({ runId, enabled, fetcher }: { runId: string | null; enabled: boolean; fetcher?: ProgressFetcher }) {
   const [progress, setProgress] = useState<ResearchProgress | null>(null)
+  // Bumped after a retry request so polling restarts (it stops once everything has ended).
+  const [restart, setRestart] = useState(0)
 
   useEffect(() => {
     if (!enabled || !runId) {
@@ -58,7 +62,7 @@ export function useResearchProgress({ runId, enabled, fetcher }: { runId: string
         if (response.ok) {
           const data = (await response.json()) as { ok?: boolean; timing?: RunTiming | null } & Partial<Omit<ResearchProgress, 'clock'>>
           if (data.ok && data.runId) {
-            setProgress({ runId: data.runId, running: Boolean(data.running), stage: data.stage ?? null, rows: data.rows ?? [], profiles: data.profiles ?? {}, clock: toRunClock(data.timing, Date.now()) })
+            setProgress({ runId: data.runId, running: Boolean(data.running), stage: data.stage ?? null, rows: data.rows ?? [], profiles: data.profiles ?? {}, clock: toRunClock(data.timing, Date.now()), retryable: data.retryable ?? [] })
             const phase = data.stage?.phase
             if (phase === 'complete' || phase === 'stopped') {
               if (!data.stage?.live) return // everything resolved: stop polling
@@ -88,7 +92,7 @@ export function useResearchProgress({ runId, enabled, fetcher }: { runId: string
       controller?.abort()
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [runId, enabled, fetcher])
+  }, [runId, enabled, fetcher, restart])
 
-  return progress
+  return progress ? { ...progress, refresh: () => setRestart((count) => count + 1) } : null
 }

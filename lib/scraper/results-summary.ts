@@ -80,6 +80,8 @@ export type RowIntelligence = {
   label: string
   reason: ProfileReason
   card: ProfileCard | null
+  /** True only when the server would accept a retry of this failed profile. */
+  retryable?: boolean
 }
 
 export type ResultRowModel = {

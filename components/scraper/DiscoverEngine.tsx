@@ -12,6 +12,7 @@ import EngineRail from './EngineRail'
 import SignalField from './SignalField'
 import useAmbientMotion from './useAmbientMotion'
 import usePrefersReducedMotion from './usePrefersReducedMotion'
+import { formatStageDuration } from '@/lib/scraper/stage-timing'
 
 type DiscoverEngineProps = {
   view: EngineView
@@ -32,7 +33,7 @@ type DiscoverEngineProps = {
   /** Business Intelligence for this run, from the server. Absent keeps the A2.3 third-stage wording. */
   intelligence?: IntelligenceStage | null
   /** Run stopwatch (Discover start to the final Business Intelligence state) and Business Intelligence alone, in ms. */
-  runElapsed?: { totalMs: number | null; intelligenceMs: number | null }
+  runElapsed?: { totalMs: number | null; intelligenceMs: number | null; foregroundMs?: number | null; backgrounded?: boolean }
 }
 
 function formatClock(milliseconds: number) {
@@ -44,6 +45,33 @@ function secondsPhrase(milliseconds: number | null) {
   if (milliseconds === null) return ''
   const seconds = Math.max(Math.round(milliseconds / 1000), 1)
   return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
+}
+
+// The compact timing panel: the run's wall-clock stopwatch is the centerpiece; the stage durations are quiet facts.
+// Every number is passed in from the existing timing logic (nothing is measured here), so the panel adds no timer.
+function TimingPanel({ totalMs, foregroundMs, discoverMs, contactsMs, intelligenceMs }: { totalMs: number; foregroundMs: number | null; discoverMs: number | null; contactsMs: number | null; intelligenceMs?: number | null }) {
+  const stages: Array<[string, number | null]> = [
+    ['Discover', discoverMs],
+    ['Contacts', contactsMs],
+    ...(intelligenceMs === undefined ? [] : ([['Intelligence', intelligenceMs]] as Array<[string, number | null]>)),
+  ]
+  // Past the foreground budget the big figure is the frozen length of the presented experience, named as such; the true
+  // research time keeps running in the Intelligence column until every profile has ended.
+  const backgrounded = foregroundMs !== null
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
+      <p className="text-[9px] font-medium tracking-[0.24em] text-[#d8c28a]/90">{backgrounded ? 'Experience time' : 'Total elapsed'}</p>
+      <p className="font-display text-2xl leading-tight tabular-nums text-white sm:text-3xl">{formatClock(backgrounded ? foregroundMs : totalMs)}</p>
+      <dl className="mt-1 flex justify-end gap-3 border-t border-white/10 pt-1.5 text-[9px] tracking-[0.14em] text-white/50 sm:gap-4">
+        {stages.map(([name, ms]) => (
+          <div key={name} className="text-right">
+            <dt>{name}</dt>
+            <dd className="mt-0.5 text-[11px] tracking-normal tabular-nums text-white/75">{ms === null ? '–' : formatStageDuration(ms)}{backgrounded && name === 'Intelligence' ? ' · running' : ''}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
 }
 
 const LABEL = 'text-xs font-medium uppercase tracking-[0.24em] text-white/70'
@@ -88,6 +116,9 @@ export default function DiscoverEngine({
   // With Business Intelligence on the run, the clock is the whole run's stopwatch: it keeps going after the results
   // are in and freezes when Business Intelligence reaches its final state.
   const stopwatch = intelligence ? (runElapsed?.totalMs ?? null) : null
+  // While searching, the large clock below is the real elapsed time; avoid repeating it. Once settled, the panel stays
+  // only when the whole run is being timed (it is the same stopwatch, frozen when Business Intelligence ends).
+  const showTiming = settled ? stopwatch !== null : focus !== 'search'
   // Decorative motion exists only while the search itself is under way.
   const ambient = useAmbientMotion(ref, {
     enabled: focus === 'search' && view.running && !view.stalled,
@@ -122,24 +153,29 @@ export default function DiscoverEngine({
         {announcement}
       </p>
 
-      <div className="flex min-h-[2.25rem] items-baseline justify-between gap-4 text-xs uppercase tracking-[0.2em] text-white/70">
-        <span className="truncate">{view.context}</span>
-        {settled ? (
-          <span className="flex items-baseline gap-4">
-            {stopwatch !== null ? <span className="tabular-nums text-white/80">{formatClock(stopwatch)}</span> : null}
-            {onNewSearch ? (
+      <div className="flex min-h-[2.25rem] items-start justify-between gap-4 text-xs uppercase tracking-[0.2em] text-white/70">
+        <span className="truncate pt-2">{view.context}</span>
+        {showTiming || (settled && onNewSearch) ? (
+          <span className="flex items-start gap-3 sm:gap-4">
+            {showTiming ? (
+              <TimingPanel
+                totalMs={stopwatch ?? view.elapsedMs}
+                foregroundMs={runElapsed?.backgrounded ? (runElapsed.foregroundMs ?? null) : null}
+                discoverMs={discover.durationMs}
+                contactsMs={enrich.state === 'pending' ? null : enrich.durationMs}
+                intelligenceMs={intelligence ? (runElapsed?.intelligenceMs ?? null) : undefined}
+              />
+            ) : null}
+            {settled && onNewSearch ? (
               <button
                 type="button"
                 onClick={onNewSearch}
-                className="-my-2 rounded px-1 py-2 uppercase tracking-[0.16em] text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
+                className="mt-1 rounded px-1 py-2 uppercase tracking-[0.16em] text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
               >
                 New search
               </button>
             ) : null}
           </span>
-        ) : focus !== 'search' ? (
-          // While searching, the large clock below is the real elapsed time; avoid repeating it.
-          <span className="tabular-nums text-white/80">{formatClock(stopwatch ?? view.elapsedMs)}</span>
         ) : null}
       </div>
 

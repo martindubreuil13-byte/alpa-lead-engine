@@ -47,7 +47,11 @@ function RailItem({
 }) {
   const style = TONE[tone]
   return (
-    <li className={`border-t pt-3 transition-colors duration-700 ${style.rule}`}>
+    <li
+      // The active stage is drawn slightly larger with a transform, so nothing around it moves; completed stages return to
+      // normal size and upcoming ones stay quiet. Without motion preference the change is instant.
+      className={`origin-left border-t pt-3 transition-colors duration-700 motion-safe:transition-[color,border-color,transform,opacity] motion-safe:duration-700 ${style.rule} ${tone === 'active' ? 'scale-[1.06]' : 'scale-100'} ${tone === 'upcoming' ? 'opacity-80' : ''}`}
+    >
       <div className={`flex items-center text-[10px] font-medium uppercase tracking-[0.14em] sm:text-xs sm:tracking-[0.2em] ${working ? 'text-[#d8c28a]' : style.label}`}>
         {working ? <span aria-hidden="true" className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#d8c28a] motion-safe:animate-pulse" /> : null}
         {index ? <span className={`tabular-nums ${working ? 'text-[#d8c28a]/70' : 'text-white/45'}`}>{index}</span> : null}
@@ -129,10 +133,10 @@ export default function EngineRail({ view, intelligence, intelligenceMs }: Engin
           index="03"
           name="Business Intelligence"
           shortName="Intelligence"
-          tone={intelligence.phase === 'complete' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
+          tone={intelligence.phase === 'complete' || intelligence.phase === 'background' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
           value={intelligence.headline}
           sub={[intelligence.detail, formatStageDuration(intelligenceMs ?? null)].filter(Boolean).join(' · ')}
-          working={intelligence.live && intelligence.phase !== 'not_running'}
+          working={intelligence.live && intelligence.phase !== 'not_running' && intelligence.phase !== 'background'}
           progress={intelligence.progress}
         />
       ) : (
