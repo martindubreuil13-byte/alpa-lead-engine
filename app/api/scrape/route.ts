@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -23,6 +24,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getDiscoverCapacity, saveDiscoverResults, type DiscoverCapacity } from '@/lib/scraper/save-discover-results'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 import { authorizeResearchRun, isRunAuthorizationEnabled } from '@/lib/commercial-intelligence/run-authorization'
+import { kickResearch } from '@/lib/commercial-intelligence/kick-research'
 import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
 export const runtime = 'nodejs'
@@ -1214,6 +1216,15 @@ export async function POST(req: Request) {
 
   const encoder = new TextEncoder()
 
+  // Research starts in the background once the run is authorized, after the results were sent. Resolved with true
+  // only by a successful authorization; every other path resolves false (resolving twice is harmless).
+  let startResearch: (go: boolean) => void = () => {}
+  const researchRequested = new Promise<boolean>((resolve) => { startResearch = resolve })
+  const origin = new URL(req.url).origin
+  after(async () => {
+    if (await researchRequested) await kickResearch(origin)
+  })
+
   const stream = new ReadableStream({
     async start(controller) {
       let latestResult: ScrapeResultPayload | null = null
@@ -1232,6 +1243,7 @@ export async function POST(req: Request) {
 
       if (!config.query || !config.defaultCity) {
         send('❌ invalid input')
+        startResearch(false)
         controller.close()
         return
       }
@@ -1239,6 +1251,7 @@ export async function POST(req: Request) {
       if (config.maxLeads <= 0) {
         send('❌ invalid input')
         send('🎉 done')
+        startResearch(false)
         controller.close()
         return
       }
@@ -1312,6 +1325,7 @@ export async function POST(req: Request) {
               ? { runId: authorization.runId, authorized: true, saved: authorization.saved, queued: authorization.queued }
               : { runId: config.accounting.runId, authorized: false },
           })
+          if (authorization.ok && authorization.queued > 0) startResearch(true)
         }
 
         if (!isGuestMode && finalResult.addedCount > 0) {
@@ -1325,6 +1339,7 @@ export async function POST(req: Request) {
         }
       }
 
+      startResearch(false)
       try { controller.close() } catch { /* the browser already closed its stream */ }
     },
     cancel() {},
