@@ -388,15 +388,18 @@ test('each inspection state has its own plain wording; an unreadable site is nev
   const none = describeEmailStatus(lead({ website: null }))
   const unknown = describeEmailStatus(lead())
 
-  assert.equal(checked.missing, EMAIL_WORDING.noneChecked)
-  assert.equal(partial.missing, EMAIL_WORDING.nonePartial)
-  assert.equal(unreadable.missing, EMAIL_WORDING.unreadable)
-  assert.equal(none.missing, EMAIL_WORDING.noWebsite)
-  assert.equal(unknown.missing, EMAIL_WORDING.unknown, 'nothing is claimed when nothing is known')
-  assert.equal(new Set([checked.missing, partial.missing, unreadable.missing, none.missing, unknown.missing]).size, 5)
-  // only the "checked" sentences say the pages were read
-  assert.match(EMAIL_WORDING.noneChecked, /pages we checked/)
-  assert.doesNotMatch(EMAIL_WORDING.unreadable, /checked|no email/i)
+  // one plain primary message everywhere; the secondary reason keeps the inspection honest
+  for (const status of [checked, partial, unreadable, none, unknown]) assert.equal(status.missing, EMAIL_WORDING.notDiscovered)
+  assert.equal(checked.reason, null, 'the whole site was read: nothing more to say')
+  assert.equal(partial.reason, EMAIL_WORDING.partial)
+  assert.equal(unreadable.reason, EMAIL_WORDING.unreadable)
+  assert.equal(none.reason, EMAIL_WORDING.noWebsite)
+  assert.equal(unknown.reason, null, 'nothing is claimed when nothing is known')
+  assert.equal(new Set([partial.reason, unreadable.reason, none.reason]).size, 3)
+  // only the partial sentence says pages were read; an unreadable site is never described as read or inspected
+  assert.match(EMAIL_WORDING.partial, /part of the website was checked/)
+  assert.doesNotMatch(EMAIL_WORDING.unreadable, /was checked|inspected|no email/i)
+  assert.doesNotMatch(Object.values(EMAIL_WORDING).join(' '), /verified|deliverable/i)
 })
 
 test('an address and a partial-inspection note can be shown together; a complete inspection adds no note', () => {
@@ -427,10 +430,10 @@ test('the results show how many websites could not be read, only when there are 
     lead(),
   ]
   assert.equal(countUnreadableWebsites(leads), 1)
-  assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0, unreadable: 2 }), "2 websites couldn't be read")
-  assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0, unreadable: 1 }), "1 website couldn't be read")
+  assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0, unreadable: 2 }), "2 websites couldn't be checked")
+  assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0, unreadable: 1 }), "1 website couldn't be checked")
   assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0, unreadable: 0 }), null)
-  assert.equal(describeSettledNote({ discovered: 10, added: 9, duplicates: 1, invalid: 0, unreadable: 1 }), "9 added to your results · 1 duplicate removed · 1 website couldn't be read")
+  assert.equal(describeSettledNote({ discovered: 10, added: 9, duplicates: 1, invalid: 0, unreadable: 1 }), "10 candidates evaluated · 1 duplicate removed · 1 website couldn't be checked")
 })
 
 test('the inspection travels in the stream and results payload, and is not stored', () => {
@@ -451,7 +454,7 @@ test('the inspection travels in the stream and results payload, and is not store
   assert.doesNotMatch(insertSide, /email_inspection/)
   const rows = read('components/scraper/ResultsIndex.tsx')
   assert.match(rows, /row\.emailNote/)
-  assert.match(rows, /row\.emailMissing \?\? 'No email found'/)
+  assert.match(rows, /row\.emailMissing \?\? 'Email not discovered'/)
 })
 
 // ---------------------------------------------------------------------------------------------

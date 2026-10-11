@@ -49,14 +49,14 @@ function count(value: number, singular: string, plural = `${singular}s`) {
 }
 
 /**
- * The one-line contact summary under the settled count, e.g. "7 websites · 5 emails · 9 phone numbers".
+ * The one-line contact summary under the settled count, e.g. "5 emails · 9 phone numbers · 7 websites".
  * All three always appear, including zeros, so a missing kind of contact is visible, not hidden.
  */
 export function describeContacts(summary: ContactSummary): string[] {
   return [
-    count(summary.websites, 'website'),
     count(summary.emails, 'email'),
     count(summary.phones, 'phone number'),
+    count(summary.websites, 'website'),
   ]
 }
 
@@ -80,8 +80,10 @@ export type ResultRowModel = {
   descriptor: string | null
   website: { host: string; href: string } | null
   email: { address: string; href: string; possible: boolean } | null
-  /** Why there is no address, in plain words. Null when there is one. */
+  /** The customer-facing line when no address was found. Null when there is one. */
   emailMissing: string | null
+  /** Subtle, honest context for the missing address (what could not be inspected). Null when none applies. */
+  emailMissingReason: string | null
   /** Shown with an address when only part of the website could be checked. Null otherwise. */
   emailNote: string | null
   phone: { display: string; href: string } | null
@@ -93,37 +95,40 @@ export type ResultRowModel = {
   detailHref: string
 }
 
-// Customer wording for the email line. Plain language only: no error codes, no status names. The three
-// "no email" sentences mean different things and must never be swapped: the first says the pages were read.
+// Customer wording for the email line. Plain language only: no error codes, no status names. The primary
+// message is always the same simple sentence; the secondary reason keeps the inspection honest (it says
+// what could not be checked) and is omitted when the whole website was read and simply had no address.
 export const EMAIL_WORDING = {
-  /** The website was read and nothing was found on the pages checked. */
-  noneChecked: 'No email on the pages we checked',
-  /** Some pages could not be read, and nothing was found on the ones that could. */
-  nonePartial: 'No email found. We could only check part of the site',
-  /** No page could be read, so nothing is known about the site. */
-  unreadable: "We couldn't read this website",
-  noWebsite: 'No website to check',
-  /** Nothing is known about how the site was inspected (older results, or a source that does not say). */
-  unknown: 'No email found',
+  /** The one primary message whenever no email was found. */
+  notDiscovered: 'Email not discovered',
+  /** Secondary: no page could be read, so nothing is known about the site. */
+  unreadable: "Website couldn't be checked.",
+  /** Secondary: some pages could not be read, and nothing was found on the ones that could. */
+  partial: 'Only part of the website was checked.',
+  /** Secondary: there was no website to look at. */
+  noWebsite: 'No website provided.',
   /** Shown beside an address that was found while some pages could not be read. */
-  partialNote: 'Only part of the website could be checked',
+  partialNote: 'Only part of the website was checked',
 } as const
 
 export function describeEmailStatus(
   lead: Pick<TrialLead, 'website' | 'email' | 'email_inspection'>
-): { missing: string | null; note: string | null } {
+): { missing: string | null; reason: string | null; note: string | null } {
   const inspection = isEmailInspection(lead.email_inspection) ? lead.email_inspection : null
 
   if (lead.email?.trim()) {
-    return { missing: null, note: inspection?.state === 'checked' && inspection.partial ? EMAIL_WORDING.partialNote : null }
+    return {
+      missing: null,
+      reason: null,
+      note: inspection?.state === 'checked' && inspection.partial ? EMAIL_WORDING.partialNote : null,
+    }
   }
 
-  if (!websiteHost(lead.website) || inspection?.state === 'no_website') return { missing: EMAIL_WORDING.noWebsite, note: null }
-  if (inspection?.state === 'unreadable') return { missing: EMAIL_WORDING.unreadable, note: null }
-  if (inspection?.state === 'checked') {
-    return { missing: inspection.partial ? EMAIL_WORDING.nonePartial : EMAIL_WORDING.noneChecked, note: null }
-  }
-  return { missing: EMAIL_WORDING.unknown, note: null }
+  const missing = EMAIL_WORDING.notDiscovered
+  if (!websiteHost(lead.website) || inspection?.state === 'no_website') return { missing, reason: EMAIL_WORDING.noWebsite, note: null }
+  if (inspection?.state === 'unreadable') return { missing, reason: EMAIL_WORDING.unreadable, note: null }
+  if (inspection?.state === 'checked' && inspection.partial) return { missing, reason: EMAIL_WORDING.partial, note: null }
+  return { missing, reason: null, note: null }
 }
 
 /** Businesses whose website was listed but could not be read at all. */
@@ -166,6 +171,7 @@ export function toResultRow(
   const synopsis = lead.commercial_profile?.summary?.trim() || null
   const email = lead.email?.trim() || null
   const phone = lead.phone?.trim() || null
+  const emailStatus = describeEmailStatus(lead)
 
   return {
     id: lead.id,
@@ -173,12 +179,13 @@ export function toResultRow(
     descriptor: describeLead(lead),
     website: host && lead.website ? { host, href: websiteHref(lead.website) } : null,
     email: email ? { address: email, href: `mailto:${email}`, possible: isPossibleEmail(lead) } : null,
-    emailMissing: describeEmailStatus(lead).missing,
-    emailNote: describeEmailStatus(lead).note,
+    emailMissing: emailStatus.missing,
+    emailMissingReason: emailStatus.reason,
+    emailNote: emailStatus.note,
     phone: phone ? { display: phone, href: `tel:${phone.replace(/[^\d+]/g, '')}` } : null,
     synopsis,
     research: options.researchState ?? null,
-    detailHref: `/dashboard/leads/${lead.id}`,
+    detailHref: `/dashboard/leads/${lead.id}?view=details`,
   }
 }
 
@@ -188,23 +195,30 @@ export function describeShown(shown: number, total: number): string | null {
 }
 
 /**
- * The one quiet line under the settled summary. `discovered` is the real discovery count and `added`
- * is how many businesses actually reached the results; they differ when some were duplicates or had
- * no usable contact details, and the line says so with the numbers the server reported.
+ * The one quiet line under the settled summary. The hero already says how many businesses are ready, so
+ * this only explains the difference between that and the work behind it: how many candidates were
+ * evaluated (`discovered`, which can exceed the request when extra candidates were considered), how many
+ * websites were inspected, and what was filtered. Only numbers the server reported; only when relevant.
  */
 export function describeSettledNote(input: {
+  /** Candidates the search evaluated (the raw discovery count). */
   discovered: number | null
+  /** Businesses that reached the results. */
   added: number
   duplicates: number
   invalid: number
+  /** Website checks that concluded across every pass. */
+  inspected?: number | null
   /** Websites that could not be read at all (see countUnreadableWebsites). */
   unreadable?: number
 }): string | null {
   const unreadable = input.unreadable ?? 0
+  const evaluatedMore = input.discovered !== null && input.discovered !== input.added
   const parts = [
-    input.discovered !== null && input.added !== input.discovered ? `${input.added} added to your results` : null,
+    evaluatedMore ? `${count(input.discovered as number, 'candidate')} evaluated` : null,
+    evaluatedMore && input.inspected ? `${count(input.inspected, 'website')} inspected` : null,
     describeFiltering({ duplicates: input.duplicates, invalid: input.invalid }),
-    unreadable > 0 ? `${count(unreadable, 'website')} couldn't be read` : null,
+    unreadable > 0 ? `${count(unreadable, 'website')} couldn't be checked` : null,
   ].filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' · ') : null
 }

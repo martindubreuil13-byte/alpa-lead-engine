@@ -415,7 +415,8 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const settledNote = completionResult
     ? [completionResult.shortfallMessage, describeSettledNote({
         discovered: completionResult.shortfallMessage ? null : progress.discoveredFinal,
-        added: completionResult.addedCount,
+        added: completionResult.addedLeads.length,
+        inspected: progress.checks?.completed ?? null,
         duplicates: completionResult.shortfallMessage ? 0 : savedSummary.duplicates,
         invalid: completionResult.shortfallMessage ? 0 : invalidFilteredCount,
         unreadable: countUnreadableWebsites(completionResult.addedLeads),
@@ -424,7 +425,9 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const resultRows = displayedPreviewLeads.map((lead) =>
     toResultRow(lead, { researchState: privatePreview ? getPrivatePreviewResearchStatus(lead) : null })
   )
-  const resultsNote = `${fullResultsAccess ? '' : 'Preview · '}${describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)}`
+  // Only a guest preview is ever truncated; entitled users see (and export) everything they saved.
+  const shownNote = describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)
+  const resultsNote = shownNote ? `${fullResultsAccess ? '' : 'Preview · '}${shownNote}` : null
   const profileNote = privatePreview
     ? 'Business Profiles are a separate step; where research has finished, its synopsis appears here.'
     : isGuest

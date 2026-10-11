@@ -84,14 +84,19 @@ export default function DiscoverEngine({
   })
   const states = getSignalStates(view.signals)
 
+  // The hero is what was delivered: the businesses that reached the results. Before that it is progress
+  // toward the requested amount, never the number of candidates the search happened to look at.
+  const ready = settled && results ? results.businesses : discover.count
+  const noun = ready === 1 ? 'business' : 'businesses'
   const announcement = settled
-    ? `Search complete. ${discover.count} ${discover.count === 1 ? 'business' : 'businesses'} discovered.`
+    ? `Search complete. ${ready} ${noun} ready.`
     : discover.state === 'complete'
-      ? `${discover.count} ${discover.count === 1 ? 'business' : 'businesses'} discovered.`
+      ? `${discover.count} ${discover.count === 1 ? 'business' : 'businesses'} found.`
       : ''
 
   const fraction =
-    enrich.planned !== null && enrich.planned > 0 ? `${enrich.completed} / ${enrich.planned}` : String(enrich.completed)
+    enrich.scope !== null && enrich.scope > 0 ? `${enrich.done} / ${enrich.scope}` : String(enrich.done)
+  const evaluatingMore = enrich.extraCandidates || discover.searchingMore
   const countSize = settled ? COUNT_SIZE.settled : focus === 'enrich' ? COUNT_SIZE.enrich : COUNT_SIZE.discover
   const contactParts = settled && results ? describeContacts(results) : null
   const possibleEmails = settled && results ? describePossibleEmails(results) : null
@@ -153,18 +158,22 @@ export default function DiscoverEngine({
               {formatClock(view.elapsedMs)}
             </p>
             <p className="mt-5 min-h-[1.25rem] text-xs uppercase tracking-[0.2em] text-[#d8c28a]">
-              {view.foundSoFar > 0 ? `${view.foundSoFar} found so far` : ''}
+              {view.foundSoFar > 0
+                ? view.target
+                  ? `${view.foundSoFar} / ${view.target} businesses`
+                  : `${view.foundSoFar} found so far`
+                : ''}
             </p>
           </div>
         ) : (
           <div className="relative z-10 w-full px-2">
             {/* One persistent count: it is never remounted, so it changes size instead of being replaced. */}
-            <p className={`engine-count font-display leading-none tabular-nums ${countSize}`}>{discover.count}</p>
+            <p className={`engine-count font-display leading-none tabular-nums ${countSize}`}>{ready}</p>
             <p className={`${focus === 'enrich' ? 'mt-1 text-xs uppercase tracking-[0.2em] text-white/55' : `${LABEL} mt-4`}`}>
               {settled
-                ? discover.count === 1
-                  ? 'Business discovered'
-                  : 'Businesses discovered'
+                ? ready === 1
+                  ? 'Business ready'
+                  : 'Businesses ready'
                 : discover.count === 1
                   ? 'Business found'
                   : 'Businesses found'}
@@ -178,9 +187,9 @@ export default function DiscoverEngine({
 
             {focus === 'enrich' ? (
               <div key="enrich" className="engine-reveal">
-                <p className={`${LABEL} mt-8`}>{enrich.state === 'complete' ? 'Website checks completed' : 'Checking websites'}</p>
-                <p className="engine-count mt-4 font-display text-7xl leading-none tabular-nums text-white sm:text-9xl">
-                  {enrich.state === 'pending' ? '–' : enrich.planned === 0 ? '0' : fraction}
+                <p className={`${LABEL} mt-8`}>{enrich.state === 'complete' ? 'Businesses checked' : enrich.finalizing ? 'Finishing up' : 'Checking businesses'}</p>
+                <p className={`engine-count mt-4 font-display leading-none tabular-nums text-white ${enrich.finalizing ? 'text-5xl sm:text-6xl' : 'text-7xl sm:text-9xl'}`}>
+                  {enrich.state === 'pending' ? '–' : enrich.scope === 0 ? '0' : enrich.finalizing ? 'Finalizing' : fraction}
                 </p>
                 <SignalField
                   states={states}
@@ -199,11 +208,11 @@ export default function DiscoverEngine({
                       {enrich.possibleEmails} possible {enrich.possibleEmails === 1 ? 'email' : 'emails'} counted separately (lower confidence)
                     </p>
                   ) : null}
-                  <p className="mt-2 text-white/55 normal-case tracking-normal">
-                    {enrich.confidenceKnown
-                      ? 'Checks include repeat visits. Email totals count each discovered business once.'
-                      : 'Checks include repeat visits. Email confidence totals are unavailable.'}
-                  </p>
+                  {evaluatingMore && enrich.state !== 'complete' ? (
+                    <p className="mt-2 text-white/55 normal-case tracking-normal">
+                      {view.target ? `Evaluating additional candidates to complete your ${view.target}.` : 'Evaluating additional candidates.'}
+                    </p>
+                  ) : null}
                   {view.stalled ? (
                     <p role="status" className="mt-2 text-white/75">
                       Still working. This is taking longer than usual.
@@ -216,10 +225,28 @@ export default function DiscoverEngine({
             {settled ? (
               <div key="settled" className="engine-reveal">
                 {contactParts ? (
-                  <p className="mt-5 text-base tabular-nums text-white/85 sm:text-lg">In your results: {contactParts.join('  ·  ')}</p>
+                  <p className="mt-5 text-base tabular-nums text-white/85 sm:text-lg">{contactParts.join('  ·  ')}</p>
                 ) : null}
                 {possibleEmails ? <p className="mt-2 text-xs text-white/55">{possibleEmails}</p> : null}
-                {settledNote ? <p className="mt-2 text-xs text-white/55">{settledNote}</p> : null}
+                {settledNote || activity.length > 0 ? (
+                  <details className="group mx-auto mt-4 max-w-md text-left">
+                    <summary className="mx-auto w-fit cursor-pointer list-none rounded px-1 py-2 text-xs uppercase tracking-[0.16em] text-white/65 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a] [&::-webkit-details-marker]:hidden">
+                      <span className="group-open:hidden">View activity</span>
+                      <span className="hidden group-open:inline">Hide activity</span>
+                    </summary>
+                    {settledNote ? <p className="mt-2 text-center text-xs text-white/65">{settledNote}</p> : null}
+                    {activity.length > 0 ? (
+                      <ul className="mt-3 max-h-48 divide-y divide-white/10 overflow-y-auto border-y border-white/10 pr-2">
+                        {activity.map((item, index) => (
+                          <li key={`${item.label}-${item.detail ?? ''}-${index}`} className="py-2 text-xs text-white/70">
+                            {item.detail ? `${item.label} — ${item.detail}` : item.label}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {footnote ? <p className="mt-2 text-center text-xs text-white/50">{footnote}</p> : null}
+                  </details>
+                ) : null}
               </div>
             ) : null}
           </div>

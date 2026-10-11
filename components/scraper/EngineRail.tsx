@@ -5,12 +5,13 @@ type EngineRailProps = {
   view: EngineView
 }
 
-type RailTone = 'active' | 'complete' | 'upcoming'
+type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
 
 const TONE: Record<RailTone, { rule: string; label: string; value: string }> = {
   active: { rule: 'border-t-[#d8c28a]', label: 'text-white', value: 'text-white/90' },
   complete: { rule: 'border-t-white/25', label: 'text-white/75', value: 'text-white/70' },
   upcoming: { rule: 'border-t-white/10', label: 'text-white/55', value: 'text-white/55' },
+  separate: { rule: 'border-t-white/20 border-dashed', label: 'text-white/65', value: 'text-white/60' },
 }
 
 function RailItem({
@@ -21,7 +22,8 @@ function RailItem({
   value,
   sub,
 }: {
-  index: string
+  /** Omitted for a capability that is not a step of this search. */
+  index?: string
   name: string
   /** Shown instead of `name` on narrow screens. */
   shortName?: string
@@ -33,8 +35,8 @@ function RailItem({
   return (
     <li className={`border-t pt-3 transition-colors duration-700 ${style.rule}`}>
       <div className={`text-[11px] font-medium uppercase tracking-[0.18em] sm:text-xs sm:tracking-[0.2em] ${style.label}`}>
-        <span className="tabular-nums text-white/45">{index}</span>
-        <span className="ml-2 sm:ml-3">
+        {index ? <span className="tabular-nums text-white/45">{index}</span> : null}
+        <span className={index ? 'ml-2 sm:ml-3' : undefined}>
           {shortName ? (
             <>
               <span className="sm:hidden">{shortName}</span>
@@ -57,16 +59,25 @@ function RailItem({
 export default function EngineRail({ view }: EngineRailProps) {
   const { discover, enrich } = view
 
+  // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
   const enrichValue =
     enrich.state === 'pending'
       ? 'Waiting'
-      : enrich.planned === 0
+      : enrich.scope === 0
         ? 'No websites to check'
         : enrich.state === 'complete'
-          ? `${enrich.completed} checked`
-          : enrich.planned !== null
-            ? `${enrich.completed} of ${enrich.planned} checked`
-            : `${enrich.completed} checked`
+          ? `${enrich.done} checked`
+          : enrich.finalizing
+            ? 'Finalizing'
+          : enrich.scope !== null
+            ? `${enrich.done} / ${enrich.scope} checked`
+            : `${enrich.done} checked`
+  const discoverValue =
+    discover.state !== 'complete'
+      ? view.target
+        ? `${view.foundSoFar} / ${view.target} businesses`
+        : 'Searching'
+      : `${discover.count} ${discover.count === 1 ? 'business' : 'businesses'}`
 
   return (
     <ol aria-label="Search stages" className="mt-8 grid grid-cols-3 gap-4 sm:gap-10">
@@ -74,7 +85,7 @@ export default function EngineRail({ view }: EngineRailProps) {
         index="01"
         name="Discover"
         tone={discover.state === 'complete' ? 'complete' : 'active'}
-        value={discover.state === 'complete' ? `${discover.count} found` : 'Searching'}
+        value={discoverValue}
         sub={discover.state === 'complete' ? formatStageDuration(discover.durationMs) : undefined}
       />
       <RailItem
@@ -84,8 +95,14 @@ export default function EngineRail({ view }: EngineRailProps) {
         value={enrichValue}
         sub={enrich.state === 'pending' ? undefined : formatStageDuration(enrich.durationMs)}
       />
-      {/* Nothing in this search produces a Business Profile, so this stage never becomes active. */}
-      <RailItem index="03" name="Business Profiles" shortName="Profiles" tone="upcoming" value="Available separately" />
+      {/* A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words. */}
+      <RailItem
+        name="Business Profiles"
+        shortName="Profiles"
+        tone="separate"
+        value="Not included in this search"
+        sub="Available separately"
+      />
     </ol>
   )
 }

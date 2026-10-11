@@ -9,17 +9,19 @@ const snapshot = (overrides = {}) => ({ type: 'progress', stage: 'checking', pla
 const fold = (progress, event) => applyProgressEvent(progress, parseProgressEvent(event))
 const view = (progress) => buildEngineView({ progress, timings: startRunTimings(0), nowMs: 5000, lastEventAt: 5000, requestedCount: 25, businessType: 'Agency', location: 'Pakistan', running: true, holdMs: 0 })
 
-test('the fraction, signals and text alternative all represent 14 checks, even with 10 businesses', () => {
+test('the fraction, signals and text alternative never count more than the businesses (10), even after 14 checks', () => {
   let progress = applyDiscoveryLog(INITIAL_DISCOVERY_PROGRESS, '📦 discovered: 10')
   progress = fold(progress, snapshot({ planned: 14, completed: 14 }))
   const engine = view(progress)
   assert.equal(engine.discover.count, 10)
-  assert.equal(engine.enrich.completed, 14)
+  assert.equal(engine.enrich.completed, 14) // raw visits stay available for the activity detail
   assert.equal(engine.enrich.planned, 14)
-  assert.equal(engine.signals.checked, 14)
-  assert.equal(engine.signals.eligible, 14)
-  assert.equal(getSignalStates(engine.signals).length, 14)
-  assert.equal(describeCheckSummary(engine.enrich), '14 of 14 website checks completed. 5 businesses with an email, 1 possible match.')
+  assert.equal(engine.enrich.scope, 10)
+  assert.equal(engine.enrich.done, 10)
+  assert.equal(engine.signals.checked, 10)
+  assert.equal(engine.signals.eligible, 10)
+  assert.equal(getSignalStates(engine.signals).length, 10)
+  assert.equal(describeCheckSummary(engine.enrich), '10 of 10 businesses checked. 5 businesses with an email, 1 possible match.')
 })
 
 test('a replacement website can invalidate an old contact without erasing completed attempts', () => {
@@ -53,10 +55,10 @@ test('an older stream does not claim confidence or unique business totals', () =
   const progress = applyProgressEvent(INITIAL_DISCOVERY_PROGRESS, { type: 'progress', stage: 'checking', planned: 5, completed: 3, emailsFound: 2 })
   const engine = view(progress)
   assert.equal(engine.enrich.confidenceKnown, false)
-  assert.equal(describeCheckSummary(engine.enrich), '3 of 5 website checks completed. 2 email matches found during checks; confidence totals are unavailable.')
+  assert.equal(describeCheckSummary(engine.enrich), '3 of 5 businesses checked. 2 email matches found during checks; confidence totals are unavailable.')
 })
 
 test('missing check totals remain unknown rather than using the business count as a denominator', () => {
   const progress = ['📦 discovered: 10', '🔬 A', '⛔ no email: A'].reduce(applyDiscoveryLog, INITIAL_DISCOVERY_PROGRESS)
-  assert.equal(describeCheckSummary(view(progress).enrich), '1 website check completed. 0 email matches found during checks; confidence totals are unavailable.')
+  assert.equal(describeCheckSummary(view(progress).enrich), '1 business checked. 0 email matches found during checks; confidence totals are unavailable.')
 })

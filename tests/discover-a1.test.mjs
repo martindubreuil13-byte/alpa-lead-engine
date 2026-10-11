@@ -180,8 +180,8 @@ test('signals never exceed what happened and appear only after discovery complet
   assert.equal(getSignalStates(view(fold(['📥 A', '📥 B'])).signals).length, 0)
   const progress = applyProgressEvent(fold(['📦 discovered: 4']), { type: 'progress', stage: 'checking', planned: 99, completed: 99, emailsFound: 99 })
   const s = view(progress, { holdMs: 0 }).signals
-  // Signals represent reported check attempts, which may exceed unique businesses on repeat visits.
-  assert.ok(s.total === 99 && s.eligible === 99 && s.checked === 99 && s.withEmail <= s.checked)
+  // Signals are businesses, never website visits: 99 reported checks cannot outnumber the 4 businesses.
+  assert.ok(s.total === 4 && s.eligible === 4 && s.checked === 4 && s.withEmail <= s.checked)
   assert.match(signals, /does\s+not identify a particular business|aggregate/i)
 })
 
@@ -215,14 +215,14 @@ test('the Profile stage is only ever "upcoming" and offers a next step only afte
   assert.equal(complete.profile.state, 'upcoming') // never "running" or "ready"
   assert.equal(complete.profile.canContinue, true)
   // A2: the third stage says plainly that profiles are a separate step and is never active
-  assert.match(rail, /name="Business Profiles"[^>]*tone="upcoming" value="Available separately"/)
+  assert.match(rail, /name="Business Profiles"[\s\S]*?tone="separate"[\s\S]*?value="Not included in this search"/)
   assert.doesNotMatch(engine + rail, /process-ci-queue-batch|claim_ci|worker|fetch\(|supabase/i)
 })
 
 // ---------------- composition and copy ----------------
 
 test('the primary composition carries minimal, accurate copy', () => {
-  for (const text of ['Searching for businesses', 'Businesses discovered', 'Checking websites', 'Websites checked', 'FOUND']) {
+  for (const text of ['Searching for businesses', 'Businesses ready', 'Checking businesses', 'Businesses checked', 'FOUND']) {
     assert.ok((engine + rail).toUpperCase().includes(text.toUpperCase()), text)
   }
   // removed from the primary visual

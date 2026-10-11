@@ -226,7 +226,8 @@ test('customer-facing terminology is accurate: no verified / validated claims', 
 
 test('discovery and Business Profile building are described as separate steps', () => {
   const rail = readFileSync(new URL('../components/scraper/EngineRail.tsx', import.meta.url), 'utf8')
-  assert.match(rail, /value="Available separately"/)
+  assert.match(rail, /value="Not included in this search"/)
+  assert.match(rail, /sub="Available separately"/)
   assert.match(page, /Business Profiles are a separate step/)
   assert.match(page, /Business Profiles are available separately/)
   assert.match(page, /available with an account/) // guest

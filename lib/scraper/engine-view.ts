@@ -35,20 +35,37 @@ export type EngineView = {
   stalled: boolean
   /** "Miami · Dentists" */
   context: string
-  /** Businesses announced so far while discovery is still running. Real count, may be 0. */
+  /** What the customer asked for; null when unknown. Primary counters never exceed it. */
+  target: number | null
+  /** Businesses announced so far while discovery is still running. Real count, never above the target. */
   foundSoFar: number
   discover: {
     state: 'active' | 'complete'
+    /** Businesses toward the target. Never above `target`. */
     count: number
+    /** Every candidate the search evaluated, which can exceed the target. Activity detail only. */
+    candidates: number
     durationMs: number | null
     searchingMore: boolean
   }
   enrich: {
     state: 'pending' | 'active' | 'complete'
+    /** Raw website checks concluded across every pass (can exceed the target). */
     completed: number
-    /** Null when the server did not announce a total. */
+    /** Raw website checks planned across every pass. Null when the server did not announce a total. */
     planned: number | null
-    /** 0–1 against the reported total; null when unknown. */
+    /** The processing scope shown to the customer: planned checks, never above the target. */
+    scope: number | null
+    /** Checks concluded within that scope: `min(completed, scope)`. */
+    done: number
+    /** True while checks beyond the target (extra candidates) are planned. */
+    extraCandidates: boolean
+    /**
+     * The scope is full but more candidates are still being evaluated, so "all done" would be premature.
+     * Completion is the authoritative result's job, never a counter reaching its denominator.
+     */
+    finalizing: boolean
+    /** 0–1 against the scope; null when unknown. */
     ratio: number | null
     emails: number
     possibleEmails: number
@@ -82,7 +99,10 @@ export function buildEngineView(input: EngineViewInput): EngineView {
   const holdMs = input.holdMs ?? ACHIEVEMENT_HOLD_MS
 
   const discoveryDone = progress.discoveredFinal !== null
-  const count = getDiscoveredCount(progress, requestedCount)
+  const candidates = getDiscoveredCount(progress, requestedCount)
+  // The primary counter is progress toward what was asked for. Extra candidates are activity, not progress.
+  const cap = (value: number) => (requestedCount ? Math.min(value, requestedCount) : value)
+  const count = cap(candidates)
 
   const checks = progress.checks
   const enrichmentComplete = progress.contactReady !== null || (checks !== null && checks.planned === 0)
@@ -91,7 +111,11 @@ export function buildEngineView(input: EngineViewInput): EngineView {
   const completed = checks ? checks.completed : progress.checksFinished
   const planned = checks ? checks.planned : null
   const emails = checks ? checks.emailsFound : progress.emailsFound
-  const ratio = planned === null ? null : planned === 0 ? 1 : Math.min(completed / planned, 1)
+  // A business can be visited more than once (an improvement pass), but it is only one business: the scope
+  // can never exceed the businesses being evaluated, nor the amount requested.
+  const scope = planned === null ? null : cap(discoveryDone ? Math.min(planned, candidates) : planned)
+  const done = scope === null ? completed : Math.min(completed, scope)
+  const ratio = scope === null ? null : scope === 0 ? 1 : Math.min(done / scope, 1)
 
   const enrichState: EngineView['enrich']['state'] = enrichmentComplete
     ? 'complete'
@@ -99,10 +123,10 @@ export function buildEngineView(input: EngineViewInput): EngineView {
       ? 'active'
       : 'pending'
 
-  // Signals represent check attempts. Repeat visits may exceed the business count.
-  const total = discoveryDone ? Math.max(count, planned ?? 0) : 0
-  const eligible = discoveryDone ? planned ?? total : 0
-  const checked = Math.min(completed, eligible)
+  // Signals are businesses: one per business toward the target, never one per website visit.
+  const total = discoveryDone ? count : 0
+  const eligible = discoveryDone ? Math.min(scope ?? total, total) : 0
+  const checked = Math.min(done, eligible)
   const withEmail = Math.min(emails, checked)
 
   const inAchievementHold =
@@ -144,10 +168,12 @@ export function buildEngineView(input: EngineViewInput): EngineView {
     elapsedMs: timings.startedAt === null ? 0 : Math.max(nowMs - timings.startedAt, 0),
     stalled,
     context,
-    foundSoFar: discoveryDone ? count : requestedCount ? Math.min(progress.candidatesFound, requestedCount) : progress.candidatesFound,
+    target: requestedCount,
+    foundSoFar: discoveryDone ? count : cap(progress.candidatesFound),
     discover: {
       state: discoveryDone ? 'complete' : 'active',
       count,
+      candidates,
       durationMs: stageDurationMs(timings.startedAt, timings.discoveryAt, nowMs),
       searchingMore: progress.searchingMore,
     },
@@ -155,6 +181,16 @@ export function buildEngineView(input: EngineViewInput): EngineView {
       state: enrichState,
       completed,
       planned,
+      scope,
+      done,
+      extraCandidates: planned !== null && scope !== null && planned > scope,
+      finalizing:
+        !progress.resultConfirmed &&
+        enrichState !== 'complete' &&
+        scope !== null &&
+        scope > 0 &&
+        done >= scope &&
+        ((planned !== null && planned > scope) || completed < (planned ?? 0) || progress.searchingMore),
       ratio,
       emails,
       possibleEmails: checks?.possibleEmails ?? 0,
@@ -171,9 +207,9 @@ export type SignalState = 'email' | 'checked' | 'waiting' | 'skipped'
 
 /** The text alternative uses the same check totals as the visible fraction. */
 export function describeCheckSummary(enrich: EngineView['enrich']): string {
-  const checks = enrich.planned === null
-    ? `${enrich.completed} website ${enrich.completed === 1 ? 'check' : 'checks'} completed.`
-    : `${enrich.completed} of ${enrich.planned} website checks completed.`
+  const checks = enrich.scope === null
+    ? `${enrich.done} ${enrich.done === 1 ? 'business' : 'businesses'} checked.`
+    : `${enrich.done} of ${enrich.scope} ${enrich.scope === 1 ? 'business' : 'businesses'} checked.`
   const contacts = enrich.confidenceKnown
     ? `${enrich.emails} ${enrich.emails === 1 ? 'business' : 'businesses'} with an email, ${enrich.possibleEmails} possible ${enrich.possibleEmails === 1 ? 'match' : 'matches'}.`
     : `${enrich.emails} email matches found during checks; confidence totals are unavailable.`

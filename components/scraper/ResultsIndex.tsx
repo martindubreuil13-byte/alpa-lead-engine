@@ -31,12 +31,78 @@ const RESEARCH_LABEL: Record<ResearchState, string> = {
   unavailable: 'Website research could not produce a reliable synopsis.',
 }
 
+// Contact links are plain underlined text; the 44px height is a comfortable touch target on phones.
 const CONTACT_LINK =
-  'inline-flex min-h-[44px] max-w-full items-center gap-2 rounded-sm py-2 underline decoration-[#0b1a33]/25 underline-offset-4 transition-colors hover:decoration-[#7a5f27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27] sm:min-h-0 sm:py-0.5'
+  'inline-flex min-h-[44px] min-w-0 max-w-full items-center rounded-sm py-2 underline decoration-[#0b1a33]/25 underline-offset-4 transition-colors hover:decoration-[#7a5f27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27] sm:min-h-0 sm:py-0.5'
 
-function Missing({ children }: { children: string }) {
+// Three small outline icons in one family: 16px, 1.5 stroke, currentColor. Decorative: each link
+// carries its own accessible name, so the icons are hidden from assistive technology.
+const ICON_PROPS = {
+  viewBox: '0 0 24 24',
+  width: 16,
+  height: 16,
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+  focusable: false,
+} as const
+
+function GlobeIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3c2.6 2.4 4 5.6 4 9s-1.4 6.6-4 9c-2.6-2.4-4-5.6-4-9s1.4-6.6 4-9Z" />
+    </svg>
+  )
+}
+
+function EnvelopeIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
+    </svg>
+  )
+}
+
+function PhoneIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M5 4h3.5l1.8 4.5-2.2 1.4a11 11 0 0 0 5 5l1.4-2.2L19 14.5V18a2 2 0 0 1-2 2A13 13 0 0 1 3 6a2 2 0 0 1 2-2Z" />
+    </svg>
+  )
+}
+
+/**
+ * One contact line: a fixed icon column, then the value. The icon column keeps website, email and
+ * telephone aligned and instantly distinguishable; `muted` dims both icon and text when the value is absent.
+ */
+function ContactLine({ icon, muted = false, children }: { icon: ReactNode; muted?: boolean; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className={`flex h-[44px] w-4 shrink-0 items-center sm:h-7 ${muted ? 'text-[#5b6372]/60' : GOLD}`}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  )
+}
+
+function Missing({ children, reason }: { children: string; reason?: string | null }) {
   // Understated, not alarming: absence of a contact is information, not an error.
-  return <p className={`flex min-h-[1.75rem] items-center text-sm italic ${MUTED}`}>{children}</p>
+  return (
+    <div className={`flex min-h-[44px] flex-col justify-center py-0.5 sm:min-h-[1.75rem] sm:py-0 ${MUTED}`}>
+      <p className="text-sm">{children}</p>
+      {reason ? <p className="text-xs">{reason}</p> : null}
+    </div>
+  )
 }
 
 function ResultRow({ row, index, showResearchStatus }: { row: ResultRowModel; index: number; showResearchStatus: boolean }) {
@@ -66,43 +132,50 @@ function ResultRow({ row, index, showResearchStatus }: { row: ResultRowModel; in
         </div>
 
         <div className="relative z-10 min-w-0 space-y-1 text-sm">
-          {row.website ? (
-            <p>
-              <a href={row.website.href} target="_blank" rel="noopener noreferrer" className={`${CONTACT_LINK} ${INK}`}>
+          <ContactLine icon={<GlobeIcon />} muted={!row.website}>
+            {row.website ? (
+              <a
+                href={row.website.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Website: ${row.website.host} (opens in a new tab)`}
+                className={`${CONTACT_LINK} ${INK}`}
+              >
                 <span className="truncate">{row.website.host}</span>
-                <span className="sr-only"> (opens in a new tab)</span>
               </a>
-            </p>
-          ) : (
-            <Missing>No website found</Missing>
-          )}
-          {row.email ? (
-            <div>
-              <p className="flex flex-wrap items-center gap-x-2">
-                <a href={row.email.href} className={`${CONTACT_LINK} ${INK}`}>
-                  <span className="truncate">{row.email.address}</span>
-                </a>
-                {row.email.possible ? (
-                  <span title="Found on the website with lower confidence" className={`text-[11px] font-medium uppercase tracking-[0.14em] ${GOLD}`}>
-                    Possible
-                  </span>
-                ) : null}
-              </p>
-              {/* An address and a limit on how much of the site was checked can both be true. */}
-              {row.emailNote ? <p className={`text-xs ${MUTED}`}>{row.emailNote}</p> : null}
-            </div>
-          ) : (
-            <Missing>{row.emailMissing ?? 'No email found'}</Missing>
-          )}
-          {row.phone ? (
-            <p>
-              <a href={row.phone.href} className={`${CONTACT_LINK} ${INK} tabular-nums`}>
+            ) : (
+              <Missing>No website found</Missing>
+            )}
+          </ContactLine>
+          <ContactLine icon={<EnvelopeIcon />} muted={!row.email}>
+            {row.email ? (
+              <div>
+                <p className="flex flex-wrap items-center gap-x-2">
+                  <a href={row.email.href} aria-label={`Email: ${row.email.address}`} className={`${CONTACT_LINK} ${INK}`}>
+                    <span className="truncate">{row.email.address}</span>
+                  </a>
+                  {row.email.possible ? (
+                    <span title="Found on the website with lower confidence" className={`text-[11px] font-medium uppercase tracking-[0.14em] ${GOLD}`}>
+                      Possible
+                    </span>
+                  ) : null}
+                </p>
+                {/* An address and a limit on how much of the site was checked can both be true. */}
+                {row.emailNote ? <p className={`text-xs ${MUTED}`}>{row.emailNote}</p> : null}
+              </div>
+            ) : (
+              <Missing reason={row.emailMissingReason}>{row.emailMissing ?? 'Email not discovered'}</Missing>
+            )}
+          </ContactLine>
+          <ContactLine icon={<PhoneIcon />} muted={!row.phone}>
+            {row.phone ? (
+              <a href={row.phone.href} aria-label={`Telephone: ${row.phone.display}`} className={`${CONTACT_LINK} ${INK} tabular-nums`}>
                 {row.phone.display}
               </a>
-            </p>
-          ) : (
-            <Missing>No phone number</Missing>
-          )}
+            ) : (
+              <Missing>No phone number</Missing>
+            )}
+          </ContactLine>
         </div>
 
         <span

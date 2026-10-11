@@ -74,9 +74,9 @@ test('websites and phones count only what exists; a website link says nothing ab
 })
 
 test('the contact line always names all three kinds, including zero, and never says verified', () => {
-  assert.deepEqual(describeContacts({ businesses: 9, websites: 7, emails: 5, possibleEmails: 0, phones: 9 }), ['7 websites', '5 emails', '9 phone numbers'])
-  assert.deepEqual(describeContacts({ businesses: 1, websites: 1, emails: 1, possibleEmails: 0, phones: 1 }), ['1 website', '1 email', '1 phone number'])
-  assert.deepEqual(describeContacts({ businesses: 3, websites: 0, emails: 0, possibleEmails: 0, phones: 0 }), ['0 websites', '0 emails', '0 phone numbers'])
+  assert.deepEqual(describeContacts({ businesses: 9, websites: 7, emails: 5, possibleEmails: 0, phones: 9 }), ['5 emails', '9 phone numbers', '7 websites'])
+  assert.deepEqual(describeContacts({ businesses: 1, websites: 1, emails: 1, possibleEmails: 0, phones: 1 }), ['1 email', '1 phone number', '1 website'])
+  assert.deepEqual(describeContacts({ businesses: 3, websites: 0, emails: 0, possibleEmails: 0, phones: 0 }), ['0 emails', '0 phone numbers', '0 websites'])
   assert.equal(describePossibleEmails({ businesses: 1, websites: 0, emails: 0, possibleEmails: 0, phones: 0 }), null)
   assert.equal(
     describePossibleEmails({ businesses: 3, websites: 0, emails: 0, possibleEmails: 2, phones: 0 }),
@@ -88,7 +88,8 @@ test('the replay fixture exercises every case: a possible email, a missing websi
   const summary = summarizeContacts(REPLAY_LEADS)
   assert.deepEqual(summary, { businesses: 9, websites: 8, emails: 2, possibleEmails: 1, phones: 8 })
   assert.equal(REPLAY_LEADS.filter((item) => item.commercial_profile?.summary).length, 1)
-  for (const scenario of REPLAY_SCENARIOS) assert.ok(scenario.leads.length === 9)
+  for (const scenario of REPLAY_SCENARIOS.filter((item) => item.id !== 'refill')) assert.ok(scenario.leads.length === 9)
+  assert.equal(REPLAY_SCENARIOS.find((item) => item.id === 'refill').leads.length, 25)
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -104,7 +105,7 @@ test('a row shows only fields that exist and links only to the existing lead pag
   assert.deepEqual(full.website, { host: 'acme.example', href: 'https://www.acme.example/contact' })
   assert.deepEqual(full.email, { address: 'hi@acme.example', href: 'mailto:hi@acme.example', possible: false })
   assert.deepEqual(full.phone, { display: '(305) 555-0142', href: 'tel:3055550142' })
-  assert.equal(full.detailHref, '/dashboard/leads/l1')
+  assert.equal(full.detailHref, '/dashboard/leads/l1?view=details')
   assert.equal(full.synopsis, null, 'no synopsis is ever generated here')
   assert.equal(full.research, null)
 
@@ -149,7 +150,7 @@ test('notes report only real, non-zero numbers', () => {
   assert.equal(describeFiltering({ duplicates: 0, invalid: 0 }), null)
   assert.equal(describeFiltering({ duplicates: 1, invalid: 2 }), '1 duplicate removed · 2 without usable contact details filtered')
   assert.equal(describeSettledNote({ discovered: 10, added: 10, duplicates: 0, invalid: 0 }), null)
-  assert.equal(describeSettledNote({ discovered: 10, added: 9, duplicates: 1, invalid: 0 }), '9 added to your results · 1 duplicate removed')
+  assert.equal(describeSettledNote({ discovered: 10, added: 9, duplicates: 1, invalid: 0 }), '10 candidates evaluated · 1 duplicate removed')
   assert.equal(describeSettledNote({ discovered: null, added: 9, duplicates: 0, invalid: 0 }), null, 'no claim without a known discovery count')
 })
 
@@ -262,12 +263,13 @@ test('the workspace never triggers research, queues, workers or network calls', 
   for (const [name, source] of Object.entries({ engine, rail, results, signals, summary })) {
     assert.doesNotMatch(source, /fetch\(|supabase|process-ci|claim_ci|enrichLead|enrich-lead|queue-manager|process-queue|commercial-intelligence\/|\/api\//i, name)
   }
-  assert.match(read('lib/scraper/results-summary.ts'), /detailHref: `\/dashboard\/leads\/\$\{lead\.id\}`/)
+  assert.match(read('lib/scraper/results-summary.ts'), /detailHref: `\/dashboard\/leads\/\$\{lead\.id\}\?view=details`/)
 })
 
 test('Business Profiles are stated as separate, never as part of this search or running', () => {
+  assert.match(rail, /Not included in this search/)
   assert.match(rail, /Available separately/)
-  assert.match(rail, /tone="upcoming"/)
+  assert.match(rail, /tone="separate"/)
   assert.doesNotMatch(rail, /tone=\{[^}]*profile/i)
   assert.match(page, /Business Profiles are available separately\./)
 })

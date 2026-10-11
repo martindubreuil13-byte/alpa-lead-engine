@@ -65,11 +65,9 @@ export function formatLiveActivity(msg: string): LiveActivityItem | null {
 
   const discoveredMatch = msg.match(/^📦 discovered: (\d+)/)
   if (discoveredMatch) {
-    return {
-      label: 'Businesses discovered',
-      detail: pluralize(Number(discoveredMatch[1]), 'business', 'businesses'),
-      tone: 'success',
-    }
+    // The count is deliberately not repeated here: the raw candidate total can exceed what was requested,
+    // and the headline counters already carry the figure the customer cares about.
+    return { label: 'Businesses found', tone: 'success' }
   }
 
   const enrichedMatch = msg.match(/^📦 enriched: (\d+)/)

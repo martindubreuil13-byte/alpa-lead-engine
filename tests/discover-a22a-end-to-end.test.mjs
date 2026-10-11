@@ -143,14 +143,17 @@ test('Northgate (ProViso case) reads as a business with a real address and its c
 test('Lakeshore (Cirrus case) says the site could not be read, never that no email exists', () => {
   const lakeshore = row('Lakeshore Advisory')
   assert.equal(lakeshore.email, null)
-  assert.equal(lakeshore.emailMissing, EMAIL_WORDING.unreadable)
+  assert.equal(lakeshore.emailMissing, EMAIL_WORDING.notDiscovered)
+  assert.equal(lakeshore.emailMissingReason, EMAIL_WORDING.unreadable)
   assert.doesNotMatch(lakeshore.emailMissing, /No email/)
 })
 
 test('each other state reads correctly', () => {
-  assert.equal(row('Queen Street Strategy').emailMissing, EMAIL_WORDING.noneChecked)
+  assert.equal(row('Queen Street Strategy').emailMissing, EMAIL_WORDING.notDiscovered)
+  assert.equal(row('Queen Street Strategy').emailMissingReason, null) // the whole site was read: nothing more to say
   assert.equal(row('Queen Street Strategy').descriptor, 'Toronto')
-  assert.equal(row('Dufferin Advisors').emailMissing, EMAIL_WORDING.noWebsite)
+  assert.equal(row('Dufferin Advisors').emailMissing, EMAIL_WORDING.notDiscovered)
+  assert.equal(row('Dufferin Advisors').emailMissingReason, EMAIL_WORDING.noWebsite)
 
   const harbourfront = row('Harbourfront Partners')
   assert.equal(harbourfront.email.address, 'hello@harbourfrontpartners.com')
@@ -165,12 +168,12 @@ test('each other state reads correctly', () => {
 test('the summary counts only confident addresses as emails, and reports unreadable sites', () => {
   const summary = summarizeContacts(results)
   assert.deepEqual(summary, { businesses: 7, websites: 6, emails: 3, possibleEmails: 1, phones: 7 })
-  assert.deepEqual(describeContacts(summary), ['6 websites', '3 emails', '7 phone numbers'])
+  assert.deepEqual(describeContacts(summary), ['3 emails', '7 phone numbers', '6 websites'])
   assert.equal(describePossibleEmails(summary), '1 possible email not counted above (lower confidence)')
   assert.equal(countUnreadableWebsites(results), 1)
   assert.equal(
     describeSettledNote({ discovered: discovery.discoveredCount, added: results.length, duplicates: 0, invalid: 0, unreadable: countUnreadableWebsites(results) }),
-    "1 website couldn't be read"
+    "1 website couldn't be checked"
   )
 })
 

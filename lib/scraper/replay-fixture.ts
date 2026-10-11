@@ -176,6 +176,71 @@ function buildSlowEvents(): ReplayEvent[] {
   return STANDARD.map((event) => (event.at > 1300 ? { ...event, at: event.at + SILENCE } : event))
 }
 
+
+// A production-shaped run for the clarity review: 25 requested, 25 found, a quiet improvement pass that
+// evaluates two more candidates (27), 26 website checks, and exactly 25 businesses saved. Fictional names;
+// illustrative timing; the event shapes are the ones the real stream sends.
+const REFILL_PREFIX = ['Northbridge', 'Kensington', 'Thames', 'Marlowe', 'Hollis', 'Ashdown', 'Bellamy', 'Carrow', 'Dunmore', 'Everley', 'Fairholm', 'Gresham', 'Hartwell']
+const REFILL_SUFFIX = ['Advisory', 'Consulting', 'Partners', 'Strategy', 'Associates']
+const REFILL_NAMES = Array.from({ length: 27 }, (_, i) => `${REFILL_PREFIX[i % REFILL_PREFIX.length]} ${REFILL_SUFFIX[i % REFILL_SUFFIX.length]}`)
+
+function buildRefillLeads(): TrialLead[] {
+  return REFILL_NAMES.slice(0, 25).map((name, index) => {
+    const slug = name.toLowerCase().replace(/[^a-z]+/g, '')
+    const hasWebsite = index !== 7
+    const phone = `020 7946 ${String(1000 + index * 7).slice(-4)}`
+    const base: TrialLead = {
+      ...fixtureLead(0, {}),
+      id: `replay-${index + 1}`,
+      company_name: name,
+      city: 'London',
+      industry: 'Management consultant',
+      phone,
+      website: hasWebsite ? `https://www.${slug}.example` : null,
+    }
+    if (!hasWebsite) return base
+    if (index % 3 === 0) return { ...base, email: `hello@${slug}.example`, email_confidence: 'high', email_inspection: { state: 'checked', partial: false } }
+    if (index === 4) return { ...base, email: `info@${slug}.example`, email_confidence: 'low', email_inspection: { state: 'checked', partial: false } }
+    if (index === 10) return { ...base, email: `office@${slug}.example`, email_confidence: 'medium', email_inspection: { state: 'checked', partial: true } }
+    if (index === 13) return { ...base, email_inspection: { state: 'unreadable', partial: false } }
+    if (index === 16) return { ...base, email_inspection: { state: 'checked', partial: true } }
+    return { ...base, email_inspection: { state: 'checked', partial: false } }
+  })
+}
+
+function buildRefillEvents(): ReplayEvent[] {
+  const events: ReplayEvent[] = []
+  const log = (at: number, message: string) => events.push({ at, kind: 'log', message })
+  const checking = (at: number, planned: number, completed: number, emailsFound: number, possibleEmails: number, sequence: number) =>
+    events.push({ at, kind: 'progress', event: { type: 'progress', stage: 'checking', planned, completed, emailsFound, possibleEmails, sequence } })
+
+  log(300, '🚀 starting scraper')
+  log(350, 'Finding businesses')
+  log(900, '🔎 business consultants in London')
+  REFILL_NAMES.slice(0, 18).forEach((name, i) => log(1500 + i * 60, `📥 ${name}`))
+  REFILL_NAMES.slice(18, 25).forEach((name, i) => log(3000 + i * 60, `📥 ${name}`))
+  log(3500, '📦 discovered: 25')
+  checking(3550, 25, 0, 0, 0, 1)
+  let sequence = 1
+  for (let i = 1; i <= 24; i += 1) checking(3600 + i * 90, 25, i, Math.floor(i / 4), i > 5 ? 1 : 0, ++sequence)
+  // the improvement pass evaluates two more candidates
+  log(6000, 'Improving results')
+  log(6100, '📥 ' + REFILL_NAMES[25])
+  log(6120, '📥 ' + REFILL_NAMES[26])
+  log(6200, '📦 discovered: 27')
+  checking(6250, 27, 24, 6, 1, ++sequence)
+  checking(6500, 27, 25, 7, 1, ++sequence)
+  checking(6800, 27, 26, 7, 1, ++sequence)
+  log(7000, '📦 enriched: 25')
+  log(7100, '💾 saved: 25, duplicates: 0, invalid: 0, db errors: 0')
+  log(7200, '🎉 Prospecting complete')
+  events.push({ at: 7300, kind: 'result', addedCount: 25 })
+  return events.sort((a, b) => a.at - b.at)
+}
+
+const REFILL = buildRefillEvents()
+const REFILL_LEADS = buildRefillLeads()
+
 const lastAt = (events: ReplayEvent[]) => events[events.length - 1]?.at ?? 0
 
 export const REPLAY_SCENARIOS: ReplayScenario[] = [
@@ -202,6 +267,18 @@ export const REPLAY_SCENARIOS: ReplayScenario[] = [
     events: buildSlowEvents(),
     leads: REPLAY_LEADS,
     durationMs: lastAt(buildSlowEvents()),
+  },
+  {
+    id: 'refill',
+    label: 'Improvement pass',
+    description: '25 requested; 27 candidates evaluated, 26 website checks, 25 businesses saved.',
+    query: 'Business consultants',
+    location: 'London',
+    requested: 25,
+    illustrativeTiming: true,
+    events: REFILL,
+    leads: REFILL_LEADS,
+    durationMs: lastAt(REFILL),
   },
 ]
 

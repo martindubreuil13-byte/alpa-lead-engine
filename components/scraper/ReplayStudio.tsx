@@ -84,6 +84,7 @@ export default function ReplayStudio() {
   )
   const note = describeSettledNote({
     discovered: state.progress.discoveredFinal,
+    inspected: state.progress.checks?.completed ?? null,
     added: scenario.leads.length,
     duplicates: 0,
     invalid: 0,
