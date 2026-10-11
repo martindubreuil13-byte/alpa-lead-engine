@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X, Loader2, Sparkles } from 'lucide-react'
+import { ChevronDown, Copy, Download, Globe, Mail, Phone, Search, Trash2, Check, X, Sparkles } from 'lucide-react'
 
 import { downloadLeadCsv, getLeadCsvFilename } from '@/lib/leads/csv'
 import { type Lead as LifecycleLead } from '@/lib/pipeline/lifecycle'
@@ -244,136 +244,10 @@ export default function MyLeadsWorkspaceClient({
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [archivedLeadIds, setArchivedLeadIds] = useState<Set<string>>(new Set())
   const [deletedLeadIds, setDeletedLeadIds] = useState<Set<string>>(new Set())
-  const [refreshingId, setRefreshingId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const ciSummary = initialLeads.reduce((acc: Record<string, number>, lead) => {
-      const status = lead.ci_enrichment_status || 'not_generated'
-      acc[status] = (acc[status] || 0) + 1
-      return acc
-    }, {})
+  // My Leads only reads. Business Intelligence research is started by the server, never by opening,
+  // refreshing, filtering or sorting this page, and never from the browser.
 
-    console.log(
-      '[CI-TRACE] STEP 10 AFTER MyLeadsWorkspaceClient.mount',
-      {
-        loadedCount,
-        totalCount,
-        ciSummary,
-        sample: initialLeads.slice(0, 5).map((lead) => ({
-          lead_id: lead.id,
-          status: lead.ci_enrichment_status || 'not_generated',
-          has_profile: Boolean(lead.commercial_profile),
-          completed_at: lead.ci_completed_at || null,
-        })),
-      }
-    )
-
-    // Guard against duplicate workers (React strict mode mounts components twice)
-    const workerKey = `ci-worker-${Math.random()}`
-    const existingWorker = (window as any).__ciWorkerRunning
-    if (existingWorker) {
-      console.log('[CI-WORKER] already running, skipping duplicate')
-      return
-    }
-    ;(window as any).__ciWorkerRunning = true
-
-    // Self-driving queue worker: runs while page is active and items remain
-    let isActive = true
-    let refreshInterval: NodeJS.Timeout | null = null
-
-    const runWorker = async () => {
-      console.log('[CI-WORKER] Started')
-
-      try {
-        while (isActive && !document.hidden) {
-          try {
-            const batchStartedAt = Date.now()
-            const response = await fetch('/api/leads/process-ci-queue-batch', {
-              method: 'POST',
-            })
-
-            // Auth lost or server error
-            if (response.status === 401) {
-              console.log('[CI-WORKER] Authentication lost, stopping worker')
-              isActive = false
-              break
-            }
-
-            if (!response.ok) {
-              console.error('[CI-WORKER] Batch processing failed with status:', response.status)
-              break
-            }
-
-            const result = await response.json()
-            const batchElapsedMs = Date.now() - batchStartedAt
-
-            console.log(
-              `[CI-WORKER] Batch complete: processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} batch_size=${result.batchSize} elapsed_ms=${batchElapsedMs}`
-            )
-
-            // Stop if no items were processed (queue is empty)
-            if (result.processed === 0) {
-              console.log('[CI-WORKER] Commercial Intelligence is up to date')
-              isActive = false
-              break
-            }
-          } catch (err) {
-            console.error('[CI-WORKER] Error processing batch:', err)
-            break
-          }
-        }
-      } finally {
-        if (refreshInterval) clearInterval(refreshInterval)
-        console.log('[CI-WORKER] Stopped')
-      }
-    }
-
-    // Start worker (fire and forget, no await)
-    runWorker()
-
-    // Lightweight stats refresh: only update dashboard widget, not entire page
-    refreshInterval = setInterval(() => {
-      if (!isActive || document.hidden) return
-
-      fetch('/api/leads/ci-stats')
-        .then((res) => {
-          if (!res.ok) return
-          return res.json()
-        })
-        .then((data) => {
-          if (data?.ok && data?.data) {
-            // Dispatch event so CommercialIntelligenceStatus can pick up new stats
-            // This avoids a full page refresh and only updates the widget
-            window.dispatchEvent(
-              new CustomEvent('ci-stats-updated', {
-                detail: data.data,
-              })
-            )
-          }
-        })
-        .catch((err) => {
-          // Silently fail - don't break the worker if stats fetch fails
-        })
-    }, 3000) // Refresh stats every 3 seconds
-
-    // Handle page visibility changes
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('[CI-WORKER] Page hidden, stopping worker')
-        isActive = false
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      isActive = false
-      if (refreshInterval) clearInterval(refreshInterval)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      ;(window as any).__ciWorkerRunning = false
-      console.log('[CI-WORKER] Stopped')
-    }
-  }, [router])
 
   const leadsWithMetadata = useMemo(
     () => initialLeads.map((lead) => ({ ...lead, metadata: getLeadMetadata(lead) })),
@@ -562,49 +436,6 @@ export default function MyLeadsWorkspaceClient({
     }
   }
 
-  async function handleEnrichCommercialIntelligence(leadId: string) {
-    setRefreshingId(leadId)
-    try {
-      const response = await fetch(`/api/leads/${leadId}/enrich-commercial-intelligence`, {
-        method: 'POST',
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        const errorMessage =
-          typeof result?.error?.message === 'string'
-            ? result.error.message
-            : typeof result?.message === 'string'
-              ? result.message
-              : result?.error
-                ? typeof result.error === 'string'
-                  ? result.error
-                  : 'Enrichment failed'
-                : 'Failed to enrich lead'
-        showToast(errorMessage, 'error')
-        return
-      }
-
-      if (result.ok) {
-        showToast('Commercial Intelligence analysis started', 'success')
-        // Revalidate server cache and refresh client
-        await fetch('/api/revalidate?path=/dashboard/my-leads', { method: 'POST' })
-        router.refresh()
-      } else {
-        const errorMessage =
-          typeof result?.error?.message === 'string'
-            ? result.error.message
-            : 'Enrichment completed with errors'
-        showToast(errorMessage, 'error')
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Error enriching lead'
-      showToast(errorMessage, 'error')
-    } finally {
-      setRefreshingId(null)
-    }
-  }
 
   const archivedLeads = leadsWithMetadata.filter((l) => l.metadata.priority === 'archived')
 
@@ -940,7 +771,6 @@ export default function MyLeadsWorkspaceClient({
                           const profile = lead.commercial_profile
                           const snapshot = lead.website_snapshot
                           const signals = lead.business_signals
-                          const isRefreshing = refreshingId === lead.id
                           const hasWebsite = !!lead.website?.trim()
 
                           return (
@@ -1026,27 +856,12 @@ export default function MyLeadsWorkspaceClient({
                                     {lead.ci_completed_at && (
                                       <span>Updated {new Date(lead.ci_completed_at).toLocaleDateString()}</span>
                                     )}
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleEnrichCommercialIntelligence(lead.id)
-                                      }}
-                                      disabled={isRefreshing}
-                                      className="text-blue-400 hover:text-blue-300 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                                    >
-                                      {isRefreshing ? 'Re-analyzing...' : 'Re-analyze'}
-                                    </button>
                                   </div>
                                 </div>
-                              ) : ciStatus === 'processing' ? (
-                                <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  Analyzing business data…
-                                </div>
-                              ) : ciStatus === 'pending' ? (
+                              ) : ciStatus === 'processing' || ciStatus === 'pending' ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
                                   <Sparkles className="h-3 w-3" />
-                                  Waiting to analyze
+                                  Business profile not available yet
                                 </div>
                               ) : ciStatus === 'failed' ? (
                                 <div className="space-y-3">
@@ -1057,30 +872,11 @@ export default function MyLeadsWorkspaceClient({
                                       <p className="text-slate-600 mt-1">Check that a website is present and valid.</p>
                                     </div>
                                   </div>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleEnrichCommercialIntelligence(lead.id)
-                                    }}
-                                    disabled={isRefreshing}
-                                    className="w-full px-3 py-2 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {isRefreshing ? 'Retrying...' : 'Retry Analysis'}
-                                  </button>
                                 </div>
                               ) : hasWebsite ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleEnrichCommercialIntelligence(lead.id)
-                                  }}
-                                  disabled={isRefreshing}
-                                  className="w-full px-3 py-2.5 text-xs font-medium text-blue-300 hover:text-blue-200 hover:bg-blue-500/[0.08] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  {isRefreshing ? 'Analyzing...' : 'Start Analysis'}
-                                </button>
+                                <div className="text-xs text-slate-500 py-2">Business profile not available yet.</div>
                               ) : (
-                                <div className="text-xs text-slate-500 py-2">Add website to enable Commercial Intelligence analysis.</div>
+                                <div className="text-xs text-slate-500 py-2">A website is needed for a business profile.</div>
                               )}
                             </div>
                           )

@@ -12,6 +12,8 @@ const MAX_TOKENS = 500
 
 type GenerateProfileOptions = {
   complete?: ProfileCompletion
+  /** Outer research deadline: aborts the OpenAI request itself. */
+  signal?: AbortSignal
 }
 
 export async function generateCommercialProfile(
@@ -55,7 +57,7 @@ export async function generateCommercialProfile(
         temperature: 0.2,
         max_tokens: MAX_TOKENS,
         response_format: { type: 'json_object' },
-      }, OPENAI_PROFILE_REQUEST_OPTIONS)
+      }, { ...OPENAI_PROFILE_REQUEST_OPTIONS, signal: options.signal })
 
       return {
         content: completion.choices[0]?.message?.content || '',

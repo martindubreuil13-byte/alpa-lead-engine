@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { runCommercialIntelligenceWorker } from '@/lib/commercial-intelligence/background-worker'
 import { isCommercialIntelligenceCronAuthorized } from '@/lib/commercial-intelligence/cron-auth'
+import { isResearchEnabled } from '@/lib/commercial-intelligence/research-switch'
 import { resolveWorkerConfig } from '@/lib/commercial-intelligence/worker-config'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -11,6 +12,12 @@ export const maxDuration = 300
 export async function GET(request: Request) {
   if (!isCommercialIntelligenceCronAuthorized(request)) {
     return NextResponse.json({ ok: false, error: 'UNAUTHORIZED' }, { status: 401 })
+  }
+
+  // Emergency switch (default OFF): checked before the database is touched, so a stopped system claims,
+  // recovers and changes nothing. Queued jobs and stored profiles stay exactly as they are.
+  if (!isResearchEnabled()) {
+    return NextResponse.json({ ok: true, disabled: true, claimed: 0 })
   }
 
   try {

@@ -1,6 +1,8 @@
 import { enrichLeadDirect } from '@/lib/commercial-intelligence/enrich-lead-direct'
 import { isAdmin } from '@/lib/auth/access'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { isResearchEnabled } from '@/lib/commercial-intelligence/research-switch'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
@@ -9,6 +11,14 @@ export async function POST(req: Request) {
     const profile = await getUserProfile()
     if (!profile || !isAdmin(profile)) {
       return new Response('Unauthorized', { status: 401 })
+    }
+
+    // Emergency switch (default OFF) covers manual research too. Nothing below runs while it is off.
+    if (!isResearchEnabled()) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'RESEARCH_DISABLED', message: 'Business Intelligence research is switched off' }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } }
+      )
     }
 
     const { leadId } = await req.json()
@@ -42,7 +52,8 @@ export async function POST(req: Request) {
     }
 
     // Run canonical enrichment pipeline
-    const result = await enrichLeadDirect(leadId)
+    // The server writes the result: the customer-session client is not allowed to change protected research columns.
+    const result = await enrichLeadDirect(leadId, { client: createAdminClient() })
 
     return new Response(
       JSON.stringify({

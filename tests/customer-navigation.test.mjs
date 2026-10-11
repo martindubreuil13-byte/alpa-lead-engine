@@ -60,7 +60,10 @@ test('administrator pages and APIs keep their server-side authorization', () => 
     assert.match(read(`app/admin/${p}/page.tsx`), /!isAdmin\(profile\)/, p)
   }
   for (const f of routeFiles('app/api/admin')) {
-    assert.match(read(f), /requireAdmin|isAdmin\(|ADMIN_EMAIL|x-admin-secret/, f)
+    const source = read(f)
+    // A retired endpoint (B2 Phase 0) does nothing at all: it returns 410 and imports only next/server.
+    if (/status: 410/.test(source) && [...source.matchAll(/^import .* from '(.*)'/gm)].every((match) => match[1] === 'next/server')) continue
+    assert.match(source, /requireAdmin|isAdmin\(|ADMIN_EMAIL|x-admin-secret/, f)
   }
 })
 

@@ -72,7 +72,6 @@ export default function CommercialIntelligenceStatus() {
 
   if (!stats || stats.total_leads === 0) return null
 
-  const waiting = stats.pending
   const allComplete = stats.completed === stats.total_leads && stats.pending === 0
   const completionPercentage = stats.total_leads > 0
     ? Math.round((stats.completed / stats.total_leads) * 100)
@@ -104,8 +103,8 @@ export default function CommercialIntelligenceStatus() {
       <div className="space-y-6">
         {/* HEADER - Minimal, value-focused */}
         <div>
-          <h3 className="text-sm font-semibold text-white">Your Business Library Is Getting Smarter</h3>
-          <p className="text-xs text-slate-400 mt-1">Analyzing businesses so you can understand them faster</p>
+          <h3 className="text-sm font-semibold text-white">Business profiles</h3>
+          <p className="text-xs text-slate-400 mt-1">Profiles that exist for your saved businesses. Nothing is being generated from this page.</p>
         </div>
 
         {/* PRIMARY METRIC: Analyzed Count with Animation */}
@@ -115,7 +114,7 @@ export default function CommercialIntelligenceStatus() {
             {stats.completed}
           </span>
           <span className="text-sm text-slate-400">
-            {stats.completed === 1 ? 'business analyzed' : 'businesses analyzed'}
+            {stats.completed === 1 ? 'business profile ready' : 'business profiles ready'}
           </span>
         </div>
 
@@ -131,14 +130,6 @@ export default function CommercialIntelligenceStatus() {
             <span className="text-xs text-slate-500">{completionPercentage}% of {stats.total_leads}</span>
           </div>
         </div>
-
-        {/* TO ANALYZE - Outcome focused, only if > 0 */}
-        {waiting > 0 && (
-          <div className="pt-2 border-t border-white/5">
-            <p className="text-xs text-slate-500 mb-1">Waiting to analyze</p>
-            <p className="text-xl font-semibold text-slate-300">{waiting}</p>
-          </div>
-        )}
 
         {/* MOMENTUM - Active, rewarding */}
         {activityMessage && (

@@ -35,6 +35,8 @@ export type WebsiteFetchOptions = {
   isRedirectAllowed?: (target: URL) => boolean
   /** Treat bot-challenge pages ("Just a moment...", access-denied walls) as blocked, not as content. */
   detectBotChallenge?: boolean
+  /** An outer deadline: when it aborts, the request is cancelled and reported as a timeout. */
+  signal?: AbortSignal
 }
 
 /** Why a website could not be read. Additive: error codes are unchanged. */
@@ -121,6 +123,9 @@ export async function safeFetchWebsite(
   let currentUrl = normalizeWebsiteUrl(input)
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    if (options.signal?.aborted) {
+      throw new WebsiteFetchError('FETCH_FAILED', 'Website request timed out', { failure: 'timeout' })
+    }
     const parsedUrl = await assertPublicHttpUrl(currentUrl, resolveHostname, timeoutMs)
     const controller = new AbortController()
     let timedOut = false
@@ -128,6 +133,12 @@ export async function safeFetchWebsite(
       timedOut = true
       controller.abort()
     }, timeoutMs)
+    const onOuterAbort = () => {
+      timedOut = true
+      controller.abort()
+    }
+    if (options.signal?.aborted) onOuterAbort()
+    else options.signal?.addEventListener('abort', onOuterAbort, { once: true })
 
     try {
       const response = await fetchImpl(parsedUrl, {
@@ -210,6 +221,7 @@ export async function safeFetchWebsite(
       throw classifyThrown(error, timedOut)
     } finally {
       clearTimeout(timeout)
+      options.signal?.removeEventListener('abort', onOuterAbort)
     }
   }
 

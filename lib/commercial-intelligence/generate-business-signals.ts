@@ -9,7 +9,8 @@ interface PageAnalysisResult {
 }
 
 export async function generateBusinessSignals(
-  website: string | null | undefined
+  website: string | null | undefined,
+  options: { signal?: AbortSignal } = {}
 ): Promise<ExtractionResult<BusinessSignals>> {
   const startTime = Date.now()
 
@@ -29,7 +30,7 @@ export async function generateBusinessSignals(
     const hasHttps = normalizedUrl.startsWith('https://')
 
     // Fetch homepage
-    const homepage = await fetchPage(normalizedUrl)
+    const homepage = await fetchPage(normalizedUrl, options.signal)
     if (!homepage) {
       return {
         ok: false,
@@ -52,7 +53,7 @@ export async function generateBusinessSignals(
     const pageChecks = await Promise.all(
       urlsToCheck.map(async ({ url, key }) => {
         if (!url) return { key, exists: false, signals: {} }
-        const page = await fetchPage(url)
+        const page = await fetchPage(url, options.signal)
         return {
           key,
           exists: page !== null,
@@ -99,9 +100,9 @@ export async function generateBusinessSignals(
   }
 }
 
-async function fetchPage(url: string): Promise<PageAnalysisResult | null> {
+async function fetchPage(url: string, signal?: AbortSignal): Promise<PageAnalysisResult | null> {
   try {
-    const response = await safeFetchWebsite(url)
+    const response = await safeFetchWebsite(url, { signal })
 
     return {
       html: response.html,

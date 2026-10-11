@@ -11,6 +11,10 @@ import {
 } from '../lib/commercial-intelligence/private-preview-research.ts'
 import { buildLeadCsv } from '../lib/leads/csv.ts'
 
+// B2 Phase 0: research is OFF unless CI_RESEARCH_ENABLED=true. These tests exercise an enabled system; the OFF
+// behavior is covered in tests/b2-phase0-safety.test.mjs.
+process.env.CI_RESEARCH_ENABLED = 'true'
+
 const client = {}
 
 function item(number, retryCount = 0) {
@@ -267,7 +271,8 @@ test('OpenAI profile request is time-bounded without SDK retries', () => {
   assert.equal(OPENAI_PROFILE_REQUEST_OPTIONS.timeout, 30_000)
   assert.equal(OPENAI_PROFILE_REQUEST_OPTIONS.maxRetries, 0)
   const source = readFileSync(new URL('../lib/commercial-intelligence/generate-commercial-profile.ts', import.meta.url), 'utf8')
-  assert.match(source, /OPENAI_PROFILE_REQUEST_OPTIONS\)/)
+  // the timeout and no-retry options are still what the request uses; the outer deadline signal is added to them
+  assert.match(source, /\.\.\.OPENAI_PROFILE_REQUEST_OPTIONS, signal: options\.signal \}\)/)
 })
 
 test('private-preview polling is 20s and only runs for private preview', () => {

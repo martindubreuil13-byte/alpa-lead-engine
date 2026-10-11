@@ -1,0 +1,16 @@
+{
+  "_source": "Read-only catalog query against Supabase project hnhptrqdirqofkwimapo on 2026-10-11 (before B2 Phase 0). Update it only from a new read-only catalog query.",
+  "functions": {
+    "claim_ci_queue_items_worker": { "params": ["p_limit"], "returns": ["id", "lead_id", "retry_count", "max_retries", "claim_token"] },
+    "reset_stale_ci_processing_worker": { "params": ["p_timeout_seconds"], "returns": ["reset_count", "failed_count"] },
+    "complete_ci_enrichment_worker": { "params": ["p_queue_id", "p_lead_id", "p_claim_token", "p_snapshot", "p_signals", "p_profile", "p_success", "p_error_msg"], "returns": ["success", "message"] },
+    "enqueue_private_preview_ci_worker": { "params": ["p_lead_id", "p_user_id"], "returns": ["text"] },
+    "get_ci_statistics": { "params": ["p_user_id"], "returns": ["total_leads", "not_started", "pending", "processing", "completed", "failed", "skipped", "completion_percentage", "avg_processing_seconds", "last_completed_at", "actively_processing"] },
+    "get_discover_capacity": { "params": ["p_user_id", "p_leads_limit", "p_monthly"], "returns": ["jsonb"] },
+    "save_discover_results": { "params": ["p_run_id", "p_user_id", "p_leads_limit", "p_monthly", "p_leads"], "returns": ["jsonb"] }
+  },
+  "outOfScope": ["increment_email_usage", "pg_notify"],
+  "leadsColumns": ["id", "user_id", "company_name", "website", "website_snapshot", "business_signals", "commercial_profile", "ci_enrichment_status", "ci_started_at", "ci_completed_at", "ci_last_error", "ci_retry_count", "ci_processing_duration_ms", "ci_cost_estimate", "ci_model_versions"],
+  "queueColumns": ["id", "lead_id", "user_id", "status", "retry_count", "max_retries", "last_retry_at", "last_error", "created_at", "started_at", "completed_at", "updated_at", "processing_duration_ms", "total_cost", "worker_eligible", "claim_token", "run_id"],
+  "customerExecutable": ["get_ci_statistics"]
+}
