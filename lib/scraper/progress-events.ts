@@ -2,8 +2,8 @@
 //
 // Existing events are unchanged: { type: 'log' | 'lead' | 'result' }. Consumers that do not
 // know `type: 'progress'` ignore it (the Discover page and the landing trial flow only act on
-// the event types they recognise). Counters are cumulative and monotonic, so a repeated or
-// out-of-order event can be merged safely with a per-field max.
+// the event types they recognise). Attempt counters are cumulative. New checking snapshots
+// carry a sequence because current contact totals can decrease when a website is replaced.
 
 export type CheckingProgressEvent = {
   type: 'progress'
@@ -12,8 +12,13 @@ export type CheckingProgressEvent = {
   planned: number
   /** Checks that reached a conclusion: an email found, no email, or a skipped website. */
   completed: number
-  /** Subset of completed checks that found an email. A separate metric, not progress. */
+  /** Businesses currently carrying a high/medium confidence email in sequenced snapshots.
+   * Legacy unsequenced events counted successful check attempts. */
   emailsFound: number
+  /** Low/unknown confidence email matches, counted separately per business. */
+  possibleEmails?: number
+  /** Orders current contact snapshots, including decreases after a website changes. */
+  sequence?: number
 }
 
 export type SavingProgressEvent = {
@@ -117,12 +122,18 @@ export function parseProgressEvent(raw: unknown): ScrapeProgressEvent | null {
   if (event.stage === 'checking') {
     const planned = count(event.planned)
     const completed = Math.min(count(event.completed), planned)
+    const emailsFound = Math.min(count(event.emailsFound), completed)
+    const hasSequence = typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence >= 0
     return {
       type: 'progress',
       stage: 'checking',
       planned,
       completed,
-      emailsFound: Math.min(count(event.emailsFound), completed),
+      emailsFound,
+      ...(hasSequence ? {
+        sequence: count(event.sequence),
+        possibleEmails: Math.min(count(event.possibleEmails), completed - emailsFound),
+      } : {}),
     }
   }
 

@@ -42,12 +42,13 @@ const { countUnreadableWebsites, describeContacts, describePossibleEmails, descr
   await import('../lib/scraper/results-summary.ts')
 const { decodeRot13Email } = await import('../lib/scraper/email-intelligence.ts')
 
+// Email fixtures intentionally span categories; relevance behavior is tested separately.
 // ---- run the real worker ---------------------------------------------------------------------------
 
 const logs = []
 const progress = []
 const discovery = await runSharedProspectorDiscovery(
-  { query: 'consultant', defaultCity: 'Toronto', region: '', country: '', maxLeads: 10, mode: 'deep' },
+  { query: 'businesses', defaultCity: 'Toronto', region: '', country: '', maxLeads: 10, mode: 'deep' },
   (message) => logs.push(message),
   (event) => progress.push(event)
 )
@@ -99,7 +100,7 @@ test('the category is the provider\'s own, and absent when the provider gave non
   assert.equal(byName('Lakeshore Advisory').industry, 'Consultant')
   assert.equal(byName('Harbourfront Partners').industry, 'Management consultant') // from types[0]
   assert.equal(byName('Shoreline Consulting Group').industry, 'Business consultant')
-  assert.equal(byName('Queen Street Strategy').industry ?? null, null, 'never the search query ("consultant")')
+  assert.equal(byName('Queen Street Strategy').industry ?? null, null, 'never the search query ("businesses")')
 })
 
 // ---- the results payload (and its JSON round trip) -------------------------------------------------
@@ -175,13 +176,16 @@ test('the summary counts only confident addresses as emails, and reports unreada
 
 // ---- the live stream is unchanged ------------------------------------------------------------------
 
-test('the log lines and progress counters the live view depends on are unchanged', () => {
+test('live progress separates possible emails using the final results confidence rules', () => {
   assert.ok(logs.includes('⛔ no email: Lakeshore Advisory'))
   assert.ok(logs.includes('⛔ no email: Queen Street Strategy'))
   assert.ok(logs.includes('✨ Northgate Staffing'))
   // a business with no website is never queued for a website check (so it is not counted in the totals)
   assert.ok(!logs.some((line) => line.includes('Dufferin Advisors') && (line.startsWith('🔬') || line.startsWith('⛔ no email'))))
   const checks = progress.filter((event) => event.stage === 'checking').at(-1)
-  // six websites were checked; four of them produced an address (including the one that is only possible)
-  assert.deepEqual([checks.planned, checks.completed, checks.emailsFound], [6, 6, 4])
+  // Six checks concluded; three businesses have high/medium matches, one has only a possible match.
+  const summary = summarizeContacts(results)
+  assert.deepEqual([checks.planned, checks.completed, checks.emailsFound, checks.possibleEmails], [6, 6, 3, 1])
+  assert.equal(checks.emailsFound, summary.emails)
+  assert.equal(checks.possibleEmails, summary.possibleEmails)
 })

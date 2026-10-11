@@ -81,7 +81,9 @@ export default function DiscoverSearchForm({
             id="discover-business-type-help"
             className={`mt-2 text-xs ${typeInvalid ? 'text-[#d8c28a]' : 'text-white/60'}`}
           >
-            {typeInvalid ? 'Add a business type.' : 'Use 1–3 simple keywords.'}
+            {typeInvalid ? 'Add a business type.' : /^consultants?$/i.test(businessType.trim())
+              ? 'Consultant is broad. Try business consultant, IT consultant, health consultant or recruitment consultant.'
+              : 'Use 1–3 simple keywords.'}
           </p>
         </div>
 

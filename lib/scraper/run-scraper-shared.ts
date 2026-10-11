@@ -1,9 +1,12 @@
+import { classifyBusinessRelevance, rankBusinessCandidates } from '@/lib/scraper/business-relevance'
 import { searchGooglePlaces } from '@/lib/sources/google'
 import { searchSerperMaps } from '@/lib/sources/serper'
 import { type EmailConfidence, getWebsiteHost, isBlockedWebsiteHost, normalizePhone } from '@/lib/validation'
 import { enrichEmailWithInspection } from '@/lib/scraper/email-enrichment'
 import { mergeInspection, type EmailInspection } from '@/lib/scraper/email-inspection'
 import { isCountableLead } from '@/lib/usage/usage'
+import { summarizeContacts } from '@/lib/scraper/results-summary'
+import type { DiscoveryStopReason } from '@/lib/scraper/discovery-outcome'
 import {
   createWebsiteCheckTracker,
   type ScrapeProgressEvent,
@@ -13,7 +16,6 @@ import {
 const ENRICHMENT_WORKERS = 4
 const MAX_SERPER_QUERIES = 2
 const MAX_GOOGLE_CALLS = 1
-const SERPER_EARLY_STOP_LEADS = 10
 const HIGH_CONFIDENCE_TARGET = 5
 const MIN_WEBSITE_TARGET = 7
 const MIN_ENRICHMENT_RATE = 0.5
@@ -81,6 +83,8 @@ export type SharedProspectorDiscoveryResult = {
   discoveredCount: number
   enrichedCount: number
   filteredOutWithoutContactCount: number
+  stopReason: DiscoveryStopReason
+  filteredOutRelevanceCount: number
   locationLabel: string
   summaryLine: string
   detailLine: string | null
@@ -144,6 +148,10 @@ function isValidDiscoveredLead(lead: DiscoveryLead) {
 
 function hasContactMethod(lead: Pick<DiscoveryLead, 'email' | 'phone'>) {
   return Boolean(String(lead.email || '').trim() || String(lead.phone || '').trim())
+}
+
+function usableLeads(leads: DiscoveryLead[]) {
+  return leads.filter(isCountableLead).filter(hasContactMethod)
 }
 
 function namesClearlyRelated(left: string | null | undefined, right: string | null | undefined) {
@@ -539,9 +547,42 @@ export async function runSharedProspectorDiscovery(
 
   let totalApiCost = 0
   let googleCalls = 0
+  let serperCalls = 0
+  let providerFailed = false
+  let costLimitReached = false
+  const sourceSend = (message: string) => {
+    if (/Serper (?:failed|maps failed|API key missing)|Google (?:failed|API error|Places API key missing)/.test(message)) providerFailed = true
+    send(message)
+  }
+  const relevanceRejected = new Set<string>()
+  const acceptsBusinessType = (lead: { company_name: string; industry?: string | null; city?: string | null }) => {
+    if (classifyBusinessRelevance(query, lead) !== 'mismatch') return true
+    relevanceRejected.add(`${normalizeCompanyName(lead.company_name)}:${lead.city ?? defaultCity}:${lead.industry ?? ''}`)
+    return false
+  }
+  const relevanceNote = (leads: DiscoveryLead[]) => {
+    const uncertain = leads.filter((lead) => classifyBusinessRelevance(query, lead) === 'uncertain').length
+    const parts: string[] = []
+    if (relevanceRejected.size) parts.push(`${relevanceRejected.size} source results excluded because their business category did not match.`)
+    if (uncertain) parts.push(`Business type could not be confirmed for ${uncertain} ${uncertain === 1 ? 'result' : 'results'} from the available name/category.`)
+    return parts.join(' ') || null
+  }
   const discoveredLeads: DiscoveryLead[] = []
   const sentPhases = new Set<ScrapePhase>()
-  const websiteChecks = createWebsiteCheckTracker(onProgress)
+  let progressLeads: DiscoveryLead[] = []
+  let checkingSequence = 0
+  const websiteChecks = createWebsiteCheckTracker((event) => {
+    if (event.stage !== 'checking') return
+    // Derive contacts from the current deduplicated businesses, not successful attempts.
+    // A merged replacement website can invalidate an earlier match before its new check.
+    const contacts = summarizeContacts(progressLeads)
+    onProgress?.({
+      ...event,
+      emailsFound: contacts.emails,
+      possibleEmails: contacts.possibleEmails,
+      sequence: ++checkingSequence,
+    })
+  })
 
   const targetStrongSignalLeads = Math.min(HIGH_CONFIDENCE_TARGET, maxLeads)
   const websiteTarget = Math.min(MIN_WEBSITE_TARGET, maxLeads)
@@ -560,7 +601,7 @@ export async function runSharedProspectorDiscovery(
   const sanitizedQuery = sanitizeQuery(query, defaultCity)
   const serperQueries =
     mode === 'fast' ? [sanitizedQuery].filter(Boolean) : buildSerperQueries(sanitizedQuery, defaultCity)
-  const serperLeadTarget = mode === 'fast' ? maxLeads : Math.min(maxLeads, SERPER_EARLY_STOP_LEADS)
+  const serperLeadTarget = maxLeads
 
   for (const currentQuery of serperQueries) {
     if (discoveredLeads.length >= serperLeadTarget) {
@@ -569,11 +610,13 @@ export async function runSharedProspectorDiscovery(
     }
 
     if (!canSpend(totalApiCost, SERPER_DISCOVERY_COST_ESTIMATE)) {
+      costLimitReached = true
       send(`💸 budget reached before Serper query (${SCRAPE_COST_BUDGET})`)
       break
     }
 
     totalApiCost = roundCostEstimate(totalApiCost + SERPER_DISCOVERY_COST_ESTIMATE)
+    serperCalls += 1
     send(`🔎 ${currentQuery}`)
     send('🛰️ Serper priority pass')
 
@@ -586,13 +629,15 @@ export async function runSharedProspectorDiscovery(
           city: defaultCity,
           region,
           maxResults: Math.max(1, serperLeadTarget - discoveredLeads.length),
-          send,
+          send: sourceSend,
         })) || []
     } catch {
+      providerFailed = true
       send('⚠️ Serper failed')
     }
 
-    for (const lead of serperResults) {
+    for (const lead of rankBusinessCandidates(query, serperResults)) {
+      if (!acceptsBusinessType(lead)) continue
       if (discoveredLeads.length >= maxLeads) break
 
       const upserted = upsertDiscoveredLead(
@@ -626,6 +671,7 @@ export async function runSharedProspectorDiscovery(
   }
 
   const validDiscoveredLeads = discoveredLeads.filter(isValidDiscoveredLead).slice(0, maxLeads)
+  progressLeads = validDiscoveredLeads
   send(`📦 discovered: ${validDiscoveredLeads.length}`)
 
   const initialCheckQueue = validDiscoveredLeads.filter(shouldAttemptEnrichment)
@@ -640,9 +686,9 @@ export async function runSharedProspectorDiscovery(
   )
 
   if (mode === 'fast') {
-    const fullyEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
-    const finalEnrichedLeads = fullyEnrichedLeads.filter((lead) => hasContactMethod(lead))
-    const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
+    const usable = usableLeads(validDiscoveredLeads)
+    const finalEnrichedLeads = usable.slice(0, maxLeads)
+    const filteredOutWithoutContactCount = validDiscoveredLeads.length - usable.length
     const locationLabel = formatLocationLabel(defaultCity, region, country)
     const summaryLine = formatLeadSummary(finalEnrichedLeads.length)
     const detailLine = null
@@ -667,18 +713,23 @@ export async function runSharedProspectorDiscovery(
       discoveredCount: validDiscoveredLeads.length,
       enrichedCount: finalEnrichedLeads.length,
       filteredOutWithoutContactCount,
+      filteredOutRelevanceCount: relevanceRejected.size,
+      stopReason: finalEnrichedLeads.length >= maxLeads ? 'target_reached' : providerFailed ? 'provider_error' : costLimitReached ? 'cost_limit' : 'search_limit',
       locationLabel,
       summaryLine,
-      detailLine,
+      detailLine: [detailLine, relevanceNote(finalEnrichedLeads)].filter(Boolean).join(' ') || null,
     }
   }
 
+  // Contact quality can end improvement only after the requested discovery quantity is met.
   const shouldStopAfterSerper =
-    metrics.strongSignalLeads >= targetStrongSignalLeads ||
-    !shouldEscalateToGoogle(metrics, targetStrongSignalLeads, websiteTarget)
+    usableLeads(validDiscoveredLeads).length >= maxLeads &&
+    (metrics.strongSignalLeads >= targetStrongSignalLeads ||
+      !shouldEscalateToGoogle(metrics, targetStrongSignalLeads, websiteTarget))
 
   if (!shouldStopAfterSerper && googleCalls < MAX_GOOGLE_CALLS) {
     if (!canSpend(totalApiCost, GOOGLE_DISCOVERY_COST_ESTIMATE)) {
+      costLimitReached = true
       send(`💸 budget reached before Google improvement (${SCRAPE_COST_BUDGET})`)
     } else {
       sendPhase('Improving results')
@@ -689,7 +740,9 @@ export async function runSharedProspectorDiscovery(
       const weakLeadCount = validDiscoveredLeads.filter(
         (lead) => !lead.email || lead.email_confidence !== 'high'
       ).length
-      const missingLeadCount = Math.max(0, maxLeads - validDiscoveredLeads.length)
+      const missingLeadCount = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length)
+      // Make room for replacements of candidates that had a website but no usable contact.
+      // Provider batch sizes and the existing call/cost limits still bound the candidate pool.
       const signalGap = Math.max(0, targetStrongSignalLeads - metrics.strongSignalLeads)
       const websiteGap = Math.max(0, websiteTarget - metrics.leadsWithWebsite)
       const googleBudget = Math.max(
@@ -699,6 +752,7 @@ export async function runSharedProspectorDiscovery(
           missingLeadCount + Math.max(signalGap, websiteGap) + Math.min(weakLeadCount, 2)
         )
       )
+      const candidateLimit = validDiscoveredLeads.length + (missingLeadCount > 0 ? googleBudget : 0)
 
       send('⚡ Improving results with Google...')
       send(
@@ -715,16 +769,18 @@ export async function runSharedProspectorDiscovery(
             region,
             country,
             maxResults: googleBudget,
-            send,
+            send: sourceSend,
           })) || []
       } catch {
+        providerFailed = true
         send('⚠️ Google failed')
       }
 
       const googleEnrichmentTargets: DiscoveryLead[] = []
       const queuedKeys = new Set<string>()
 
-      for (const lead of googleResults) {
+      for (const lead of rankBusinessCandidates(query, googleResults).slice(0, googleBudget)) {
+        if (!acceptsBusinessType(lead)) continue
         const upserted = upsertDiscoveredLead(
           validDiscoveredLeads,
           createDiscoveryLead({
@@ -738,7 +794,7 @@ export async function runSharedProspectorDiscovery(
             cost_estimate: GOOGLE_DISCOVERY_COST_ESTIMATE,
           }),
           {
-            allowNew: validDiscoveredLeads.length < maxLeads,
+            allowNew: validDiscoveredLeads.length < candidateLimit,
           }
         )
 
@@ -775,6 +831,7 @@ export async function runSharedProspectorDiscovery(
         googleEnrichmentTargets.push(upserted.lead)
       }
 
+      send(`📦 discovered: ${validDiscoveredLeads.length}`)
       websiteChecks.plan(googleEnrichmentTargets.length)
       await enrichLeadQueue(googleEnrichmentTargets, send, sendPhase, websiteChecks)
       metrics = calculateMetrics(validDiscoveredLeads)
@@ -789,9 +846,56 @@ export async function runSharedProspectorDiscovery(
     send('✅ Serper satisfied quality targets')
   }
 
-  const fullyEnrichedLeads = validDiscoveredLeads.filter((lead) => isCountableLead(lead))
-  const finalEnrichedLeads = fullyEnrichedLeads.filter((lead) => hasContactMethod(lead))
-  const filteredOutWithoutContactCount = fullyEnrichedLeads.length - finalEnrichedLeads.length
+  // If the first raw batch filled the request, its unusable rows may have stopped the
+  // initial loop before the second permitted query. Spend that remaining query only
+  // when usable contacts still fall short after improvement; never raise the call limit.
+  for (const currentQuery of serperQueries.slice(serperCalls)) {
+    const missing = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length)
+    if (missing === 0) break
+    if (!canSpend(totalApiCost, SERPER_DISCOVERY_COST_ESTIMATE)) {
+      costLimitReached = true
+      break
+    }
+    serperCalls += 1
+    totalApiCost = roundCostEstimate(totalApiCost + SERPER_DISCOVERY_COST_ESTIMATE)
+    sendPhase('Improving results')
+    send(`🔎 ${currentQuery}`)
+    let refillResults: Awaited<ReturnType<typeof searchSerperMaps>> = []
+    try {
+      refillResults = (await searchSerperMaps({
+        query: currentQuery, city: defaultCity, region, maxResults: missing, send: sourceSend,
+      })) || []
+    } catch {
+      providerFailed = true
+      send('⚠️ Serper failed')
+    }
+    const targets: DiscoveryLead[] = []
+    const queued = new Set<string>()
+    for (const lead of rankBusinessCandidates(query, refillResults).slice(0, missing)) {
+      if (!acceptsBusinessType(lead)) continue
+      const incoming = createDiscoveryLead({
+        company_name: lead.company_name, website: lead.website || null,
+        phone: normalizePhone(lead.phone || null), city: lead.city || defaultCity,
+        industry: lead.industry || null, source: 'serper',
+        source_url: lead.source_url || lead.website || null, cost_estimate: SERPER_DISCOVERY_COST_ESTIMATE,
+      })
+      if (!isValidDiscoveredLead(incoming)) continue
+      const upserted = upsertDiscoveredLead(validDiscoveredLeads, incoming)
+      send(upserted.isNew ? `📥 ${lead.company_name}` : `🧩 improved ${lead.company_name}`)
+      if (!upserted.lead || !shouldAttemptEnrichment(upserted.lead)) continue
+      const key = buildDiscoveryLeadKey(upserted.lead)
+      if (queued.has(key)) continue
+      queued.add(key)
+      targets.push(upserted.lead)
+    }
+    send(`📦 discovered: ${validDiscoveredLeads.length}`)
+    websiteChecks.plan(targets.length)
+    await enrichLeadQueue(targets, send, sendPhase, websiteChecks)
+  }
+
+  const usable = usableLeads(validDiscoveredLeads)
+  const finalEnrichedLeads = usable.slice(0, maxLeads)
+  const filteredOutWithoutContactCount = validDiscoveredLeads.length - usable.length
   const locationLabel = formatLocationLabel(defaultCity, region, country)
   const summaryLine = formatLeadSummary(finalEnrichedLeads.length)
   const detailLine = null
@@ -816,8 +920,10 @@ export async function runSharedProspectorDiscovery(
     discoveredCount: validDiscoveredLeads.length,
     enrichedCount: finalEnrichedLeads.length,
     filteredOutWithoutContactCount,
+    filteredOutRelevanceCount: relevanceRejected.size,
+    stopReason: finalEnrichedLeads.length >= maxLeads ? 'target_reached' : providerFailed ? 'provider_error' : costLimitReached ? 'cost_limit' : 'search_limit',
     locationLabel,
     summaryLine,
-    detailLine,
+    detailLine: [detailLine, relevanceNote(finalEnrichedLeads)].filter(Boolean).join(' ') || null,
   }
 }

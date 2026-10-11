@@ -1,5 +1,7 @@
 'use client'
 
+import { describeLeadUsage } from '@/lib/scraper/save-discover-results'
+
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -37,6 +39,7 @@ import {
   writeStoredUsage,
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import { getAccessibleResults } from '@/lib/scraper/results-access'
 import {
   createAnalyticsSearchId,
   trackEvent,
@@ -195,6 +198,9 @@ function parseFilteredWithoutContactCount(logs: string[]) {
 
 
 type ScrapeResultPayload = {
+  shortfallMessage?: string | null
+  leads_used?: number
+  leads_limit?: number
   summaryLine: string
   detailLine: string | null
   limitMessage: string | null
@@ -346,8 +352,8 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const locationTarget = city.trim() || region.trim() || country.trim()
   const missingLocation = !locationTarget
   const hasMissingRequiredFields = missingBusinessType || missingLocation
-  const previewLeads = sessionSavedLeads.slice(0, 5)
-  const displayedPreviewLeads = privatePreview ? sessionSavedLeads : previewLeads
+  const fullResultsAccess = privatePreview || isAuthenticated
+  const displayedPreviewLeads = getAccessibleResults(sessionSavedLeads, fullResultsAccess)
   const privatePreviewLeadIds = privatePreview
     ? sessionSavedLeads.map((lead) => lead.id).filter(Boolean).join(',')
     : ''
@@ -407,18 +413,18 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   // Contact figures describe the businesses actually returned, and are shown only with the result.
   const settledContacts = completionResult ? summarizeContacts(completionResult.addedLeads) : null
   const settledNote = completionResult
-    ? describeSettledNote({
-        discovered: progress.discoveredFinal,
+    ? [completionResult.shortfallMessage, describeSettledNote({
+        discovered: completionResult.shortfallMessage ? null : progress.discoveredFinal,
         added: completionResult.addedCount,
-        duplicates: savedSummary.duplicates,
-        invalid: invalidFilteredCount,
+        duplicates: completionResult.shortfallMessage ? 0 : savedSummary.duplicates,
+        invalid: completionResult.shortfallMessage ? 0 : invalidFilteredCount,
         unreadable: countUnreadableWebsites(completionResult.addedLeads),
-      })
+      })].filter(Boolean).join(' · ') || null
     : null
   const resultRows = displayedPreviewLeads.map((lead) =>
     toResultRow(lead, { researchState: privatePreview ? getPrivatePreviewResearchStatus(lead) : null })
   )
-  const resultsNote = describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)
+  const resultsNote = `${fullResultsAccess ? '' : 'Preview · '}${describeShown(displayedPreviewLeads.length, sessionSavedLeads.length)}`
   const profileNote = privatePreview
     ? 'Business Profiles are a separate step; where research has finished, its synopsis appears here.'
     : isGuest
@@ -948,8 +954,12 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
         resultHandled = true
         latestResult = result
 
-        setProgress((current) => confirmDiscoveryResult(current))
+        setProgress((current) => confirmDiscoveryResult(current, result.discoveredCount))
         setCompletionResult(result)
+        if (isAuthenticated && profile?.id && Number.isInteger(result.leads_used) && result.leads_used! >= 0) {
+          setAuthenticatedLeadCount(result.leads_used!)
+          writeStoredUsage(profile.id, result.leads_used!, profile.plan)
+        }
         finalizeResult(result)
         finish('Discovery complete.')
 
@@ -1108,14 +1118,14 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   }
 
   function downloadPreviewLeads() {
-    const exportLeads = privatePreview ? sessionSavedLeads : previewLeads
+    const exportLeads = getAccessibleResults(sessionSavedLeads, fullResultsAccess)
     if (!exportLeads.length) return
 
     const csv = buildLeadCsv(exportLeads)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = 'alpa-leads-preview.csv'
+    link.download = fullResultsAccess ? 'alpa-leads.csv' : 'alpa-leads-preview.csv'
     link.click()
     URL.revokeObjectURL(link.href)
     void trackEvent('csv_downloaded', { leads_count: exportLeads.length })
@@ -1167,7 +1177,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             usageText={
               isPlanLoading || usageLoading
                 ? 'Preparing your workspace...'
-                : `${resolvedUsageCount} of ${formatLeadLimit(resolvedLeadLimit)} businesses discovered this month`
+                : describeLeadUsage(resolvedUsageCount, formatLeadLimit(resolvedLeadLimit), !isFree)
             }
             submitDisabled={loading || hasMissingRequiredFields}
             isMobile={isMobileViewport}
@@ -1245,7 +1255,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
                     disabled={!displayedPreviewLeads.length}
                     className="inline-flex min-h-[44px] items-center rounded-sm text-sm font-medium text-[#5b6372] transition-colors hover:text-[#0b1a33] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Export CSV
+                    {fullResultsAccess ? 'Export CSV' : 'Export preview CSV'}
                   </button>
                 </>
               }

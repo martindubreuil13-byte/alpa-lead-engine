@@ -51,6 +51,9 @@ export type EngineView = {
     /** 0–1 against the reported total; null when unknown. */
     ratio: number | null
     emails: number
+    possibleEmails: number
+    /** False for an older server whose live confidence counts were not reported. */
+    confidenceKnown: boolean
     durationMs: number | null
   }
   /** Aggregated signal counts. They never identify individual businesses. */
@@ -96,8 +99,9 @@ export function buildEngineView(input: EngineViewInput): EngineView {
       ? 'active'
       : 'pending'
 
-  const total = discoveryDone ? count : 0
-  const eligible = discoveryDone ? Math.min(planned ?? total, total) : 0
+  // Signals represent check attempts. Repeat visits may exceed the business count.
+  const total = discoveryDone ? Math.max(count, planned ?? 0) : 0
+  const eligible = discoveryDone ? planned ?? total : 0
   const checked = Math.min(completed, eligible)
   const withEmail = Math.min(emails, checked)
 
@@ -153,6 +157,8 @@ export function buildEngineView(input: EngineViewInput): EngineView {
       planned,
       ratio,
       emails,
+      possibleEmails: checks?.possibleEmails ?? 0,
+      confidenceKnown: checks?.sequence !== undefined,
       durationMs: stageDurationMs(timings.enrichStartedAt, timings.enrichAt, nowMs),
     },
     signals: { total, eligible, checked, withEmail },
@@ -163,10 +169,21 @@ export function buildEngineView(input: EngineViewInput): EngineView {
 
 export type SignalState = 'email' | 'checked' | 'waiting' | 'skipped'
 
+/** The text alternative uses the same check totals as the visible fraction. */
+export function describeCheckSummary(enrich: EngineView['enrich']): string {
+  const checks = enrich.planned === null
+    ? `${enrich.completed} website ${enrich.completed === 1 ? 'check' : 'checks'} completed.`
+    : `${enrich.completed} of ${enrich.planned} website checks completed.`
+  const contacts = enrich.confidenceKnown
+    ? `${enrich.emails} ${enrich.emails === 1 ? 'business' : 'businesses'} with an email, ${enrich.possibleEmails} possible ${enrich.possibleEmails === 1 ? 'match' : 'matches'}.`
+    : `${enrich.emails} email matches found during checks; confidence totals are unavailable.`
+  return `${checks} ${contacts}`
+}
+
 /**
  * Aggregate signal states for the visual. The first `withEmail` signals are email-bearing,
  * the next checked ones are plain, the rest of the eligible ones wait, and any businesses with
- * no website to check are marked skipped. Position carries no meaning about a specific business.
+ * no check to perform are marked skipped. Position carries no meaning about a specific business.
  */
 export function getSignalStates(signals: EngineView['signals']): SignalState[] {
   return Array.from({ length: signals.total }, (_, index): SignalState => {

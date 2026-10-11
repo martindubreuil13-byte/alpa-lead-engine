@@ -1,9 +1,8 @@
 import { serperPlaceCategory } from "./category"
-import { SourceLead, SourceSearchInput } from "./types"
+import type { SourceLead, SourceSearchInput } from "./types"
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY!
 const MAX_SERPER_TILES = 2
-const SERPER_EARLY_STOP_LEADS = 10
 
 type SerperPlace = {
   title?: string
@@ -136,7 +135,7 @@ export async function searchSerperMaps(
   send?.(`🧭 Serper geo tiles: ${grid.length}`)
 
   for (const tile of grid) {
-    if (leads.length >= maxResults || leads.length >= SERPER_EARLY_STOP_LEADS) break
+    if (leads.length >= maxResults) break
 
     const places = await searchOneTile(
       query,
@@ -147,7 +146,7 @@ export async function searchSerperMaps(
     )
 
     for (const place of places) {
-      if (leads.length >= maxResults || leads.length >= SERPER_EARLY_STOP_LEADS) break
+      if (leads.length >= maxResults) break
 
       const company = String(place.title || "").trim()
       const website = place.website || null

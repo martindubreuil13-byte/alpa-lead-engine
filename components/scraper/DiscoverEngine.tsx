@@ -2,7 +2,7 @@
 
 import { useRef, type MutableRefObject } from 'react'
 
-import { getSignalStates, type EngineView } from '@/lib/scraper/engine-view'
+import { describeCheckSummary, getSignalStates, type EngineView } from '@/lib/scraper/engine-view'
 import { describeContacts, describePossibleEmails, type ContactSummary } from '@/lib/scraper/results-summary'
 
 import ActivityStrip, { type ActivityStripItem } from './ActivityStrip'
@@ -178,20 +178,32 @@ export default function DiscoverEngine({
 
             {focus === 'enrich' ? (
               <div key="enrich" className="engine-reveal">
-                <p className={`${LABEL} mt-8`}>{enrich.state === 'complete' ? 'Websites checked' : 'Checking websites'}</p>
+                <p className={`${LABEL} mt-8`}>{enrich.state === 'complete' ? 'Website checks completed' : 'Checking websites'}</p>
                 <p className="engine-count mt-4 font-display text-7xl leading-none tabular-nums text-white sm:text-9xl">
                   {enrich.state === 'pending' ? '–' : enrich.planned === 0 ? '0' : fraction}
                 </p>
                 <SignalField
                   states={states}
-                  summary={`${view.signals.checked} of ${view.signals.eligible} websites checked, ${view.signals.withEmail} with an email address found.`}
+                  summary={describeCheckSummary(enrich)}
                 />
                 <div className="mt-4 min-h-[1.5rem] text-xs uppercase tracking-[0.2em]">
                   {enrich.emails > 0 || enrich.state === 'complete' ? (
                     <p className="text-[#d8c28a]">
-                      {enrich.emails} email {enrich.emails === 1 ? 'address' : 'addresses'} found
+                      {enrich.confidenceKnown
+                        ? `${enrich.emails} ${enrich.emails === 1 ? 'business' : 'businesses'} with an email`
+                        : `${enrich.emails} email ${enrich.emails === 1 ? 'match' : 'matches'} found during checks`}
                     </p>
                   ) : null}
+                  {enrich.possibleEmails > 0 ? (
+                    <p className="mt-2 text-white/65">
+                      {enrich.possibleEmails} possible {enrich.possibleEmails === 1 ? 'email' : 'emails'} counted separately (lower confidence)
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-white/55 normal-case tracking-normal">
+                    {enrich.confidenceKnown
+                      ? 'Checks include repeat visits. Email totals count each discovered business once.'
+                      : 'Checks include repeat visits. Email confidence totals are unavailable.'}
+                  </p>
                   {view.stalled ? (
                     <p role="status" className="mt-2 text-white/75">
                       Still working. This is taking longer than usual.
@@ -204,7 +216,7 @@ export default function DiscoverEngine({
             {settled ? (
               <div key="settled" className="engine-reveal">
                 {contactParts ? (
-                  <p className="mt-5 text-base tabular-nums text-white/85 sm:text-lg">{contactParts.join('  ·  ')}</p>
+                  <p className="mt-5 text-base tabular-nums text-white/85 sm:text-lg">In your results: {contactParts.join('  ·  ')}</p>
                 ) : null}
                 {possibleEmails ? <p className="mt-2 text-xs text-white/55">{possibleEmails}</p> : null}
                 {settledNote ? <p className="mt-2 text-xs text-white/55">{settledNote}</p> : null}

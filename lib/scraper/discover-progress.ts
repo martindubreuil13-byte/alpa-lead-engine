@@ -38,7 +38,7 @@ export type DiscoveryProgress = {
   /** The authoritative `result` event arrived. */
   resultConfirmed: boolean
   /** Authoritative website-check totals from `progress` events; null until announced. */
-  checks: { planned: number; completed: number; emailsFound: number } | null
+  checks: { planned: number; completed: number; emailsFound: number; possibleEmails?: number; sequence?: number } | null
   /** Authoritative save totals from `progress` events; null until announced. */
   saves: {
     considered: number
@@ -138,15 +138,18 @@ export function applyDiscoveryLog(progress: DiscoveryProgress, message: string):
 /**
  * Merges a typed progress event. Counters only ever move forward (per-field max), so a
  * duplicated or out-of-order event is harmless and totals never push a ratio past 100%.
+ * Sequenced contact snapshots replace email totals: a new website can invalidate an old match.
  */
 export function applyProgressEvent(progress: DiscoveryProgress, event: ScrapeProgressEvent): DiscoveryProgress {
   if (event.stage === 'checking') {
     const previous = progress.checks ?? { planned: 0, completed: 0, emailsFound: 0 }
+    if (previous.sequence !== undefined && (event.sequence === undefined || event.sequence <= previous.sequence)) return progress
     const planned = Math.max(previous.planned, event.planned)
     const next = {
       planned,
       completed: Math.min(Math.max(previous.completed, event.completed), planned),
-      emailsFound: Math.max(previous.emailsFound, event.emailsFound),
+      emailsFound: event.sequence !== undefined ? event.emailsFound : Math.max(previous.emailsFound, event.emailsFound),
+      ...(event.sequence !== undefined ? { sequence: event.sequence, possibleEmails: event.possibleEmails ?? 0 } : {}),
     }
     if (progress.checks && JSON.stringify(progress.checks) === JSON.stringify(next)) return progress
     return { ...progress, checks: next }
@@ -166,8 +169,11 @@ export function applyProgressEvent(progress: DiscoveryProgress, event: ScrapePro
   return { ...progress, saves: next }
 }
 
-export function confirmDiscoveryResult(progress: DiscoveryProgress): DiscoveryProgress {
-  return { ...progress, resultConfirmed: true }
+export function confirmDiscoveryResult(progress: DiscoveryProgress, discoveredCount?: number): DiscoveryProgress {
+  const authoritativeCount = typeof discoveredCount === 'number' && Number.isFinite(discoveredCount) && discoveredCount >= 0
+    ? Math.floor(discoveredCount)
+    : progress.discoveredFinal
+  return { ...progress, discoveredFinal: authoritativeCount, searchingMore: false, resultConfirmed: true }
 }
 
 /**
@@ -176,8 +182,9 @@ export function confirmDiscoveryResult(progress: DiscoveryProgress): DiscoveryPr
  * interpolated; if the stream reports 0 then 10 in one burst, the value is 0 then 10.
  */
 export function getDiscoveredCount(progress: DiscoveryProgress, requestedCount: number | null): number {
-  if (progress.discoveredFinal !== null) return progress.discoveredFinal
-  return requestedCount ? Math.min(progress.candidatesFound, requestedCount) : progress.candidatesFound
+  if (progress.discoveredFinal !== null && !progress.searchingMore) return progress.discoveredFinal
+  const found = Math.max(progress.discoveredFinal ?? 0, progress.candidatesFound)
+  return requestedCount ? Math.min(found, requestedCount) : found
 }
 
 export type StageView = {
@@ -206,9 +213,7 @@ export function getStageViews(
   const { running } = options
 
   // Stage 1: finding businesses (real target = requested count)
-  const found =
-    progress.discoveredFinal ??
-    (requested ? Math.min(progress.candidatesFound, requested) : progress.candidatesFound)
+  const found = getDiscoveredCount(progress, requested)
   const findingComplete = progress.discoveredFinal !== null && !progress.searchingMore
   const findingState: StageState = findingComplete ? 'complete' : running ? 'active' : 'pending'
 
@@ -249,7 +254,7 @@ export function getStageViews(
       value: noWork ? 'No websites to check' : `${checks.completed} of ${checks.planned}`,
       detail: noWork
         ? 'No businesses had a website to check'
-        : `${pluralize(checks.emailsFound, 'email')} found`,
+        : `${pluralize(checks.emailsFound, 'email')} found${checks.possibleEmails ? ` · ${pluralize(checks.possibleEmails, 'possible email')}` : ''}`,
       progress: state === 'complete' ? 100 : ratio,
       indeterminate: false,
     }

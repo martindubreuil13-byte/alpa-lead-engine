@@ -12,6 +12,7 @@ import {
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
+import { describeSearchShortfall, type DiscoveryStopReason } from '@/lib/scraper/discovery-outcome'
 import { enrichEmail } from '@/lib/scraper/email-enrichment'
 import type { EmailInspection } from '@/lib/scraper/email-inspection'
 import { buildLeadInsertPayload, buildResultLead, toLeadRow } from '@/lib/scraper/lead-payload'
@@ -19,6 +20,7 @@ import { createSaveTracker, type ScrapeProgressEvent } from '@/lib/scraper/progr
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getDiscoverCapacity, saveDiscoverResults, type DiscoverCapacity } from '@/lib/scraper/save-discover-results'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
@@ -51,6 +53,7 @@ type ScrapeConfig = {
   outputLeadLimit: number
   userId: string | null
   workerEligible: boolean
+  accounting?: { runId: string; limit: number; monthly: boolean }
 }
 
 type DiscoverySource = 'serper' | 'google' | 'hybrid'
@@ -105,6 +108,9 @@ type SaveLeadResult =
     }
 
 type ScrapeResultPayload = {
+  requestedCount?: number
+  stopReason?: DiscoveryStopReason
+  shortfallMessage?: string | null
   summaryLine: string
   detailLine: string | null
   limitMessage: string | null
@@ -816,7 +822,7 @@ async function runScraper(
     const validDiscoveredLeads = discovery.discoveredLeads
     const finalEnrichedLeads = discovery.finalEnrichedLeads
     const filteredOutWithoutContactCount = discovery.filteredOutWithoutContactCount
-    const allowedOutputCount = Math.max(0, outputLeadLimit)
+    let allowedOutputCount = Math.max(0, outputLeadLimit)
     const locationLabel = discovery.locationLabel
     const summaryLine = discovery.summaryLine
     const detailLine = discovery.detailLine
@@ -826,6 +832,7 @@ async function runScraper(
     let invalidCount = 0
     let dbErrorCount = 0
     const addedLeads: TrialLead[] = []
+    let confirmedCapacity: DiscoverCapacity | null = null
 
     // Save progress: announced once up front, then after each attempt finishes.
     const saveTracker = createSaveTracker(
@@ -845,6 +852,43 @@ async function runScraper(
         options.onGuestLead?.(guestLead)
         addedCount += 1
         saveTracker.record('saved')
+      }
+    } else if (config.accounting && userId) {
+      const savedBatch = await saveDiscoverResults(createAdminClient(), {
+        runId: config.accounting.runId,
+        userId,
+        limit: config.accounting.limit,
+        monthly: config.accounting.monthly,
+        leads: finalEnrichedLeads.map((lead) => toLeadRow(buildLeadInsertPayload(lead, userId))),
+      })
+      confirmedCapacity = savedBatch
+      // Capacity is rechecked inside the transaction, including competing runs.
+      if (savedBatch.outcomes.some((outcome) => outcome.status === 'limit')) {
+        allowedOutputCount = savedBatch.outcomes.filter((outcome) => outcome.status === 'saved').length
+      }
+      for (const outcome of savedBatch.outcomes) {
+        const lead = finalEnrichedLeads[outcome.index]
+        if (outcome.status === 'saved' && outcome.id) {
+          addedLeads.push({ ...createGuestLead(lead), id: outcome.id })
+          addedCount += 1
+          // Queueing occurs after the atomic save and cannot discard its confirmed result.
+          try {
+            const queued = await enqueueLeadEnrichment(outcome.id, supabase, { workerEligible: false })
+            if (!queued.ok) console.error('[scrape] queue handoff failed', outcome.id)
+          } catch {
+            console.error('[scrape] queue handoff unavailable', outcome.id)
+          }
+          saveTracker.record('saved')
+        } else if (outcome.status === 'duplicate') {
+          duplicateCount += 1
+          saveTracker.record('duplicate')
+        } else if (outcome.status === 'invalid') {
+          invalidCount += 1
+          saveTracker.record('invalid')
+        } else if (outcome.status === 'failed') {
+          dbErrorCount += 1
+          saveTracker.record('failed')
+        }
       }
     } else {
       for (const lead of finalEnrichedLeads) {
@@ -965,6 +1009,19 @@ async function runScraper(
         : null
 
     options?.onResult?.({
+      requestedCount: maxLeads,
+      stopReason: discovery.stopReason,
+      shortfallMessage: describeSearchShortfall({
+        requested: maxLeads,
+        added: addedCount,
+        outputLimit: allowedOutputCount,
+        stopReason: discovery.stopReason,
+        duplicates: duplicateCount,
+        invalid: invalidCount,
+        failed: dbErrorCount,
+        withoutContact: filteredOutWithoutContactCount,
+        irrelevant: discovery.filteredOutRelevanceCount,
+      }),
       summaryLine,
       detailLine,
       limitMessage,
@@ -973,6 +1030,12 @@ async function runScraper(
       enrichedCount: finalEnrichedLeads.length,
       addedCount,
       addedLeads,
+      ...(confirmedCapacity ? {
+        leads_used: confirmedCapacity.leads_used,
+        leads_limit: confirmedCapacity.leads_limit,
+        current_period_end: confirmedCapacity.current_period_end,
+        usage_warning: getUsageWarning(confirmedCapacity.leads_used, confirmedCapacity.leads_limit),
+      } : {}),
     })
 
     if (limitMessage) {
@@ -1060,11 +1123,15 @@ export async function POST(req: Request) {
   }
 
   const requestedLeadCount = Number(body.maxLeads || 10)
+  if (!Number.isInteger(requestedLeadCount) || requestedLeadCount < 1 || requestedLeadCount > 50) {
+    return createSseResponse('❌ invalid input', 400)
+  }
 
   let authenticatedPlan = 'free'
   let trackedUsageRow: UsageRow | null = null
   let leadsLimit = 25
   let currentUsage = 0
+  let usesMonthlyAccounting = false
 
   if (isGuestMode) {
     leadsLimit = 25
@@ -1082,6 +1149,9 @@ export async function POST(req: Request) {
     ])
 
     authenticatedPlan = subscription.subscription_active ? subscription.plan : 'free'
+    if (count === null && isPrivatePreview) {
+      return createSseResponse('❌ fatal: Lead allowance could not be checked. No search was started.', 503)
+    }
     currentUsage = count ?? 0
     leadsLimit = getLeadLimit(authenticatedPlan)
 
@@ -1095,7 +1165,16 @@ export async function POST(req: Request) {
       leads_limit: leadsLimit,
     })
 
-    if (subscription.subscription_active || authenticatedPlan === 'admin') {
+    const monthly = subscription.subscription_active || authenticatedPlan === 'admin'
+    usesMonthlyAccounting = monthly
+    if (!isPrivatePreview) {
+      try {
+        const capacity = await getDiscoverCapacity(createAdminClient(), user.id, leadsLimit, monthly)
+        currentUsage = capacity.leads_used
+      } catch {
+        return createSseResponse('❌ fatal: Lead accounting is unavailable. No search was started.', 503)
+      }
+    } else if (monthly) {
       trackedUsageRow = await getOrCreateCurrentUsageRow(createAdminClient(), user.id, leadsLimit)
       currentUsage = trackedUsageRow.leads_used
 
@@ -1109,6 +1188,9 @@ export async function POST(req: Request) {
   }
 
   const remainingCapacity = Math.max(leadsLimit - currentUsage, 0)
+  if (remainingCapacity === 0) {
+    return createSseResponse('❌ fatal: You have reached your lead limit.', 403)
+  }
 
   const config: ScrapeConfig = {
     query: String(body.query || '').trim(),
@@ -1119,6 +1201,10 @@ export async function POST(req: Request) {
     outputLeadLimit: remainingCapacity,
     userId: user?.id || null,
     workerEligible: isPrivatePreview,
+    accounting: user && !isPrivatePreview ? {
+      runId: crypto.randomUUID(), limit: leadsLimit,
+      monthly: usesMonthlyAccounting,
+    } : undefined,
   }
 
   const encoder = new TextEncoder()
@@ -1128,7 +1214,11 @@ export async function POST(req: Request) {
       let latestResult: ScrapeResultPayload | null = null
 
       const emit = (payload: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+        } catch {
+          // A closed browser stream must not interrupt a committed save or its confirmation handling.
+        }
       }
 
       const send = (msg: string) => {
@@ -1193,12 +1283,8 @@ export async function POST(req: Request) {
             send(`⚠️ usage update skipped: ${usageError?.message || 'unknown error'}`)
             resultPayload = {
               ...finalResult,
-              leads_used: trackedUsageRow.leads_used + finalResult.addedCount,
+              detailLine: [finalResult.detailLine, 'Usage could not be confirmed. Check your saved leads before repeating the search.'].filter(Boolean).join(' '),
               leads_limit: trackedUsageRow.leads_limit,
-              usage_warning: getUsageWarning(
-                trackedUsageRow.leads_used + finalResult.addedCount,
-                trackedUsageRow.leads_limit
-              ),
               current_period_end: trackedUsageRow.period_end,
             }
           }
@@ -1217,7 +1303,7 @@ export async function POST(req: Request) {
         }
       }
 
-      controller.close()
+      try { controller.close() } catch { /* the browser already closed its stream */ }
     },
     cancel() {},
   })

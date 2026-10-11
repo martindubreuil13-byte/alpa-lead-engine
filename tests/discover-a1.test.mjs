@@ -180,7 +180,8 @@ test('signals never exceed what happened and appear only after discovery complet
   assert.equal(getSignalStates(view(fold(['📥 A', '📥 B'])).signals).length, 0)
   const progress = applyProgressEvent(fold(['📦 discovered: 4']), { type: 'progress', stage: 'checking', planned: 99, completed: 99, emailsFound: 99 })
   const s = view(progress, { holdMs: 0 }).signals
-  assert.ok(s.total === 4 && s.eligible <= s.total && s.checked <= s.eligible && s.withEmail <= s.checked)
+  // Signals represent reported check attempts, which may exceed unique businesses on repeat visits.
+  assert.ok(s.total === 99 && s.eligible === 99 && s.checked === 99 && s.withEmail <= s.checked)
   assert.match(signals, /does\s+not identify a particular business|aggregate/i)
 })
 
@@ -326,7 +327,7 @@ test('the page keeps validation, result options, usage text, refs and the dashbo
   assert.match(page, /onResultCountChange=\{setMaxLeads\}/)
   assert.match(page, /onSubmit=\{\(\) => void runScrape\(\)\}/)
   assert.match(page, /businessTypeRef=\{businessTypeRef\}/)
-  assert.match(page, /businesses discovered this month/)
+  assert.match(page, /describeLeadUsage\(resolvedUsageCount, formatLeadLimit\(resolvedLeadLimit\), !isFree\)/)
   assert.match(page, /params\.get\('q'\)/)
   assert.match(page, /submitDisabled=\{loading \|\| hasMissingRequiredFields\}/)
 })
