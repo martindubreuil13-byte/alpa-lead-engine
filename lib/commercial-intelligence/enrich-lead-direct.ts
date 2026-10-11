@@ -1,6 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { extractWebsiteSnapshot } from './extract-website-snapshot'
 import { generateBusinessSignals } from './generate-business-signals'
+import { RESEARCH_FETCH_TIMEOUT_MS } from './safe-website-fetch'
 import { generateCommercialProfile } from './generate-commercial-profile'
 import { hasUsableProfile } from './research-completion'
 import { createResearchDeadline, ResearchDeadlineError, RESEARCH_DEADLINE_MS } from './research-deadline'
@@ -167,7 +168,7 @@ export async function enrichLeadDirect(
     const research = await runResearchStages(
       lead.website,
       {
-        snapshot: (website, { signal }) => extractWebsiteSnapshot(website, { fetchOptions: { signal } }),
+        snapshot: (website, { signal }) => extractWebsiteSnapshot(website, { fetchOptions: { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS } }),
         signals: (website, { signal }) => generateBusinessSignals(website, { signal }),
         profile: (website, snapshot, signals, { signal }) => generateCommercialProfile(website, snapshot, signals, { signal }),
       },

@@ -1,5 +1,5 @@
 import { load } from 'cheerio'
-import { normalizeWebsiteUrl, safeFetchWebsite } from './safe-website-fetch'
+import { normalizeWebsiteUrl, RESEARCH_FETCH_TIMEOUT_MS, safeFetchWebsite } from './safe-website-fetch'
 import type { BusinessSignals, ExtractionResult } from './types'
 
 interface PageAnalysisResult {
@@ -102,7 +102,7 @@ export async function generateBusinessSignals(
 
 async function fetchPage(url: string, signal?: AbortSignal): Promise<PageAnalysisResult | null> {
   try {
-    const response = await safeFetchWebsite(url, { signal })
+    const response = await safeFetchWebsite(url, { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS })
 
     return {
       html: response.html,

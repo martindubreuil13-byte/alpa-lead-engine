@@ -8,6 +8,8 @@ import { getWebsiteUserAgent } from './user-agent.ts'
 export { isNonPublicAddress }
 
 const DEFAULT_TIMEOUT_MS = 8_000
+/** One website-fetch attempt during research: lookup, redirects and the page body together. Not the whole profile. */
+export const RESEARCH_FETCH_TIMEOUT_MS = 5_000
 const DEFAULT_MAX_BYTES = 1_000_000
 const DEFAULT_MAX_REDIRECTS = 3
 
@@ -22,6 +24,8 @@ export type WebsiteFetchResult = {
 
 export type WebsiteFetchOptions = {
   timeoutMs?: number
+  /** A limit for the whole call (hostname lookups, every redirect hop and the body), on top of the per-hop `timeoutMs`. */
+  totalTimeoutMs?: number
   maxBytes?: number
   maxRedirects?: number
   fetchImpl?: typeof fetch
@@ -119,6 +123,7 @@ export async function safeFetchWebsite(
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
   const startedAt = Date.now()
+  const totalDeadline = options.totalTimeoutMs === undefined ? Number.POSITIVE_INFINITY : startedAt + options.totalTimeoutMs
 
   let currentUrl = normalizeWebsiteUrl(input)
 
@@ -126,13 +131,18 @@ export async function safeFetchWebsite(
     if (options.signal?.aborted) {
       throw new WebsiteFetchError('FETCH_FAILED', 'Website request timed out', { failure: 'timeout' })
     }
-    const parsedUrl = await assertPublicHttpUrl(currentUrl, resolveHostname, timeoutMs)
+    // Each hop gets what is left of the whole-call limit, so a slow lookup or a chain of redirects cannot add up past it.
+    const hopMs = Math.min(timeoutMs, totalDeadline - Date.now())
+    if (hopMs <= 0) {
+      throw new WebsiteFetchError('FETCH_FAILED', 'Website request timed out', { failure: 'timeout' })
+    }
+    const parsedUrl = await assertPublicHttpUrl(currentUrl, resolveHostname, hopMs)
     const controller = new AbortController()
     let timedOut = false
     const timeout = setTimeout(() => {
       timedOut = true
       controller.abort()
-    }, timeoutMs)
+    }, Math.max(Math.min(hopMs, totalDeadline - Date.now()), 1))
     const onOuterAbort = () => {
       timedOut = true
       controller.abort()
@@ -163,7 +173,7 @@ export async function safeFetchWebsite(
         const target = new URL(location, parsedUrl)
         // Unsafe targets (private address, bad scheme, credentials) are security failures and are
         // reported as such before the softer "left the business website" rule is considered.
-        await assertPublicHttpUrl(target.toString(), resolveHostname, timeoutMs)
+        await assertPublicHttpUrl(target.toString(), resolveHostname, Math.max(Math.min(timeoutMs, totalDeadline - Date.now()), 1))
         if (options.isRedirectAllowed && !options.isRedirectAllowed(target)) {
           // The site moved elsewhere; that is an availability result, not a security event.
           throw new WebsiteFetchError('UNSAFE_URL', 'Redirect left the business website', { failure: 'unavailable' })

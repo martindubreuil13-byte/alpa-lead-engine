@@ -41,7 +41,7 @@ import {
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
 import { withIntelligence } from '@/lib/intelligence/row-intelligence'
-import { describeProfileNote, toBackgroundStage } from '@/lib/intelligence/run-progress'
+import { describeProfileNote } from '@/lib/intelligence/run-progress'
 import { computeRunElapsed } from '@/lib/intelligence/run-clock'
 import { getAccessibleResults } from '@/lib/scraper/results-access'
 import { useResearchProgress } from '@/components/scraper/useResearchProgress'
@@ -439,8 +439,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     return () => clearInterval(timer)
   }, [researchLive, loading])
   const runElapsed = computeRunElapsed(runTimings.startedAt, research?.clock ?? null, nowMs || Date.now())
-  const researchWorking = researchLive && research?.stage?.phase !== 'not_running' && !runElapsed.backgrounded
-  const intelligenceStage = toBackgroundStage(research?.stage, research?.rows, runElapsed.backgrounded)
+  const researchWorking = researchLive && research?.stage?.phase !== 'not_running' 
   // Retry of one failed profile: the server re-checks ownership, the attempt allowance and every budget, and says why
   // when it cannot. On success the progress is fetched again so the row and Stage 03 follow the retry automatically.
   const retryProfile = async (leadId: string): Promise<string | null> => {
@@ -1276,6 +1275,17 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
           />
         ) : null}
 
+        {isSettled ? (
+          // Beside the Home link in the page's upper-left, not inside the engine.
+          <button
+            type="button"
+            onClick={resetSearchFlow}
+            className="-mt-2 inline-flex min-h-[44px] items-center self-start rounded text-sm text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
+          >
+            New search
+          </button>
+        ) : null}
+
         {showEngine ? (
           <DiscoverEngine
             view={engineView}
@@ -1283,10 +1293,9 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             results={isSettled ? settledContacts : null}
             settledNote={settledNote}
             onStop={abortMission}
-            onNewSearch={resetSearchFlow}
             footnote="Times are measured in your browser."
             rootRef={engineRef}
-            intelligence={intelligenceStage}
+            intelligence={research?.stage ?? null}
             runElapsed={runElapsed}
           />
         ) : null}
@@ -1301,13 +1310,13 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
                 the engine; they return to full clarity when it reaches its final state. Names, scrolling, clicks and export are untouched. */}
             <div
               data-research-working={researchWorking ? 'true' : undefined}
-              className={`rounded-sm motion-safe:transition-[opacity,filter] motion-safe:duration-1000 motion-safe:ease-out ${researchWorking ? 'opacity-[0.88] saturate-[0.82]' : 'opacity-100 saturate-100'}`}
+              className={`rounded-sm motion-safe:transition-[opacity,filter] motion-safe:duration-1000 motion-safe:ease-out ${researchWorking ? 'opacity-75 saturate-[0.82]' : 'opacity-100 saturate-100'}`}
             >
             <ResultsIndex
               rows={resultRows}
               headingRef={resultsHeadingRef}
               note={resultsNote}
-              profileNote={describeProfileNote(intelligenceStage) ?? profileNote}
+              profileNote={describeProfileNote(research?.stage) ?? profileNote}
               showResearchStatus={privatePreview}
               onRetryProfile={researchRunId ? retryProfile : undefined}
               emptyMessage="No businesses were added from this search. Try a different business type or location."

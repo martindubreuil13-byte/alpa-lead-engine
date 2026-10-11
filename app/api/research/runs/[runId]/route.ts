@@ -87,7 +87,9 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       summary,
       stage: describeIntelligence(summary, status.running),
       timing,
-      rows: progressRows.map((row) => ({ leadId: row.lead_id, state: row.state, reason: toProfileReason(row.state, row.last_error) })),
+      // One attempt per profile: a profile whose research failed or timed out is shown as unavailable (with its reason) so the
+      // run can finish. The stage counts above still come from the raw states, and a manual retry still checks the raw state.
+      rows: progressRows.map((row) => ({ leadId: row.lead_id, state: row.state === 'failed' || row.state === 'partial' ? 'unavailable' : row.state, reason: toProfileReason(row.state, row.last_error) })),
       profiles,
     },
     { headers: NO_STORE }

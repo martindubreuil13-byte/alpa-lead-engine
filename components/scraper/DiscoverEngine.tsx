@@ -25,7 +25,6 @@ type DiscoverEngineProps = {
   /** One quiet line under the settled summary (for example, what was filtered). */
   settledNote?: string | null
   onStop?: () => void
-  onNewSearch?: () => void
   /** Small print shown inside the expanded activity history. */
   footnote?: string
   /** The root element, so the page can scroll to it and tell whether focus is inside it. */
@@ -33,7 +32,7 @@ type DiscoverEngineProps = {
   /** Business Intelligence for this run, from the server. Absent keeps the A2.3 third-stage wording. */
   intelligence?: IntelligenceStage | null
   /** Run stopwatch (Discover start to the final Business Intelligence state) and Business Intelligence alone, in ms. */
-  runElapsed?: { totalMs: number | null; intelligenceMs: number | null; foregroundMs?: number | null; backgrounded?: boolean }
+  runElapsed?: { totalMs: number | null; intelligenceMs: number | null; final?: boolean }
 }
 
 function formatClock(milliseconds: number) {
@@ -49,24 +48,27 @@ function secondsPhrase(milliseconds: number | null) {
 
 // The compact timing panel: the run's wall-clock stopwatch is the centerpiece; the stage durations are quiet facts.
 // Every number is passed in from the existing timing logic (nothing is measured here), so the panel adds no timer.
-function TimingPanel({ totalMs, foregroundMs, discoverMs, contactsMs, intelligenceMs }: { totalMs: number; foregroundMs: number | null; discoverMs: number | null; contactsMs: number | null; intelligenceMs?: number | null }) {
+function TimingPanel({ totalMs, discoverMs, contactsMs, intelligenceMs, complete }: { complete?: boolean; totalMs: number; discoverMs: number | null; contactsMs: number | null; intelligenceMs?: number | null }) {
   const stages: Array<[string, number | null]> = [
     ['Discover', discoverMs],
     ['Contacts', contactsMs],
     ...(intelligenceMs === undefined ? [] : ([['Intelligence', intelligenceMs]] as Array<[string, number | null]>)),
   ]
-  // Past the foreground budget the big figure is the frozen length of the presented experience, named as such; the true
-  // research time keeps running in the Intelligence column until every profile has ended.
-  const backgrounded = foregroundMs !== null
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
-      <p className="text-[9px] font-medium tracking-[0.24em] text-[#d8c28a]/90">{backgrounded ? 'Experience time' : 'Total elapsed'}</p>
-      <p className="font-display text-2xl leading-tight tabular-nums text-white sm:text-3xl">{formatClock(backgrounded ? foregroundMs : totalMs)}</p>
+    <div
+      className={`rounded-lg border bg-white/[0.04] px-4 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm motion-safe:transition-colors motion-safe:duration-1000 ${
+        complete ? 'border-[#d8c28a]/60' : 'border-white/10'
+      }`}
+    >
+      <p className="text-[10px] font-medium tracking-[0.24em] text-[#d8c28a]/90">
+        {complete ? 'Research complete · total elapsed' : 'Total elapsed'}
+      </p>
+      <p className="font-display text-5xl leading-none tabular-nums text-white sm:text-7xl">{formatClock(totalMs)}</p>
       <dl className="mt-1 flex justify-end gap-3 border-t border-white/10 pt-1.5 text-[9px] tracking-[0.14em] text-white/50 sm:gap-4">
         {stages.map(([name, ms]) => (
           <div key={name} className="text-right">
             <dt>{name}</dt>
-            <dd className="mt-0.5 text-[11px] tracking-normal tabular-nums text-white/75">{ms === null ? '–' : formatStageDuration(ms)}{backgrounded && name === 'Intelligence' ? ' · running' : ''}</dd>
+            <dd className="mt-0.5 text-[11px] tracking-normal tabular-nums text-white/75">{ms === null ? '–' : formatStageDuration(ms)}</dd>
           </div>
         ))}
       </dl>
@@ -101,7 +103,6 @@ export default function DiscoverEngine({
   results,
   settledNote,
   onStop,
-  onNewSearch,
   footnote,
   rootRef,
   intelligence,
@@ -155,25 +156,16 @@ export default function DiscoverEngine({
 
       <div className="flex min-h-[2.25rem] items-start justify-between gap-4 text-xs uppercase tracking-[0.2em] text-white/70">
         <span className="truncate pt-2">{view.context}</span>
-        {showTiming || (settled && onNewSearch) ? (
+        {showTiming ? (
           <span className="flex items-start gap-3 sm:gap-4">
             {showTiming ? (
               <TimingPanel
                 totalMs={stopwatch ?? view.elapsedMs}
-                foregroundMs={runElapsed?.backgrounded ? (runElapsed.foregroundMs ?? null) : null}
                 discoverMs={discover.durationMs}
                 contactsMs={enrich.state === 'pending' ? null : enrich.durationMs}
                 intelligenceMs={intelligence ? (runElapsed?.intelligenceMs ?? null) : undefined}
+                complete={intelligence?.phase === 'complete' && runElapsed?.final === true}
               />
-            ) : null}
-            {settled && onNewSearch ? (
-              <button
-                type="button"
-                onClick={onNewSearch}
-                className="mt-1 rounded px-1 py-2 uppercase tracking-[0.16em] text-white/70 transition hover:text-[#d8c28a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8c28a]"
-              >
-                New search
-              </button>
             ) : null}
           </span>
         ) : null}

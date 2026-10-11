@@ -77,7 +77,7 @@ export function summarizeRun(rows: RunProgressRow[], now = Date.now()): RunSumma
 /** A job waiting this long with none running, while research is on, is reported as slower than expected. */
 export const STALL_AFTER_SECONDS = 300
 
-export type IntelligencePhase = 'not_running' | 'preparing' | 'researching' | 'stalled' | 'background' | 'complete' | 'stopped'
+export type IntelligencePhase = 'not_running' | 'preparing' | 'researching' | 'stalled' | 'complete' | 'stopped'
 
 export type IntelligenceStage = {
   phase: IntelligencePhase
@@ -163,32 +163,6 @@ function describeStage(summary: RunSummary | null, researchRunning: boolean): In
   }
 
   return { phase: 'preparing', headline: 'Preparing business intelligence', detail: counts, ready, total, live: true }
-}
-
-/**
- * Once the foreground budget is spent, research that is still going is no longer presented as a waiting experience: a
- * calm summary of the real counts, the unfinished profiles named by their real state. The counts keep updating from the
- * same rows, and when the rest finish the stage simply becomes `complete` (the caller stops passing `backgrounded`).
- */
-export function toBackgroundStage(
-  stage: IntelligenceStage | null | undefined,
-  rows: Array<{ state: ProfileState }> | undefined,
-  backgrounded: boolean
-): IntelligenceStage | null {
-  if (!stage) return null
-  if (!backgrounded || !rows || !['preparing', 'researching', 'stalled'].includes(stage.phase)) return stage
-  const count = (state: ProfileState) => rows.filter((row) => row.state === state).length
-  const authorized = rows.filter((row) => row.state !== 'unavailable').length
-  const processing = count('researching')
-  const retrying = count('retry_pending')
-  const waiting = count('queued')
-  const parts = [
-    processing > 0 ? `${processing} still processing` : null,
-    retrying > 0 ? `${retrying} awaiting retry` : null,
-    waiting > 0 ? `${waiting} waiting to start` : null,
-    'continuing in the background',
-  ].filter(Boolean)
-  return { ...stage, phase: 'background', headline: `${stage.ready} of ${authorized} ${noun(authorized)} ready`, detail: parts.join(' · ') }
 }
 
 /**

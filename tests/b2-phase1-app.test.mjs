@@ -353,9 +353,9 @@ test('the third stage and rows: real state only, A2.3 wording when no run is fol
   const rail = read('components/scraper/EngineRail.tsx')
   assert.match(rail, /name="Business Profiles"/, 'A2.3 wording kept')
   assert.match(rail, /value="Not included in this search"/)
-  assert.match(rail, /intelligence\.phase === 'complete' \|\| intelligence\.phase === 'background' \? 'complete' : intelligence\.live \? 'active' : 'upcoming'/)
+  assert.match(rail, /intelligence\.phase === 'complete' \? 'complete' : intelligence\.live \? 'active' : 'upcoming'/)
   const page = read('app/dashboard/scraper/page.tsx')
-  assert.match(page, /intelligence=\{intelligenceStage\}/)
+  assert.match(page, /intelligence=\{research\?\.stage \?\? null\}/)
   assert.match(page, /enabled: isAuthenticated && !privatePreview/)
   const results = read('components/scraper/ResultsIndex.tsx')
   for (const required of ['From their website', 'Written by AI', 'How this profile was built', 'rel="noopener noreferrer"']) assert.ok(results.includes(required), required)
@@ -431,7 +431,7 @@ test('the Results line agrees with Stage 03 while a run is followed, and is unch
   assert.match(describeProfileNote(stage({ queued: 5 }, false)), /not currently running/)
   assert.match(describeProfileNote(stage({ ready: 5 }, true)), /written from each business's own website/)
   assert.ok(!/available separately/i.test(describeProfileNote(stage({ ready: 5 }, true))))
-  assert.match(read('app/dashboard/scraper/page.tsx'), /describeProfileNote\(intelligenceStage\) \?\? profileNote/)
+  assert.match(read('app/dashboard/scraper/page.tsx'), /describeProfileNote\(research\?\.stage\) \?\? profileNote/)
 })
 
 test('review-only pages answer 404 outside development and are imported by nothing in production', () => {

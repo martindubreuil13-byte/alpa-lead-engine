@@ -17,7 +17,7 @@ type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
 
 const TONE: Record<RailTone, { rule: string; label: string; value: string }> = {
   active: { rule: 'border-t-[#d8c28a]', label: 'text-white', value: 'text-white/90' },
-  complete: { rule: 'border-t-white/25', label: 'text-white/75', value: 'text-white/70' },
+  complete: { rule: 'border-t-white/30', label: 'text-white/85', value: 'text-white/80' },
   upcoming: { rule: 'border-t-white/10', label: 'text-white/55', value: 'text-white/55' },
   separate: { rule: 'border-t-white/20 border-dashed', label: 'text-white/65', value: 'text-white/60' },
 }
@@ -31,6 +31,7 @@ function RailItem({
   sub,
   working,
   progress,
+  origin = 'origin-left',
 }: {
   /** Omitted for a capability that is not a step of this search. */
   index?: string
@@ -44,13 +45,15 @@ function RailItem({
   working?: boolean
   /** Thin gold line, 0 to 1; omitted for stages without one. */
   progress?: number | null
+  /** Where the enlarged active stage grows from, so the end columns never push past the edge or into a neighbor. */
+  origin?: string
 }) {
   const style = TONE[tone]
   return (
     <li
       // The active stage is drawn slightly larger with a transform, so nothing around it moves; completed stages return to
       // normal size and upcoming ones stay quiet. Without motion preference the change is instant.
-      className={`origin-left border-t pt-3 transition-colors duration-700 motion-safe:transition-[color,border-color,transform,opacity] motion-safe:duration-700 ${style.rule} ${tone === 'active' ? 'scale-[1.06]' : 'scale-100'} ${tone === 'upcoming' ? 'opacity-80' : ''}`}
+      className={`${origin} border-t pt-3 transition-colors duration-700 motion-safe:transition-[color,border-color,transform,opacity] motion-safe:duration-700 ${style.rule} ${tone === 'active' ? 'scale-[1.13]' : 'scale-100'} ${tone === 'upcoming' ? 'opacity-50' : ''}`}
     >
       <div className={`flex items-center text-[10px] font-medium uppercase tracking-[0.14em] sm:text-xs sm:tracking-[0.2em] ${working ? 'text-[#d8c28a]' : style.label}`}>
         {working ? <span aria-hidden="true" className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#d8c28a] motion-safe:animate-pulse" /> : null}
@@ -121,6 +124,7 @@ export default function EngineRail({ view, intelligence, intelligenceMs }: Engin
       />
       <RailItem
         index="02"
+        origin="origin-center"
         name="Enrich"
         tone={enrich.state === 'complete' ? 'complete' : enrich.state === 'active' ? 'active' : 'upcoming'}
         value={enrichValue}
@@ -131,12 +135,13 @@ export default function EngineRail({ view, intelligence, intelligenceMs }: Engin
         // queued profile is never described as being researched.
         <RailItem
           index="03"
+          origin="origin-right"
           name="Business Intelligence"
           shortName="Intelligence"
-          tone={intelligence.phase === 'complete' || intelligence.phase === 'background' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
+          tone={intelligence.phase === 'complete' ? 'complete' : intelligence.live ? 'active' : 'upcoming'}
           value={intelligence.headline}
           sub={[intelligence.detail, formatStageDuration(intelligenceMs ?? null)].filter(Boolean).join(' · ')}
-          working={intelligence.live && intelligence.phase !== 'not_running' && intelligence.phase !== 'background'}
+          working={intelligence.live && intelligence.phase !== 'not_running'}
           progress={intelligence.progress}
         />
       ) : (

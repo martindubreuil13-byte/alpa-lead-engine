@@ -186,13 +186,17 @@ export default function ReplayStudio() {
       <p className="mt-2 text-xs text-white/60">{scenario.description}</p>
 
       <div className="mt-10">
+        {settled ? (
+          <button type="button" className="mb-2 inline-flex min-h-[44px] items-center text-sm text-white/70 transition hover:text-[#d8c28a]" onClick={() => restart()}>
+            New search
+          </button>
+        ) : null}
         <DiscoverEngine
           key={`${scenarioId}-${runKey}`}
           view={view}
           activity={state.activity}
           results={settled ? contacts : null}
           settledNote={settled ? note : null}
-          onNewSearch={() => restart()}
           footnote="Replay: all timings are illustrative."
           rootRef={engineRef}
           intelligence={research?.stage ?? null}

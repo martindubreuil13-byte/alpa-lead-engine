@@ -9,7 +9,6 @@ import { isResearchEnabled } from './research-switch.ts'
 
 export const WORKER_ROUTE = '/api/internal/cron/commercial-intelligence'
 const TICK_TIMEOUT_MS = 290_000
-const MAX_TICKS = 2
 
 export async function kickResearch(
   origin: string,
@@ -18,21 +17,16 @@ export async function kickResearch(
   const secret = options.secret ?? process.env.CRON_SECRET
   if (!(options.enabled ?? isResearchEnabled()) || !secret || !origin) return { ticks: 0 }
   const call = options.fetcher ?? fetch
-  let ticks = 0
-  while (ticks < MAX_TICKS) {
-    ticks += 1
-    try {
-      const response = await call(`${origin}${WORKER_ROUTE}`, {
-        headers: { authorization: `Bearer ${secret}` },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(TICK_TIMEOUT_MS),
-      })
-      const result = (await response.json().catch(() => null)) as { retrying?: number; disabled?: boolean } | null
-      // A second tick only when jobs were left waiting for a retry; otherwise the run is done or stopped.
-      if (!response.ok || !result || result.disabled || !(Number(result.retrying) > 0)) break
-    } catch {
-      break
-    }
+  // One tick: each profile gets one attempt, so there is nothing to wait for or poll. A tick processes the run's jobs in
+  // rounds until none is left to claim.
+  try {
+    await call(`${origin}${WORKER_ROUTE}`, {
+      headers: { authorization: `Bearer ${secret}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TICK_TIMEOUT_MS),
+    })
+  } catch {
+    // Nothing to do: the customer's results are unaffected, and the worker route enforces every limit itself.
   }
-  return { ticks }
+  return { ticks: 1 }
 }

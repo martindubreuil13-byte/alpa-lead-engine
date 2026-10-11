@@ -14,15 +14,13 @@ test('does nothing while research is off, without a secret or without an origin'
   assert.equal(calls, 0)
 })
 
-test('one authenticated tick against the worker route; no second tick when nothing awaits a retry', async () => {
+test('exactly one authenticated tick against the worker route, with no waiting or polling', async () => {
   const seen = []
-  const fetcher = async (url, init) => { seen.push([url, init.headers.authorization]); return { ok: true, json: async () => ({ claimed: 10, retrying: 0 }) } }
+  const fetcher = async (url, init) => { seen.push([url, init.headers.authorization]); return { ok: true, json: async () => ({ claimed: 10, retrying: 5 }) } }
   assert.deepEqual(await kickResearch('https://x.test', { secret: 's', enabled: true, fetcher }), { ticks: 1 })
   assert.deepEqual(seen, [['https://x.test/api/internal/cron/commercial-intelligence', 'Bearer s']])
 })
 
-test('a second tick only for retry-pending jobs, never more than two, and failures never throw', async () => {
-  assert.deepEqual(await kickResearch('https://x.test', { secret: 's', enabled: true, fetcher: reply({ retrying: 2 }) }), { ticks: 2 })
-  assert.deepEqual(await kickResearch('https://x.test', { secret: 's', enabled: true, fetcher: reply({ disabled: true, retrying: 5 }) }), { ticks: 1 })
+test('a failing request never throws', async () => {
   assert.deepEqual(await kickResearch('https://x.test', { secret: 's', enabled: true, fetcher: async () => { throw new Error('network') } }), { ticks: 1 })
 })
