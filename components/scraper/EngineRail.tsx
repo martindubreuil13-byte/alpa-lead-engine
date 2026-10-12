@@ -11,6 +11,8 @@ type EngineRailProps = {
   intelligence?: IntelligenceStage | null
   /** How long Business Intelligence has taken (live while it runs, frozen when it ends); null when unknown. */
   intelligenceMs?: number | null
+  /** Every business found was already in My Leads, so there is nothing new to research. */
+  noNewBusinesses?: boolean
 }
 
 type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
@@ -90,7 +92,7 @@ function RailItem({
 // The slim stage map beneath the focal area. It is deliberately quiet: small type, hairlines, no
 // large numbers. The active stage is marked by a gold hairline; completed stages stay as small
 // facts; Business Profiles are stated honestly as a separate step, never as part of this search.
-export default function EngineRail({ view, intelligence, intelligenceMs }: EngineRailProps) {
+export default function EngineRail({ view, intelligence, intelligenceMs, noNewBusinesses }: EngineRailProps) {
   const { discover, enrich } = view
 
   // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
@@ -143,6 +145,15 @@ export default function EngineRail({ view, intelligence, intelligenceMs }: Engin
           sub={[intelligence.detail, formatStageDuration(intelligenceMs ?? null)].filter(Boolean).join(' · ')}
           working={intelligence.live && intelligence.phase !== 'not_running'}
           progress={intelligence.progress}
+        />
+      ) : noNewBusinesses ? (
+        <RailItem
+          index="03"
+          name="Business Intelligence"
+          shortName="Intelligence"
+          tone="complete"
+          value="No new businesses to research."
+          origin="origin-right"
         />
       ) : (
         // A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words.

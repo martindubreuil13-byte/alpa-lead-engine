@@ -247,3 +247,51 @@ export function describeFiltering(input: { duplicates: number; invalid: number }
   ].filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' · ') : null
 }
+
+
+// ---------------------------------------------------------------------------------------------
+// What a finished search actually did, from the save receipt's own counts (nothing estimated)
+// ---------------------------------------------------------------------------------------------
+
+export type SearchOutcomeKind = 'new' | 'mixed' | 'all_duplicates' | 'none'
+
+export type SearchOutcome = {
+  kind: SearchOutcomeKind
+  /** Businesses presented to the save: new ones plus the ones already in My Leads. */
+  found: number
+  /** New businesses saved by this search. */
+  saved: number
+  /** Businesses the save reported as already in My Leads. */
+  alreadySaved: number
+}
+
+export function describeSearchOutcome(input: {
+  saved: number
+  alreadySaved: number
+  /** Businesses the save rejected for other reasons (invalid, could not be saved). */
+  otherUnsaved?: number
+  /** The customer's allowance stopped some businesses from being saved. */
+  limited?: boolean
+}): SearchOutcome {
+  const saved = Math.max(0, Math.floor(input.saved) || 0)
+  const alreadySaved = Math.max(0, Math.floor(input.alreadySaved) || 0)
+  const otherUnsaved = Math.max(0, Math.floor(input.otherUnsaved ?? 0) || 0)
+  const found = saved + alreadySaved + otherUnsaved
+  // "All were already saved" and "N found, M already saved" are claims about every business presented to the save. They are
+  // made only when nothing else kept a business out; otherwise the search's own shortfall note explains the result.
+  const exact = otherUnsaved === 0 && !input.limited
+  const kind: SearchOutcomeKind = exact && alreadySaved > 0 ? (saved > 0 ? 'mixed' : 'all_duplicates') : saved > 0 ? 'new' : 'none'
+  return { kind, found, saved, alreadySaved }
+}
+
+/** The quiet lines under the hero count. Empty when the search simply saved new businesses. */
+export function describeOutcomeLines(outcome: SearchOutcome): string[] {
+  if (outcome.kind === 'all_duplicates') {
+    return [
+      outcome.alreadySaved === 1 ? 'It is already in My Leads' : `All ${outcome.alreadySaved} are already in My Leads`,
+      'No new businesses added',
+    ]
+  }
+  if (outcome.kind === 'mixed') return [`${outcome.found} found · ${outcome.alreadySaved} already in My Leads`]
+  return []
+}

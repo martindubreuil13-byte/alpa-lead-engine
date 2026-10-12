@@ -3,7 +3,7 @@
 import { useRef, type MutableRefObject } from 'react'
 
 import { describeCheckSummary, getSignalStates, type EngineView } from '@/lib/scraper/engine-view'
-import { describeContacts, describePossibleEmails, type ContactSummary } from '@/lib/scraper/results-summary'
+import { describeContacts, describeOutcomeLines, describePossibleEmails, type ContactSummary, type SearchOutcome } from '@/lib/scraper/results-summary'
 
 import type { IntelligenceStage } from '@/lib/intelligence/run-progress'
 
@@ -29,6 +29,8 @@ type DiscoverEngineProps = {
   footnote?: string
   /** The root element, so the page can scroll to it and tell whether focus is inside it. */
   rootRef?: MutableRefObject<HTMLElement | null>
+  /** What the finished search did, from the save receipt's counts. Absent for guests and while searching. */
+  outcome?: SearchOutcome | null
   /** Business Intelligence for this run, from the server. Absent keeps the A2.3 third-stage wording. */
   intelligence?: IntelligenceStage | null
   /** Run stopwatch (Discover start to the final Business Intelligence state) and Business Intelligence alone, in ms. */
@@ -107,6 +109,7 @@ export default function DiscoverEngine({
   rootRef,
   intelligence,
   runElapsed,
+  outcome,
 }: DiscoverEngineProps) {
   const { focus, discover, enrich } = view
   const fallbackRef = useRef<HTMLElement | null>(null)
@@ -129,10 +132,16 @@ export default function DiscoverEngine({
 
   // The hero is what was delivered: the businesses that reached the results. Before that it is progress
   // toward the requested amount, never the number of candidates the search happened to look at.
-  const ready = settled && results ? results.businesses : discover.count
+  // When every business found was already saved, the hero is how many were found, with the reason below it; a bare zero would
+  // read as a failed search. Otherwise it is the new businesses this search saved.
+  const allDuplicates = settled && outcome?.kind === 'all_duplicates'
+  const ready = allDuplicates ? outcome!.found : settled && results ? results.businesses : discover.count
   const noun = ready === 1 ? 'business' : 'businesses'
+  const outcomeLines = settled && outcome ? describeOutcomeLines(outcome) : []
   const announcement = settled
-    ? `Search complete. ${ready} ${noun} ready.`
+    ? allDuplicates
+      ? `Search complete. ${outcomeLines.join('. ')}.`
+      : `Search complete. ${ready} new ${noun} saved.`
     : discover.state === 'complete'
       ? `${discover.count} ${discover.count === 1 ? 'business' : 'businesses'} found.`
       : ''
@@ -213,9 +222,13 @@ export default function DiscoverEngine({
             <p className={`engine-count font-display leading-none tabular-nums ${countSize}`}>{ready}</p>
             <p className={`${focus === 'enrich' ? 'mt-1 text-xs uppercase tracking-[0.2em] text-white/55' : `${LABEL} mt-4`}`}>
               {settled
-                ? ready === 1
-                  ? 'Business ready'
-                  : 'Businesses ready'
+                ? allDuplicates
+                  ? ready === 1
+                    ? 'Business found'
+                    : 'Businesses found'
+                  : ready === 1
+                    ? 'New business saved'
+                    : 'New businesses saved'
                 : discover.count === 1
                   ? 'Business found'
                   : 'Businesses found'}
@@ -266,7 +279,14 @@ export default function DiscoverEngine({
 
             {settled ? (
               <div key="settled" className="engine-reveal">
-                {contactParts ? (
+                {outcomeLines.length > 0 ? (
+                  <div className="mt-5 space-y-1 text-sm text-white/80 sm:text-base">
+                    {outcomeLines.map((line) => (
+                      <p key={line} className={allDuplicates && line.startsWith('No new') ? 'text-[#d8c28a]' : undefined}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {contactParts && !allDuplicates ? (
                   <p className="mt-5 text-base tabular-nums text-white/85 sm:text-lg">{contactParts.join('  ·  ')}</p>
                 ) : null}
                 {possibleEmails ? <p className="mt-2 text-xs text-white/55">{possibleEmails}</p> : null}
@@ -296,7 +316,7 @@ export default function DiscoverEngine({
       </div>
 
       {/* In search, the stage above is the only focus; the rail is a quiet footnote to it. */}
-      <EngineRail view={view} intelligence={intelligence} intelligenceMs={runElapsed?.intelligenceMs ?? null} />
+      <EngineRail view={view} intelligence={intelligence} intelligenceMs={runElapsed?.intelligenceMs ?? null} noNewBusinesses={allDuplicates} />
 
       {settled ? null : (
         <div className="mt-8 space-y-4">

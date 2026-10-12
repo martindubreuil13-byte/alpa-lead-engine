@@ -222,7 +222,7 @@ test('the Profile stage is only ever "upcoming" and offers a next step only afte
 // ---------------- composition and copy ----------------
 
 test('the primary composition carries minimal, accurate copy', () => {
-  for (const text of ['Searching for businesses', 'Businesses ready', 'Checking businesses', 'Businesses checked', 'FOUND']) {
+  for (const text of ['Searching for businesses', 'New businesses saved', 'Checking businesses', 'Businesses checked', 'FOUND']) {
     assert.ok((engine + rail).toUpperCase().includes(text.toUpperCase()), text)
   }
   // removed from the primary visual

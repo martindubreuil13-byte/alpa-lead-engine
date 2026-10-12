@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 
 import MyLeadsWorkspaceClient, { type MyLeadsLead } from './MyLeadsWorkspaceClient'
-import CommercialIntelligenceStatus from './CommercialIntelligenceStatus'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { deriveLeadProfileState } from '@/lib/intelligence/run-progress'
@@ -80,13 +79,10 @@ export default async function MyLeadsPage() {
   }))
 
   return (
-    <>
-      <CommercialIntelligenceStatus />
-      <MyLeadsWorkspaceClient
-        totalCount={totalLeadCount}
-        loadedCount={leadsResult.data?.length ?? 0}
-        initialLeads={leadsWithProfileState as unknown as MyLeadsLead[]}
-      />
-    </>
+    <MyLeadsWorkspaceClient
+      totalCount={totalLeadCount}
+      loadedCount={leadsResult.data?.length ?? 0}
+      initialLeads={leadsWithProfileState as unknown as MyLeadsLead[]}
+    />
   )
 }

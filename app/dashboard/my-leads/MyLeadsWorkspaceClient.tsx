@@ -463,7 +463,7 @@ export default function MyLeadsWorkspaceClient({
     return (
       <div className="py-24 space-y-3">
         <h2 className="text-lg font-semibold text-white">No archived leads</h2>
-        <p className="text-sm text-slate-400">Leads you archive will appear here for 30 days.</p>
+        <p className="text-sm text-slate-400">Leads you archive are kept here. You can restore them at any time.</p>
       </div>
     )
   }

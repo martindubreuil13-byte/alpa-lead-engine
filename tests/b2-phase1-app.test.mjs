@@ -36,14 +36,14 @@ const NOW = Date.parse('2026-10-11T10:01:00Z')
 
 test('every stage statement is a function of real counts: preparing, researching, complete, not running', () => {
   const preparing = describeIntelligence(summarizeRun(rows({ queued: 25 }), NOW), true)
-  assert.deepEqual([preparing.phase, preparing.headline, preparing.detail, preparing.live], ['preparing', 'Preparing business intelligence', '0 of 25 profiles ready', true])
+  assert.deepEqual([preparing.phase, preparing.headline, preparing.detail, preparing.live], ['preparing', 'Preparing business intelligence', '0 of 25 profiles generated', true])
 
   const researching = describeIntelligence(summarizeRun(rows({ ready: 12, researching: 4, queued: 9 }), NOW), true)
-  assert.deepEqual([researching.phase, researching.headline, researching.detail], ['researching', 'Research in progress', '12 of 25 profiles ready'])
+  assert.deepEqual([researching.phase, researching.headline, researching.detail], ['researching', 'Research in progress', '12 of 25 profiles generated'])
 
   const complete = describeIntelligence(summarizeRun(rows({ ready: 25 }), NOW), true)
-  assert.deepEqual([complete.phase, complete.headline, complete.live], ['complete', '25 business profiles ready', false])
-  assert.equal(describeIntelligence(summarizeRun(rows({ ready: 1 }), NOW), true).headline, '1 business profile ready')
+  assert.deepEqual([complete.phase, complete.headline, complete.live], ['complete', '25 business profiles generated', false])
+  assert.equal(describeIntelligence(summarizeRun(rows({ ready: 1 }), NOW), true).headline, '1 business profile generated')
 })
 
 test('"complete" is never shown while a job is unresolved; failures and gaps are stated, not hidden', () => {
@@ -53,7 +53,7 @@ test('"complete" is never shown while a job is unresolved; failures and gaps are
   }
   const done = describeIntelligence(summarizeRun(rows({ ready: 20, failed: 2, unavailable: 3 }), NOW), true)
   assert.equal(done.phase, 'complete')
-  assert.equal(done.headline, '20 business profiles ready')
+  assert.equal(done.headline, '20 business profiles generated')
   assert.equal(done.detail, '2 could not be completed · 3 unavailable')
   assert.equal(describeIntelligence(summarizeRun(rows({ ready: 20, failed: 5 }), NOW), true).ready, 20)
 })
@@ -93,7 +93,7 @@ test('a cancelled run reads as stopped; a finished profile is kept', () => {
   const cancelled = rows({ ready: 4, cancelled: 6 }).map((row) => ({ ...row, run_status: 'cancelled' }))
   const stage = describeIntelligence(summarizeRun(cancelled, NOW), true)
   assert.equal(stage.phase, 'stopped')
-  assert.equal(stage.headline, '4 business profiles ready')
+  assert.equal(stage.headline, '4 business profiles generated')
   assert.match(stage.detail, /6 stopped/)
   assert.equal(describeIntelligence(summarizeRun(rows({ cancelled: 5 }).map((row) => ({ ...row, run_status: 'cancelled' })), NOW), true).headline, 'Business intelligence stopped')
 })

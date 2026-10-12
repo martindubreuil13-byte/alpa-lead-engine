@@ -44,5 +44,5 @@ test('empty and odd input is returned safely; whitespace is tidied', () => {
 test('it is applied once, where every provider result becomes a discovery lead', () => {
   const shared = readFileSync('lib/scraper/run-scraper-shared.ts', 'utf8')
   assert.match(shared, /company_name: cleanBusinessName\(lead\.company_name\),/)
-  assert.equal((shared.match(/cleanBusinessName\(/g) ?? []).length, 1)
+  assert.equal((shared.match(/cleanBusinessName\(/g) ?? []).length, 2) // createDiscoveryLead, and the identity compared with saved leads (which carry the cleaned name)
 })

@@ -133,8 +133,12 @@ export function describeIntelligence(summary: RunSummary | null, researchRunning
 
 function describeStage(summary: RunSummary | null, researchRunning: boolean, breakdown?: UnavailableBreakdown | null): IntelligenceStage | null {
   if (!summary) return null
-  const { ready, total } = summary
-  const counts = `${ready} of ${total} ${noun(total)} ready`
+  const { ready } = summary
+  // Progress is measured against the businesses authorized for research, not every saved business: those without a website
+  // and those left out by the run limit are never researched. With none authorized there is nothing to count against.
+  const authorized = summary.total - summary.unavailable
+  const total = authorized
+  const counts = authorized > 0 ? `${ready} of ${authorized} ${noun(authorized)} generated` : 'No businesses authorized for research'
 
   if (summary.unresolved === 0) {
     const note = resolvedNote(summary, breakdown)
@@ -143,7 +147,7 @@ function describeStage(summary: RunSummary | null, researchRunning: boolean, bre
     }
     return {
       phase: summary.runStatus === 'cancelled' ? 'stopped' : 'complete',
-      headline: `${ready} business ${noun(ready)} ready`,
+      headline: `${ready} business ${noun(ready)} generated`,
       detail: note,
       ready,
       total,
@@ -211,7 +215,7 @@ export const ROW_LABEL: Record<ProfileState, string> = {
   queued: 'Business profile queued',
   researching: 'Researching this business',
   retry_pending: 'Business profile will be retried',
-  ready: 'Business profile ready',
+  ready: 'Business profile generated',
   partial: 'Only part of the profile could be built',
   failed: "Business profile couldn't be completed",
   unavailable: 'No business profile for this business',
@@ -319,5 +323,8 @@ export function deriveLeadProfileState(
 
 export const LEAD_PROFILE_LABEL: Record<LeadProfileState, string> = {
   ...ROW_LABEL,
+  // In My Leads a finished profile is a standing fact about the saved business, and "ready" is the word that page uses
+  // everywhere else (its filter and status lines); Discover says "generated" for what a live run produced.
+  ready: 'Business profile ready',
   not_started: 'Business profile not generated for this lead',
 }

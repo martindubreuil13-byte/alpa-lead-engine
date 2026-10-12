@@ -74,6 +74,7 @@ import DiscoverSearchForm from '@/components/scraper/DiscoverSearchForm'
 import {
   countUnreadableWebsites,
   describeSettledNote,
+  describeSearchOutcome,
   describeShown,
   summarizeContacts,
   toResultRow,
@@ -419,12 +420,25 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const showEngine = isLive || isSettled
   // Contact figures describe the businesses actually returned, and are shown only with the result.
   const settledContacts = completionResult ? summarizeContacts(completionResult.addedLeads) : null
+  // What the save receipt reported (never estimated): new businesses saved, and businesses already in My Leads. Guests have no
+  // saved library, so the outcome is for signed-in customers only.
+  const searchOutcome = completionResult && !isGuest
+    ? describeSearchOutcome({
+        saved: completionResult.addedLeads.length,
+        // The receipt's own count. A shortfall message exists whenever fewer than requested were added (including when all
+        // were already saved), so it does not decide whether this count is known; a missing receipt line reads as zero.
+        alreadySaved: savedSummary.duplicates,
+        otherUnsaved: savedSummary.invalid + savedSummary.dbErrors,
+        limited: Boolean(completionResult.limitMessage),
+      })
+    : null
   const settledNote = completionResult
     ? [completionResult.shortfallMessage, describeSettledNote({
         discovered: completionResult.shortfallMessage ? null : progress.discoveredFinal,
         added: completionResult.addedLeads.length,
         inspected: progress.checks?.completed ?? null,
-        duplicates: completionResult.shortfallMessage ? 0 : savedSummary.duplicates,
+        // Already-saved businesses are stated beside the count, so they are not repeated as "removed" here.
+        duplicates: completionResult.shortfallMessage || (searchOutcome && searchOutcome.alreadySaved > 0) ? 0 : savedSummary.duplicates,
         invalid: completionResult.shortfallMessage ? 0 : invalidFilteredCount,
         unreadable: countUnreadableWebsites(completionResult.addedLeads),
       })].filter(Boolean).join(' · ') || null
@@ -1297,6 +1311,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             rootRef={engineRef}
             intelligence={research?.stage ?? null}
             runElapsed={runElapsed}
+            outcome={searchOutcome}
           />
         ) : null}
 

@@ -45,7 +45,7 @@ test('providers and the pipeline no longer stamp the requested location on a bus
   assert.match(readFileSync('lib/sources/google.ts', 'utf8'), /extractCity\(details\?\.address_components \|\| \[\]\) \|\| null/)
   const shared = readFileSync('lib/scraper/run-scraper-shared.ts', 'utf8')
   assert.equal((shared.match(/city: lead\.city \|\| defaultCity/g) ?? []).length, 0)
-  assert.equal((shared.match(/city: lead\.city \|\| null/g) ?? []).length, 3)
+  assert.equal((shared.match(/city: lead\.city \|\| null/g) ?? []).length, 4) // three discovery leads, plus the identity compared against the customer's library
 })
 
 test('a bare two-letter ending is never read as a US state: it could be a country code', () => {

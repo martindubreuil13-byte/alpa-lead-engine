@@ -5,6 +5,7 @@ import { resolveCountry } from '@/lib/sources/country'
 import { cleanBusinessName } from '@/lib/sources/business-name'
 import { isConfirmedOutsideRequestedCountry } from './geographic-relevance'
 import { countsAsStrongEmail } from './email-intelligence'
+import { isKnownBusiness, knownBusinessKey, type ExistingBusinessIndex } from './existing-business-index'
 import { type EmailConfidence, getWebsiteHost, isBlockedWebsiteHost, normalizePhone } from '@/lib/validation'
 import { enrichEmailWithInspection } from '@/lib/scraper/email-enrichment'
 import { mergeInspection, type EmailInspection } from '@/lib/scraper/email-inspection'
@@ -40,6 +41,8 @@ export type SharedScrapeConfig = {
   country: string
   maxLeads: number
   mode?: 'deep' | 'fast'
+  /** The signed-in customer's existing businesses (loaded once per search, possibly still loading). Absent for guests. */
+  existingBusinesses?: Promise<ExistingBusinessIndex | null> | null
 }
 
 type DiscoverySource = 'serper' | 'google' | 'hybrid'
@@ -96,6 +99,8 @@ export type SharedProspectorDiscoveryResult = {
   filteredOutWithoutContactCount: number
   stopReason: DiscoveryStopReason
   filteredOutRelevanceCount: number
+  /** Businesses skipped before enrichment because the customer already has them (counted once each; not in the totals above). */
+  alreadySavedSkippedCount: number
   locationLabel: string
   summaryLine: string
   detailLine: string | null
@@ -592,6 +597,33 @@ export async function runSharedProspectorDiscovery(
     locationRejected.add(`${normalizeCompanyName(lead.company_name)}:${lead.country ?? ''}`)
     return false
   }
+  // Businesses the customer already has, recognised before any enrichment work is spent on them. The index is loaded once per
+  // search, in parallel with the first provider call. Each skipped business is counted once, and is NOT added to the
+  // discovered businesses, so discovery totals are not inflated. The save still re-checks every business (authoritative).
+  let existingIndexPending = config.existingBusinesses ?? null
+  let existingIndex: ExistingBusinessIndex | null = null
+  const knownSkipped = new Set<string>()
+  const ensureExistingIndex = async () => {
+    if (!existingIndexPending) return
+    const pending = existingIndexPending
+    existingIndexPending = null
+    existingIndex = await pending.catch(() => null)
+    if (!existingIndex) console.warn('[existing-businesses] index unavailable; no business is skipped before the save')
+    else if (!existingIndex.complete) console.warn('[existing-businesses] library larger than the index ceiling; only part is indexed', { indexed: existingIndex.size })
+  }
+  const skipsKnownBusiness = (lead: { company_name: string; city?: string | null; phone?: string | null; website?: string | null }) => {
+    // Compared exactly as it would be saved: the cleaned name, the provider's own city (never the searched one).
+    const identity = { company_name: cleanBusinessName(lead.company_name), city: lead.city || null, phone: lead.phone ?? null, website: lead.website ?? null }
+    if (!isKnownBusiness(existingIndex, identity)) return false
+    const key = knownBusinessKey(identity)
+    // Found like any other business (so the live count includes it), once, and then not worked on.
+    if (!knownSkipped.has(key)) send(`📥 ${identity.company_name}`)
+    knownSkipped.add(key)
+    return true
+  }
+  // Provider-call decisions count a skipped business exactly as they counted it before this existed, so the number of Serper
+  // and Google calls (and the cost ceiling) cannot change; only the work spent on businesses already saved does.
+  const seenTotal = () => discoveredLeads.length + knownSkipped.size
   const relevanceNote = (leads: DiscoveryLead[]) => {
     const uncertain = leads.filter((lead) => classifyBusinessRelevance(query, lead) === 'uncertain').length
     const parts: string[] = []
@@ -637,7 +669,7 @@ export async function runSharedProspectorDiscovery(
   const serperLeadTarget = maxLeads
 
   for (const currentQuery of serperQueries) {
-    if (discoveredLeads.length >= serperLeadTarget) {
+    if (seenTotal() >= serperLeadTarget) {
       send('Processing results...')
       break
     }
@@ -662,7 +694,7 @@ export async function runSharedProspectorDiscovery(
           city: defaultCity,
           region,
           countryCode,
-          maxResults: Math.max(1, serperLeadTarget - discoveredLeads.length),
+          maxResults: Math.max(1, serperLeadTarget - seenTotal()),
           send: sourceSend,
         })) || []
     } catch {
@@ -670,8 +702,10 @@ export async function runSharedProspectorDiscovery(
       send('⚠️ Serper failed')
     }
 
+    await ensureExistingIndex()
     for (const lead of rankBusinessCandidates(query, serperResults)) {
       if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
+      if (skipsKnownBusiness(lead)) continue
       if (discoveredLeads.length >= maxLeads) break
 
       const upserted = upsertDiscoveredLead(
@@ -701,7 +735,7 @@ export async function runSharedProspectorDiscovery(
       }
     }
 
-    if (discoveredLeads.length >= serperLeadTarget) {
+    if (seenTotal() >= serperLeadTarget) {
       send('Processing results...')
       break
     }
@@ -709,7 +743,7 @@ export async function runSharedProspectorDiscovery(
 
   const validDiscoveredLeads = discoveredLeads.filter(isValidDiscoveredLead).slice(0, maxLeads)
   progressLeads = validDiscoveredLeads
-  send(`📦 discovered: ${validDiscoveredLeads.length}`)
+  send(`📦 discovered: ${validDiscoveredLeads.length + knownSkipped.size}`)
 
   const initialCheckQueue = validDiscoveredLeads.filter(shouldAttemptEnrichment)
   // Announce exactly how many websites will be checked (zero is a valid, explicit answer).
@@ -736,7 +770,7 @@ export async function runSharedProspectorDiscovery(
       send(`Filtered out ${filteredOutWithoutContactCount} leads without contact info`)
     }
 
-    if (validDiscoveredLeads.length === 0) {
+    if (validDiscoveredLeads.length === 0 && knownSkipped.size === 0) {
       send('⚠️ no leads found')
     }
 
@@ -751,6 +785,7 @@ export async function runSharedProspectorDiscovery(
       enrichedCount: finalEnrichedLeads.length,
       filteredOutWithoutContactCount,
       filteredOutRelevanceCount: relevanceRejected.size,
+      alreadySavedSkippedCount: knownSkipped.size,
       stopReason: finalEnrichedLeads.length >= maxLeads ? 'target_reached' : providerFailed ? 'provider_error' : costLimitReached ? 'cost_limit' : 'search_limit',
       locationLabel,
       summaryLine,
@@ -760,7 +795,7 @@ export async function runSharedProspectorDiscovery(
 
   // Contact quality can end improvement only after the requested discovery quantity is met.
   const shouldStopAfterSerper =
-    usableLeads(validDiscoveredLeads).length >= maxLeads &&
+    usableLeads(validDiscoveredLeads).length + knownSkipped.size >= maxLeads &&
     (metrics.strongSignalLeads >= targetStrongSignalLeads ||
       !shouldEscalateToGoogle(metrics, targetStrongSignalLeads, websiteTarget))
 
@@ -777,7 +812,7 @@ export async function runSharedProspectorDiscovery(
       const weakLeadCount = validDiscoveredLeads.filter(
         (lead) => !lead.email || !countsAsStrongEmail(lead)
       ).length
-      const missingLeadCount = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length)
+      const missingLeadCount = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length - knownSkipped.size)
       // Make room for replacements of candidates that had a website but no usable contact.
       // Provider batch sizes and the existing call/cost limits still bound the candidate pool.
       const signalGap = Math.max(0, targetStrongSignalLeads - metrics.strongSignalLeads)
@@ -817,8 +852,10 @@ export async function runSharedProspectorDiscovery(
       const googleEnrichmentTargets: DiscoveryLead[] = []
       const queuedKeys = new Set<string>()
 
+      await ensureExistingIndex()
       for (const lead of rankBusinessCandidates(query, googleResults).slice(0, googleBudget)) {
         if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
+        if (skipsKnownBusiness(lead)) continue
         const upserted = upsertDiscoveredLead(
           validDiscoveredLeads,
           createDiscoveryLead({
@@ -872,7 +909,7 @@ export async function runSharedProspectorDiscovery(
         googleEnrichmentTargets.push(upserted.lead)
       }
 
-      send(`📦 discovered: ${validDiscoveredLeads.length}`)
+      send(`📦 discovered: ${validDiscoveredLeads.length + knownSkipped.size}`)
       websiteChecks.plan(googleEnrichmentTargets.length)
       await enrichLeadQueue(googleEnrichmentTargets, send, sendPhase, websiteChecks)
       metrics = calculateMetrics(validDiscoveredLeads)
@@ -891,7 +928,7 @@ export async function runSharedProspectorDiscovery(
   // initial loop before the second permitted query. Spend that remaining query only
   // when usable contacts still fall short after improvement; never raise the call limit.
   for (const currentQuery of serperQueries.slice(serperCalls)) {
-    const missing = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length)
+    const missing = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length - knownSkipped.size)
     if (missing === 0) break
     if (!canSpend(totalApiCost, SERPER_DISCOVERY_COST_ESTIMATE)) {
       costLimitReached = true
@@ -912,8 +949,10 @@ export async function runSharedProspectorDiscovery(
     }
     const targets: DiscoveryLead[] = []
     const queued = new Set<string>()
+    await ensureExistingIndex()
     for (const lead of rankBusinessCandidates(query, refillResults).slice(0, missing)) {
       if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
+      if (skipsKnownBusiness(lead)) continue
       const incoming = createDiscoveryLead({
         company_name: lead.company_name, website: lead.website || null,
         phone: normalizePhone(lead.phone || null), city: lead.city || null,
@@ -930,7 +969,7 @@ export async function runSharedProspectorDiscovery(
       queued.add(key)
       targets.push(upserted.lead)
     }
-    send(`📦 discovered: ${validDiscoveredLeads.length}`)
+    send(`📦 discovered: ${validDiscoveredLeads.length + knownSkipped.size}`)
     websiteChecks.plan(targets.length)
     await enrichLeadQueue(targets, send, sendPhase, websiteChecks)
   }
@@ -948,7 +987,7 @@ export async function runSharedProspectorDiscovery(
     send(`Filtered out ${filteredOutWithoutContactCount} leads without contact info`)
   }
 
-  if (validDiscoveredLeads.length === 0) {
+  if (validDiscoveredLeads.length === 0 && knownSkipped.size === 0) {
     send('⚠️ no leads found')
   }
 
@@ -963,6 +1002,7 @@ export async function runSharedProspectorDiscovery(
     enrichedCount: finalEnrichedLeads.length,
     filteredOutWithoutContactCount,
     filteredOutRelevanceCount: relevanceRejected.size,
+    alreadySavedSkippedCount: knownSkipped.size,
     stopReason: finalEnrichedLeads.length >= maxLeads ? 'target_reached' : providerFailed ? 'provider_error' : costLimitReached ? 'cost_limit' : 'search_limit',
     locationLabel,
     summaryLine,

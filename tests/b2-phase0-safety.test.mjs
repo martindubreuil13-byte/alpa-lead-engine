@@ -189,15 +189,13 @@ test('opening My Leads cannot initiate research: no request to any research endp
     for (const forbidden of [/process-ci-queue-batch/, /enrich-commercial-intelligence/, /process-ci-jobs/, /__ciWorkerRunning/, /setInterval\(/, /visibilitychange/, /runWorker/, /\bclaim_ci/, /enrichLeadDirect/]) {
       assert.ok(!forbidden.test(source), `${file} matches ${forbidden}`)
     }
-    // the only research-related request My Leads may make is the read-only statistics GET
+    // My Leads makes no research-related request at all (the old read-only statistics banner was removed in M1.1)
     for (const match of source.matchAll(/fetch\(\s*([`'"])([^`'"]*)\1/g)) {
       const url = match[2]
-      if (/ci|enrich|research|process|queue|worker/i.test(url)) assert.equal(url, '/api/leads/ci-stats', `${file} fetches ${url}`)
+      assert.ok(!/ci|enrich|research|process|queue|worker/i.test(url), `${file} fetches ${url}`)
     }
   }
-  const status = read('app/dashboard/my-leads/CommercialIntelligenceStatus.tsx')
-  assert.ok(!/method:\s*'(POST|PUT|PATCH|DELETE)'/.test(status))
-  assert.ok(!/Getting Smarter|Analyzing businesses|Waiting to analyze/.test(status), 'no claim that analysis is under way')
+  assert.ok(!fs.existsSync('app/dashboard/my-leads/CommercialIntelligenceStatus.tsx'), 'the legacy status banner is gone')
 })
 
 test('the three customer-facing execution endpoints are retired: 410, no queue, no AI, no authentication work', () => {

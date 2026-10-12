@@ -13,7 +13,7 @@ test('the four outcomes are counted separately, from the run record', () => {
   const summary = summarizeRun(rows({ ready: 7, failed: 3, unavailable: 25 }), NOW)
   const stage = describeIntelligence(summary, true, { noWebsite: 2, overLimit: 23 })
   assert.equal(stage.phase, 'complete')
-  assert.equal(stage.headline, '7 business profiles ready')
+  assert.equal(stage.headline, '7 business profiles generated')
   assert.equal(stage.detail, '3 research attempts unsuccessful · 23 not researched (run limit) · 2 with no website')
   assert.ok(!/without a website to read/.test(stage.detail)) // the over-limit leads are not described as having no website
   assert.equal(stage.progress, 1) // only the 10 authorized count: complete because none is unresolved

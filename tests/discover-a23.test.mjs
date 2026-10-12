@@ -99,8 +99,8 @@ test('the settled note explains the 27 / 26 difference quietly; nothing is said 
 
 test('the hero is the delivered count; the contact line has no prefix; possible emails stay separate', () => {
   assert.match(engine, /results\.businesses/)
-  assert.match(engine, /'Business ready'/)
-  assert.match(engine, /'Businesses ready'/)
+  assert.match(engine, /'New business saved'/)
+  assert.match(engine, /'New businesses saved'/)
   assert.doesNotMatch(engine, /Checks include repeat visits|In your results:/)
   assert.match(engine, /Evaluating additional candidates/)
   const summary = summarizeContacts(SCENARIO.leads)

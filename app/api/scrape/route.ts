@@ -13,6 +13,7 @@ import {
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
+import { loadExistingBusinessIndex } from '@/lib/scraper/existing-business-index'
 import { describeSearchShortfall, type DiscoveryStopReason } from '@/lib/scraper/discovery-outcome'
 import { enrichEmail } from '@/lib/scraper/email-enrichment'
 import type { EmailInspection } from '@/lib/scraper/email-inspection'
@@ -814,6 +815,8 @@ async function runScraper(
       return
     }
 
+    // The signed-in customer's existing businesses, read once, while the first provider call is under way. Guests have none.
+    const existingBusinesses = userId && !options?.guestMode ? loadExistingBusinessIndex(supabase, userId) : null
     const discovery = await runSharedProspectorDiscovery(
       {
         query,
@@ -822,6 +825,7 @@ async function runScraper(
         country,
         maxLeads,
         mode: 'deep',
+        existingBusinesses,
       },
       send,
       options?.onProgress
@@ -836,6 +840,9 @@ async function runScraper(
 
     let addedCount = 0
     let duplicateCount = 0
+    // Businesses recognised as already saved before enrichment never reach the save; they are reported with the ones the save
+    // itself rejects as duplicates, so "already in My Leads" is one accurate number.
+    const alreadySavedBeforeSave = discovery.alreadySavedSkippedCount
     let invalidCount = 0
     let dbErrorCount = 0
     const addedLeads: TrialLead[] = []
@@ -1011,7 +1018,7 @@ async function runScraper(
       }
 
       send(
-        `💾 saved: ${addedCount}, duplicates: ${duplicateCount}, invalid: ${invalidCount}, db errors: ${dbErrorCount}`
+        `💾 saved: ${addedCount}, duplicates: ${duplicateCount + alreadySavedBeforeSave}, invalid: ${invalidCount}, db errors: ${dbErrorCount}`
       )
     }
     const limitMessage =
@@ -1027,7 +1034,7 @@ async function runScraper(
         added: addedCount,
         outputLimit: allowedOutputCount,
         stopReason: discovery.stopReason,
-        duplicates: duplicateCount,
+        duplicates: duplicateCount + alreadySavedBeforeSave,
         invalid: invalidCount,
         failed: dbErrorCount,
         withoutContact: filteredOutWithoutContactCount,
@@ -1037,7 +1044,8 @@ async function runScraper(
       detailLine,
       limitMessage,
       locationLabel,
-      discoveredCount: validDiscoveredLeads.length,
+      // Includes businesses recognised as already saved: they were found, and must stay in the customer's count.
+      discoveredCount: validDiscoveredLeads.length + alreadySavedBeforeSave,
       enrichedCount: finalEnrichedLeads.length,
       addedCount,
       addedLeads,
@@ -1053,7 +1061,7 @@ async function runScraper(
       send(limitMessage)
     }
 
-    if (validDiscoveredLeads.length === 0) {
+    if (validDiscoveredLeads.length === 0 && alreadySavedBeforeSave === 0) {
       send('⚠️ no leads found')
     }
 
