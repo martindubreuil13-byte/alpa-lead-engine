@@ -1,3 +1,4 @@
+import { parseBusinessAddress } from "./address"
 import { serperPlaceCategory } from "./category"
 import type { SourceLead, SourceSearchInput } from "./types"
 
@@ -76,7 +77,8 @@ async function searchOneTile(
   lat: number | null,
   lng: number | null,
   zoom: number,
-  send?: (msg: string) => void
+  send?: (msg: string) => void,
+  countryCode?: string
 ): Promise<SerperPlace[]> {
   send?.(
     lat != null && lng != null
@@ -84,14 +86,19 @@ async function searchOneTile(
       : `🗺️ Serper tile: ${query} @ query-only`
   )
 
+  // `gl` tells Serper which country to search in. It is sent only when the country is known; otherwise the search runs
+  // without one rather than with a guess.
+  const country = countryCode ? { gl: countryCode } : {}
   const body =
     lat != null && lng != null
       ? {
           q: query,
           ll: `@${lat},${lng},${zoom}z`,
+          ...country,
         }
       : {
           q: query,
+          ...country,
         }
 
   const res = await fetch("https://google.serper.dev/maps", {
@@ -119,7 +126,7 @@ async function searchOneTile(
 export async function searchSerperMaps(
   input: SourceSearchInput & { mode?: string }
 ): Promise<SourceLead[]> {
-  const { query, city, region, maxResults, send, mode } = input
+  const { query, city, region, countryCode, maxResults, send, mode } = input
 
   const leads: SourceLead[] = []
   const seen = new Set<string>()
@@ -142,7 +149,8 @@ export async function searchSerperMaps(
       tile.lat,
       tile.lng,
       tile.zoom,
-      send
+      send,
+      countryCode
     )
 
     for (const place of places) {
@@ -160,6 +168,9 @@ export async function searchSerperMaps(
 
       send?.(`🔍 processing ${company}`)
 
+      // The location the business itself states; the requested search location is not assigned to it.
+      const location = parseBusinessAddress(place.address)
+
       leads.push({
         company_name: company,
         phone,
@@ -167,7 +178,10 @@ export async function searchSerperMaps(
         email: null,
         // The provider's own category. The search query is not a category and is never used in its place.
         industry: serperPlaceCategory(place),
-        city,
+        city: location.city,
+        address: location.address,
+        region: location.region,
+        country: location.country,
         source: "serper_maps",
         source_url: website,
       })

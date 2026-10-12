@@ -1,6 +1,8 @@
 import { classifyBusinessRelevance, rankBusinessCandidates } from '@/lib/scraper/business-relevance'
 import { searchGooglePlaces } from '@/lib/sources/google'
 import { searchSerperMaps } from '@/lib/sources/serper'
+import { resolveCountry } from '@/lib/sources/country'
+import { isConfirmedOutsideRequestedCountry } from './geographic-relevance'
 import { type EmailConfidence, getWebsiteHost, isBlockedWebsiteHost, normalizePhone } from '@/lib/validation'
 import { enrichEmailWithInspection } from '@/lib/scraper/email-enrichment'
 import { mergeInspection, type EmailInspection } from '@/lib/scraper/email-inspection'
@@ -49,7 +51,12 @@ export type DiscoveryLead = {
   company_name: string
   website: string | null
   phone: string | null
-  city: string
+  /** The business's own city when its address states one; null when unknown (never the search location). */
+  city: string | null
+  /** What the provider's address says, kept for the geographic check. Not persisted (no column for it). */
+  address?: string | null
+  region?: string | null
+  country?: string | null
   industry?: string | null
   source: DiscoverySource
   source_url?: string | null
@@ -288,6 +295,9 @@ function mergeDiscoveryLead(existing: DiscoveryLead, incoming: DiscoveryLead): D
     website: nextWebsite,
     phone: pickPreferredPhone(existing.phone, incoming.phone),
     city: existing.city || incoming.city,
+    address: existing.address ?? incoming.address ?? null,
+    region: existing.region ?? incoming.region ?? null,
+    country: existing.country ?? incoming.country ?? null,
     industry: existing.industry || incoming.industry || null,
     source_url: existing.source_url || incoming.source_url || null,
     source: nextSource,
@@ -545,6 +555,12 @@ export async function runSharedProspectorDiscovery(
 
   console.log('SCRAPER MODE:', mode)
 
+  // The one place the requested country is decided for every provider. When it cannot be determined reliably the
+  // providers are not given one; that is stated, not guessed.
+  const resolvedCountry = resolveCountry({ city: defaultCity, region, country })
+  const countryCode = resolvedCountry?.code
+  if (!resolvedCountry) console.log('[GEO] country not determined; searching without a country filter', { location: defaultCity })
+
   let totalApiCost = 0
   let googleCalls = 0
   let serperCalls = 0
@@ -560,9 +576,18 @@ export async function runSharedProspectorDiscovery(
     relevanceRejected.add(`${normalizeCompanyName(lead.company_name)}:${lead.city ?? defaultCity}:${lead.industry ?? ''}`)
     return false
   }
+  // Businesses whose own address confirms a different country than the one requested. Applied as results arrive, before
+  // anything is merged, counted, saved or charged; an unknown country is never a reason to exclude.
+  const locationRejected = new Set<string>()
+  const acceptsLocation = (lead: { company_name: string; country?: string | null; city?: string | null }) => {
+    if (!isConfirmedOutsideRequestedCountry(resolvedCountry, lead)) return true
+    locationRejected.add(`${normalizeCompanyName(lead.company_name)}:${lead.country ?? ''}`)
+    return false
+  }
   const relevanceNote = (leads: DiscoveryLead[]) => {
     const uncertain = leads.filter((lead) => classifyBusinessRelevance(query, lead) === 'uncertain').length
     const parts: string[] = []
+    if (locationRejected.size) parts.push(`${locationRejected.size} source results excluded because their address is in a different country.`)
     if (relevanceRejected.size) parts.push(`${relevanceRejected.size} source results excluded because their business category did not match.`)
     if (uncertain) parts.push(`Business type could not be confirmed for ${uncertain} ${uncertain === 1 ? 'result' : 'results'} from the available name/category.`)
     return parts.join(' ') || null
@@ -628,6 +653,7 @@ export async function runSharedProspectorDiscovery(
           query: currentQuery,
           city: defaultCity,
           region,
+          countryCode,
           maxResults: Math.max(1, serperLeadTarget - discoveredLeads.length),
           send: sourceSend,
         })) || []
@@ -637,7 +663,7 @@ export async function runSharedProspectorDiscovery(
     }
 
     for (const lead of rankBusinessCandidates(query, serperResults)) {
-      if (!acceptsBusinessType(lead)) continue
+      if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
       if (discoveredLeads.length >= maxLeads) break
 
       const upserted = upsertDiscoveredLead(
@@ -646,7 +672,10 @@ export async function runSharedProspectorDiscovery(
           company_name: lead.company_name,
           website: lead.website || null,
           phone: normalizePhone(lead.phone || null),
-          city: lead.city || defaultCity,
+          city: lead.city || null,
+          address: lead.address ?? null,
+          region: lead.region ?? null,
+          country: lead.country ?? null,
           industry: lead.industry || null,
           source: 'serper',
           source_url: lead.source_url || lead.website || null,
@@ -768,6 +797,7 @@ export async function runSharedProspectorDiscovery(
             city: defaultCity,
             region,
             country,
+            countryCode,
             maxResults: googleBudget,
             send: sourceSend,
           })) || []
@@ -780,14 +810,17 @@ export async function runSharedProspectorDiscovery(
       const queuedKeys = new Set<string>()
 
       for (const lead of rankBusinessCandidates(query, googleResults).slice(0, googleBudget)) {
-        if (!acceptsBusinessType(lead)) continue
+        if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
         const upserted = upsertDiscoveredLead(
           validDiscoveredLeads,
           createDiscoveryLead({
             company_name: lead.company_name,
             website: lead.website || null,
             phone: normalizePhone(lead.phone || null),
-            city: lead.city || defaultCity,
+            city: lead.city || null,
+            address: lead.address ?? null,
+            region: lead.region ?? null,
+            country: lead.country ?? null,
             industry: lead.industry || null,
             source: 'google',
             source_url: lead.source_url || lead.website || null,
@@ -863,7 +896,7 @@ export async function runSharedProspectorDiscovery(
     let refillResults: Awaited<ReturnType<typeof searchSerperMaps>> = []
     try {
       refillResults = (await searchSerperMaps({
-        query: currentQuery, city: defaultCity, region, maxResults: missing, send: sourceSend,
+        query: currentQuery, city: defaultCity, region, countryCode, maxResults: missing, send: sourceSend,
       })) || []
     } catch {
       providerFailed = true
@@ -872,10 +905,11 @@ export async function runSharedProspectorDiscovery(
     const targets: DiscoveryLead[] = []
     const queued = new Set<string>()
     for (const lead of rankBusinessCandidates(query, refillResults).slice(0, missing)) {
-      if (!acceptsBusinessType(lead)) continue
+      if (!acceptsLocation(lead) || !acceptsBusinessType(lead)) continue
       const incoming = createDiscoveryLead({
         company_name: lead.company_name, website: lead.website || null,
-        phone: normalizePhone(lead.phone || null), city: lead.city || defaultCity,
+        phone: normalizePhone(lead.phone || null), city: lead.city || null,
+        address: lead.address ?? null, region: lead.region ?? null, country: lead.country ?? null,
         industry: lead.industry || null, source: 'serper',
         source_url: lead.source_url || lead.website || null, cost_estimate: SERPER_DISCOVERY_COST_ESTIMATE,
       })

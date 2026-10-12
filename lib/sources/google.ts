@@ -1,3 +1,4 @@
+import { googleRegionFor } from "./country"
 import { firstProviderCategory } from "./category"
 import { SourceLead, SourceSearchInput } from "./types"
 
@@ -55,7 +56,8 @@ async function fetchPlaces(
   query: string,
   maxResults: number,
   country?: string,
-  send?: (msg: string) => void
+  send?: (msg: string) => void,
+  countryCode?: string
 ) {
   const results: any[] = []
   let nextPageToken: string | undefined
@@ -68,7 +70,7 @@ async function fetchPlaces(
       query,
       key: GOOGLE_API_KEY,
     })
-    const regionBias = normalizeGoogleRegion(country)
+    const regionBias = normalizeGoogleRegion(country) ?? googleRegionFor(countryCode)
 
     if (regionBias) {
       params.append("region", regionBias)
@@ -142,6 +144,10 @@ async function fetchPlaceDetails(placeId: string) {
   return data.result || null
 }
 
+function extractCountry(components: any[] = []) {
+  return components.find((component) => component?.types?.includes("country"))?.long_name || null
+}
+
 function extractCity(components: any[] = []) {
   const locality = components.find(
     (c) => c.types?.includes("locality")
@@ -153,7 +159,7 @@ function extractCity(components: any[] = []) {
 export async function searchGooglePlaces(
   input: SourceSearchInput
 ): Promise<SourceLead[]> {
-  const { query, city, region, country, maxResults, send } = input
+  const { query, city, region, country, countryCode, maxResults, send } = input
 
   const leads: SourceLead[] = []
   const seen = new Set<string>()
@@ -168,7 +174,7 @@ export async function searchGooglePlaces(
   for (const searchQuery of buildGoogleQueries(query.trim(), city, region, country)) {
     send?.(`🌍 Google query: ${searchQuery}`)
 
-    places = await fetchPlaces(searchQuery, maxResults, country, send)
+    places = await fetchPlaces(searchQuery, maxResults, country, send, countryCode)
 
     if (places.length > 0) {
       break
@@ -199,8 +205,8 @@ export async function searchGooglePlaces(
 
     const company = details?.name || place.name || "Unknown"
     const website = details?.website || null
-    const cityName =
-      extractCity(details?.address_components || []) || city
+    // The place's own locality; when Google gives none, unknown rather than the requested city.
+    const cityName = extractCity(details?.address_components || []) || null
 
     leads.push({
       company_name: company,
@@ -210,6 +216,8 @@ export async function searchGooglePlaces(
       // Google's own type codes, minus the ones that only say "this is a place".
       industry: firstProviderCategory(details?.types),
       city: cityName,
+      // The country Google's own address components state; null when it gives none.
+      country: extractCountry(details?.address_components || []),
       source: "google_places",
       source_url: details?.url || null,
     })

@@ -41,7 +41,7 @@ export type LeadInsertPayload = {
 
 /** The discovered business as it exists after enrichment: what the results payload is built from. */
 export type ResultLeadSource = LeadInsertSource & {
-  city: string
+  city: string | null
   source_url?: string | null
   email_inspection?: EmailInspection | null
 }

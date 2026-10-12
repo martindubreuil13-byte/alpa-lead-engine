@@ -71,7 +71,10 @@ type DiscoveryLead = {
   company_name: string
   website: string | null
   phone: string | null
-  city: string
+  city: string | null
+  address?: string | null
+  region?: string | null
+  country?: string | null
   industry?: string | null
   source: DiscoverySource
   source_url?: string | null
@@ -1204,7 +1207,8 @@ export async function POST(req: Request) {
     query: String(body.query || '').trim(),
     defaultCity: String(body.defaultCity || '').trim(),
     region: String(body.region || '').trim(),
-    country: String(body.country || 'Canada').trim(),
+    // No default country: the location the customer typed decides, and an unknown country stays unknown.
+    country: String(body.country || '').trim(),
     maxLeads: requestedLeadCount,
     outputLeadLimit: remainingCapacity,
     userId: user?.id || null,
