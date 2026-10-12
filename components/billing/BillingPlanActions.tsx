@@ -95,9 +95,9 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="rounded-sm border border-white/10 bg-white/[0.03] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[#d8c28a]">
             Subscription
           </div>
           <span
@@ -107,7 +107,7 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
                 : 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
             }`}
           >
-            {isCanceling ? 'Canceling' : 'Active'}
+            {isCanceling ? 'Canceling' : isCanceled ? 'Canceled' : state.planStatus ? state.planStatus.replaceAll('_', ' ') : 'Status unavailable'}
           </span>
         </div>
         <div className="mt-3 space-y-2 text-sm text-slate-300">
@@ -118,27 +118,27 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
             </>
           ) : (
             <>
-              <p className="font-semibold text-emerald-100">Active</p>
-              <p>Renewal date: {accessDate ?? 'the next billing date'}.</p>
+              <p className="font-semibold text-[#f7f5ef]">{isCanceled ? 'Canceled' : state.planStatus ? state.planStatus.replaceAll('_', ' ') : 'Status unavailable'}</p>
+              {accessDate && !isCanceled && <p>Billing period ends: {accessDate}.</p>}
             </>
           )}
         </div>
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+        <div className="rounded-sm border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+        <div className="rounded-sm border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
           {success}
         </div>
       ) : null}
 
       {canManage ? (
-        <div className="rounded-2xl border border-white/10 bg-[#0b1220]/70 p-5">
+        <div className="rounded-sm border border-white/10 bg-[#0b1a33]/70 p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
             Manage Subscription
           </div>
@@ -153,31 +153,31 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
                 type="button"
                 disabled={isBusy}
                 onClick={() => void runBillingAction('resume')}
-                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 px-5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[48px] items-center justify-center rounded-sm border border-[#d8c28a]/30 bg-[#d8c28a]/10 px-5 text-sm font-semibold text-[#e9dcb6] transition hover:bg-[#d8c28a]/15 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {action === 'resume' ? 'Resuming...' : 'Resume Plan'}
+                {action === 'resume' ? 'Resuming...' : 'Resume plan'}
               </button>
             ) : (
               <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => setConfirming(true)}
-                className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-sm border border-white/20 px-5 text-sm font-medium text-[#f7f5ef] transition hover:border-[#d8c28a]/50 hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d8c28a] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Cancel Plan
+                Cancel plan
               </button>
             )}
           </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+        <div className="rounded-sm border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
           Billing management is unavailable because no active Stripe subscription is linked to this account.
         </div>
       )}
 
       {confirming ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b1220] p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b1a33] p-6 shadow-2xl">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
               Confirm Cancellation
             </div>
@@ -192,7 +192,7 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
                 type="button"
                 disabled={isBusy}
                 onClick={() => setConfirming(false)}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/10 px-4 text-sm font-medium text-slate-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-sm border border-white/10 px-4 text-sm font-medium text-slate-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Keep Plan
               </button>
@@ -200,9 +200,9 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
                 type="button"
                 disabled={isBusy}
                 onClick={() => void runBillingAction('cancel')}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-red-300/30 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-sm border border-red-300/30 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {action === 'cancel' ? 'Canceling...' : 'Cancel Plan'}
+                {action === 'cancel' ? 'Canceling...' : 'Cancel plan'}
               </button>
             </div>
           </div>

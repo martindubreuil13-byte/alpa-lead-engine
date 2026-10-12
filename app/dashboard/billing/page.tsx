@@ -1,19 +1,17 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import BillingPlanActions from '@/components/billing/BillingPlanActions'
 import UsageCard from '@/components/billing/UsageCard'
 import { getUserProfile } from '@/lib/auth/get-user-profile'
 import { isAdmin, isFree, isPaid } from '@/lib/auth/access'
+import { getLeadLimit } from '@/lib/usage/usage'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
-function getPlanLeadLimit(plan: string) {
-  if (plan === 'admin') return 1000
-  if (plan === 'prospector') return 120
-  if (plan === 'starter') return 500
-  return 25
+function formatDate(value: string | null) {
+  if (!value || Number.isNaN(new Date(value).getTime())) return null
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
 }
 
 export default async function BillingPage() {
@@ -65,11 +63,11 @@ export default async function BillingPage() {
   const billingPeriodEnd = user.current_period_end ?? profileData?.current_period_end ?? null
   const hasStripeSubscription = Boolean(user.stripe_subscription_id ?? profileData?.stripe_subscription_id)
   const hasStripeCustomer = Boolean(user.stripe_customer_id)
-  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter'
+  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter' || usagePlan === 'pro'
   const usageStatus = usagePlan === 'free' ? 'free' : billingStatus ?? 'active'
   const usageStarted = isPaidUsagePlan ? usageData?.period_start ?? null : null
   const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
-  const usageLimit = getPlanLeadLimit(usagePlan)
+  const usageLimit = isPaidUsagePlan ? usageData?.leads_limit ?? getLeadLimit(usagePlan) : getLeadLimit(usagePlan)
   const usageUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
   const usageWarning =
     isPaidUsagePlan && usageLimit > 0
@@ -89,111 +87,51 @@ export default async function BillingPage() {
         : userIsPaid
           ? 'Starter Plan'
           : 'Free Plan'
-  const currentPlanDescription = userIsAdmin
-    ? 'Unlimited access across all ALPA features.'
-    : user.plan === 'pro'
-      ? 'Paid access across business discovery, research, and lead export.'
-      : user.plan === 'prospector'
-        ? '120 verified business leads per month with website and contact details.'
-        : userIsPaid
-          ? 'Up to 500 verified leads per month'
-          : 'Access to 25 verified leads'
-  const currentPlanBadge = userIsAdmin
-    ? 'Admin access'
-    : user.plan === 'pro'
-      ? 'Pro access'
-      : user.plan === 'prospector'
-        ? 'Prospector access'
-        : userIsPaid
-          ? 'Starter access'
-          : 'Free access'
+  const statusLabel = userIsAdmin ? 'Administrator access' : userIsFree ? 'Free access' : cancelAtPeriodEnd ? 'Cancellation scheduled' : billingStatus ? billingStatus.replaceAll('_', ' ') : 'Status unavailable'
+  const billingDate = hasStripeSubscription && !userIsAdmin ? formatDate(billingPeriodEnd) : null
 
   return (
-    <div className="space-y-10">
+    <div className="mx-auto max-w-6xl space-y-7 pb-8">
       <header className="space-y-3">
-        <h1 className="text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-          Plan &amp; Billing
-        </h1>
-        <p className="text-base text-slate-400">Manage your plan and track your usage</p>
+        <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.24em] text-[#d8c28a]">
+          <span aria-hidden="true" className="h-px w-10 bg-[#d8c28a]" /> Workspace / Account
+        </div>
+        <h1 className="font-display text-4xl tracking-[-0.03em] text-[#f7f5ef] sm:text-5xl">Plan &amp; Billing</h1>
+        <p className="text-sm text-slate-400">Your access, business allowance and subscription in one place.</p>
       </header>
 
-      <UsageCard
-        plan={usagePlan}
-        subscriptionStatus={usageStatus}
-        currentPeriodStart={usageStarted}
-        currentPeriodEnd={usageRenewal}
-        leadsUsed={usageUsed}
-        leadsLimit={usageLimit}
-        usageWarning={usageWarning}
-      />
-
-      <section className="glass rounded-3xl p-8">
-        <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-          Current Plan
-        </div>
-        <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-          {currentPlanName}
-        </h2>
-        <p className="mt-3 max-w-xl text-base leading-7 text-slate-300">
-          {currentPlanDescription}
-        </p>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-            {user.email}
-          </span>
-          <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
-            {currentPlanBadge}
-          </span>
+      <section aria-labelledby="plan-title" className="border-y border-white/10 py-5">
+        <div className="grid gap-5 sm:grid-cols-[1.3fr_1fr_1fr]">
+          <div>
+            <h2 id="plan-title" className="text-[10px] uppercase tracking-[0.22em] text-[#d8c28a]">Your Plan</h2>
+            <p className="mt-2 font-display text-2xl text-[#f7f5ef]">{currentPlanName}</p>
+            <p className="mt-1 break-all text-xs text-slate-400">{user.email}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Access status</p>
+            <p className="mt-2 text-sm capitalize text-[#f7f5ef]">{statusLabel}</p>
+            {userIsAdmin && <p className="mt-1 text-xs text-slate-400">Administrative access with a numerical usage allowance.</p>}
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">{isPaidUsagePlan ? 'Monthly business allowance' : 'Business allowance'}</p>
+            <p className="mt-2 text-xl tabular-nums text-[#f7f5ef]">{usageLimit.toLocaleString('en-US')}</p>
+            {billingDate && <p className="mt-1 text-xs text-slate-400">{cancelAtPeriodEnd ? 'Billing period ends' : 'Next billing date'}: {billingDate}</p>}
+          </div>
         </div>
       </section>
 
-      <section className="glass rounded-3xl p-8">
-        {userIsFree ? (
-          <div className="space-y-5">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
-                Upgrade
-              </div>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
-                Ready to unlock more?
-              </h2>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-300">
-                Upgrade to Starter to generate more leads.
-              </p>
-            </div>
+      <UsageCard plan={usagePlan} subscriptionStatus={usageStatus} currentPeriodStart={usageStarted} currentPeriodEnd={usageRenewal} leadsUsed={usageUsed} leadsLimit={usageLimit} usageWarning={usageWarning} />
 
-            <Link
-              href="/plans"
-              className="btn-primary-gold"
-            >
-              Upgrade to Starter
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
-              Active Plan
-            </div>
-            <h2 className="text-3xl font-semibold tracking-[-0.04em] text-white">
-              {cancelAtPeriodEnd ? 'Your plan is canceling' : 'Your plan is active'}
-            </h2>
-            <p className="max-w-2xl text-base leading-7 text-slate-300">
-              Your workspace keeps paid access through the current billing period.
-            </p>
-            <BillingPlanActions
-              initialState={{
-                planStatus: billingStatus,
-                cancelAtPeriodEnd,
-                currentPeriodEnd: billingPeriodEnd,
-                subscriptionTier: user.subscription_tier ?? profileData?.subscription_tier ?? usagePlan,
-                hasStripeSubscription,
-                hasStripeCustomer,
-                subscriptionActive: Boolean(user.subscription_active),
-              }}
-            />
-          </div>
-        )}
+      <section aria-labelledby="management-title" className="border-b border-white/10 pb-6">
+        <h2 id="management-title" className="text-[10px] uppercase tracking-[0.22em] text-[#d8c28a]">Subscription Management</h2>
+        <div className="mt-4">
+          {userIsAdmin ? <p className="text-sm text-slate-400">This workspace has administrator access. It is not a paid subscription.</p> : userIsFree ? <p className="text-sm text-slate-400">Your workspace has free access. There is no paid subscription to manage.</p> : <BillingPlanActions initialState={{ planStatus: billingStatus, cancelAtPeriodEnd, currentPeriodEnd: billingPeriodEnd, subscriptionTier: user.subscription_tier ?? profileData?.subscription_tier ?? usagePlan, hasStripeSubscription, hasStripeCustomer, subscriptionActive: Boolean(user.subscription_active) }} />}
+        </div>
+      </section>
+
+      <section aria-labelledby="options-title" className="flex flex-col justify-between gap-2 sm:flex-row sm:items-baseline">
+        <h2 id="options-title" className="font-display text-xl text-[#f7f5ef]">Future Plan Options</h2>
+        <p className="text-xs text-slate-400">Additional plans and business packages will appear here when available.</p>
       </section>
     </div>
   )

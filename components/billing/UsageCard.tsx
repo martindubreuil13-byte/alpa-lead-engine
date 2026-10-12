@@ -9,21 +9,6 @@ type UsageCardProps = {
   usageWarning?: 'none' | 'warning' | 'critical' | null
 }
 
-function formatPlanLabel(plan: string | null | undefined) {
-  if (plan === 'prospector') return 'Prospector'
-  if (plan === 'starter') return 'Starter'
-  if (plan === 'pro') return 'Pro'
-  if (plan === 'admin') return 'Admin'
-  return 'Free'
-}
-
-function getPlanLeadLimit(plan: string) {
-  if (plan === 'admin') return 1000
-  if (plan === 'prospector') return 120
-  if (plan === 'starter') return 500
-  return 25
-}
-
 function formatRenewalDate(value: string | null | undefined) {
   if (!value) return null
 
@@ -35,12 +20,6 @@ function formatRenewalDate(value: string | null | undefined) {
     day: 'numeric',
     year: 'numeric',
   }).format(date)
-}
-
-function getProgressTone(percent: number) {
-  if (percent > 90) return 'bg-red-400'
-  if (percent >= 70) return 'bg-amber-400'
-  return 'bg-sky-400'
 }
 
 export default function UsageCard({
@@ -66,7 +45,7 @@ export default function UsageCard({
   const normalizedPlan = String(plan).toLowerCase()
   const isFreePlan = normalizedPlan === 'free'
   const safeUsed = Math.max(0, Number(leadsUsed || 0))
-  const safeLimit = Math.max(0, Number(leadsLimit ?? getPlanLeadLimit(normalizedPlan)))
+  const safeLimit = Math.max(0, Number(leadsLimit ?? 0))
   const remainingLeads = Math.max(safeLimit - safeUsed, 0)
   const usagePercent =
     safeLimit > 0 && Number.isFinite(safeLimit)
@@ -75,69 +54,28 @@ export default function UsageCard({
   const startedLabel = formatRenewalDate(currentPeriodStart)
   const renewalLabel = formatRenewalDate(currentPeriodEnd)
   void usageWarning
-  const statusLabel =
-    subscriptionStatus === 'canceling'
-      ? 'Canceling'
-      : subscriptionStatus === 'trialing'
-        ? 'Trialing'
-        : subscriptionStatus === 'past_due'
-          ? 'Past due'
-          : subscriptionStatus === 'canceled'
-            ? 'Canceled'
-            : 'Active'
+  void subscriptionStatus
 
   return (
-    <section className="rounded-xl border border-white/10 bg-[#0b1220] p-6 shadow-[0_18px_40px_rgba(2,8,23,0.24)]">
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-            Usage
+    <section aria-labelledby="usage-title" className="rounded-sm bg-[#f7f5ef] px-5 py-6 text-[#0b1a33] sm:px-7">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="usage-title" className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7a5f27]">Your Usage</h2>
+        <p className="text-xs text-[#5b6372]">{isFreePlan ? 'Free allowance · no monthly reset' : renewalLabel ? `Usage resets ${renewalLabel}` : 'Usage reset date unavailable'}</p>
+      </div>
+      <div className="my-6 grid grid-cols-3 divide-x divide-[#d9d3c4]">
+        {[[safeUsed, 'Businesses used'], [safeLimit, 'Allowance'], [remainingLeads, 'Remaining']].map(([value, label], index) => (
+          <div key={label} className={index === 0 ? 'pr-2' : 'px-3 sm:px-6'}>
+            <p className="font-display text-3xl tabular-nums tracking-tight sm:text-4xl">{Number(value).toLocaleString('en-US')}</p>
+            <p className="mt-2 text-[11px] text-[#5b6372] sm:text-xs">{label}</p>
           </div>
-          {isFreePlan ? (
-            <div className="text-lg font-semibold tracking-[-0.02em] text-white">
-              Free plan — {getPlanLeadLimit(normalizedPlan)} leads max
-            </div>
-          ) : (
-            <>
-              <div className="text-sm text-slate-300">
-                Plan: <span className="font-semibold text-white">{formatPlanLabel(normalizedPlan)}</span>
-              </div>
-              <div className="text-sm text-slate-300">
-                Status: <span className="font-semibold text-white">{statusLabel}</span>
-              </div>
-              {startedLabel ? (
-                <div className="text-sm text-slate-400">Started on {startedLabel}</div>
-              ) : null}
-              {renewalLabel ? (
-                <div className="text-sm text-slate-400">
-                  {subscriptionStatus === 'canceling'
-                    ? `Access until ${renewalLabel}`
-                    : `Renews on ${renewalLabel}`}
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        {!isFreePlan ? (
-          <div className="space-y-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-              Monthly usage
-            </div>
-            <div className="text-lg font-semibold tracking-[-0.02em] text-white">
-              {safeUsed} / {safeLimit} leads used
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${getProgressTone(usagePercent)}`}
-                style={{ width: `${usagePercent}%` }}
-              />
-            </div>
-            <div className="text-sm text-slate-400">
-              You have {remainingLeads} {remainingLeads === 1 ? 'lead' : 'leads'} left this month
-            </div>
-          </div>
-        ) : null}
+        ))}
+      </div>
+      <div role="progressbar" aria-label="Business allowance used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usagePercent} aria-valuetext={`${safeUsed} of ${safeLimit} businesses used`} className="h-1.5 overflow-hidden rounded-full bg-[#ded9cb]">
+        <div className="h-full rounded-full bg-[#a08343]" style={{ width: `${usagePercent}%` }} />
+      </div>
+      <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-[#5b6372]">
+        <p>{safeUsed >= safeLimit ? 'Allowance reached' : `${remainingLeads.toLocaleString('en-US')} businesses available`}</p>
+        {!isFreePlan && startedLabel && <p>Usage period began {startedLabel}</p>}
       </div>
     </section>
   )
