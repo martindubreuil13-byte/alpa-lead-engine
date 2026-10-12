@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
+import FreshStartCta from '@/components/landing/FreshStartCta'
+
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { cn } from '@/lib/utils'
 
 type PublicHeaderProps = {
   activePath?: string
+  trialCta?: boolean
 }
 
 const navItems = [
@@ -18,7 +21,7 @@ const navItems = [
 
 const mobileItems = [...navItems, { href: '/login', label: 'Log in' }]
 
-export default function PublicHeader({ activePath }: PublicHeaderProps) {
+export default function PublicHeader({ activePath, trialCta = false }: PublicHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -70,6 +73,8 @@ export default function PublicHeader({ activePath }: PublicHeaderProps) {
               Log in
             </Link>
           </nav>
+
+          {trialCta && <FreshStartCta className="ml-auto inline-flex min-h-[44px] items-center justify-center rounded-full bg-[#d9bd82] px-4 text-xs font-semibold text-[#101a2c] hover:bg-[#ead4a8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d9bd82] sm:text-sm">Try ALPA free</FreshStartCta>}
 
           <button
             type="button"
