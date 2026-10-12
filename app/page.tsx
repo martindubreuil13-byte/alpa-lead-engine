@@ -179,7 +179,7 @@ export default function HomePage() {
               <span className="h-1.5 w-1.5 rounded-full bg-blue-400/50" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">Simple pricing</span>
             </div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-5xl sm:tracking-[-0.03em] lg:text-[3.4rem] lg:tracking-[-0.045em]">
+            <h2 className="mt-3 font-display text-3xl font-normal tracking-normal text-white sm:text-5xl lg:text-[3.4rem]">
               25 free leads. No commitment.
             </h2>
           </div>
