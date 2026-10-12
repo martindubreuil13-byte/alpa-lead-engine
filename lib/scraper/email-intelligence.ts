@@ -39,6 +39,11 @@ export type EmailRelevance =
 export type EmailCandidateV2 = EmailValidationResult & {
   evidence: EmailEvidence
   relevance: EmailRelevance
+  /**
+   * Set only when this address replaced a high-confidence low-priority role (careers@ ...) on the same domain. Its own
+   * confidence is unchanged; the flag only keeps the lead counted as a strong contact in the Google fallback decision.
+   */
+  fallbackStrong?: boolean
 }
 
 export type ExtractInput = {
@@ -587,10 +592,24 @@ const RELEVANCE_RANK: Record<EmailRelevance, number> = {
   unrelated: 0,
 }
 
+// Addresses that are real but are rarely the right door for a business approach: hiring, customer support, billing, press,
+// privacy and legal desks. They are kept when nothing better exists; they just do not win over a commercial contact.
+const LOW_PRIORITY_LOCALS = new Set([
+  'career', 'careers', 'job', 'jobs', 'hiring', 'recruit', 'recruiting', 'recruitment', 'recruiter', 'talent', 'hr', 'apply',
+  'applications', 'resume', 'resumes', 'cv', 'internship', 'internships',
+  'support', 'help', 'helpdesk', 'customerservice', 'customer-service', 'customercare', 'customer-care', 'service',
+  'billing', 'accounts', 'accounting', 'invoice', 'invoices', 'payments',
+  'press', 'media', 'privacy', 'legal', 'compliance', 'security', 'webmaster', 'newsletter', 'unsubscribe',
+])
+
+export function isLowPriorityRole(email: string): boolean {
+  return LOW_PRIORITY_LOCALS.has(localPartOf(email))
+}
+
 export function pickBestEmailCandidateV2(candidates: EmailCandidateV2[]): EmailCandidateV2 | null {
   if (candidates.length === 0) return null
 
-  return [...candidates].sort((left, right) => {
+  const ordered = [...candidates].sort((left, right) => {
     const confidence = rankConfidence(right.emailConfidence) - rankConfidence(left.emailConfidence)
     if (confidence) return confidence
 
@@ -607,7 +626,26 @@ export function pickBestEmailCandidateV2(candidates: EmailCandidateV2[]): EmailC
     if (source) return source
 
     return left.value.localeCompare(right.value)
-  })[0]
+  })
+
+  // A careers@ or support@ address on the business's own domain reads as high confidence (it is not a V1 "generic" role), so
+  // by confidence alone it beats info@ or sales@. When the best address is one of those, prefer the best commercially
+  // useful address that is at least as closely tied to the business; with none, keep it rather than lose a valid contact.
+  const best = ordered[0]
+  if (!isLowPriorityRole(best.value)) return best
+  const replacement = ordered.find((candidate) => !isLowPriorityRole(candidate.value) && RELEVANCE_RANK[candidate.relevance] >= RELEVANCE_RANK[best.relevance])
+  if (!replacement) return best
+  // The replaced address was strong evidence of a reachable business (high confidence, on the business's own domain), and
+  // the replacement is a real address on that domain: the lead must not look weaker to the fallback decision because we
+  // chose the better door. Anything else is not credited, so a genuinely thin result still triggers the fallback.
+  const keepsStrongCredit =
+    best.emailConfidence === 'high' && best.relevance === 'business-domain' && replacement.relevance === 'business-domain' && replacement.emailConfidence !== 'low'
+  return keepsStrongCredit ? { ...replacement, fallbackStrong: true } : replacement
+}
+
+/** Whether a lead's email counts as a strong contact for the Google fallback decision: high confidence, or the credited swap. */
+export function countsAsStrongEmail(lead: { email?: string | null; email_confidence: EmailConfidence | null; email_strong_for_fallback?: boolean }): boolean {
+  return lead.email_confidence === 'high' || Boolean(lead.email && lead.email_strong_for_fallback)
 }
 
 /** An address counts toward email coverage only at high or medium confidence. */

@@ -2,7 +2,9 @@ import { classifyBusinessRelevance, rankBusinessCandidates } from '@/lib/scraper
 import { searchGooglePlaces } from '@/lib/sources/google'
 import { searchSerperMaps } from '@/lib/sources/serper'
 import { resolveCountry } from '@/lib/sources/country'
+import { cleanBusinessName } from '@/lib/sources/business-name'
 import { isConfirmedOutsideRequestedCountry } from './geographic-relevance'
+import { countsAsStrongEmail } from './email-intelligence'
 import { type EmailConfidence, getWebsiteHost, isBlockedWebsiteHost, normalizePhone } from '@/lib/validation'
 import { enrichEmailWithInspection } from '@/lib/scraper/email-enrichment'
 import { mergeInspection, type EmailInspection } from '@/lib/scraper/email-inspection'
@@ -64,6 +66,8 @@ export type DiscoveryLead = {
   email: string | null
   email_source: string | null
   email_confidence: EmailConfidence | null
+  /** The email replaced a high-confidence low-priority role, so it still counts as strong for the fallback decision. Not persisted. */
+  email_strong_for_fallback?: boolean
   is_generic_email: boolean
   enrichment_attempted: boolean
   enriched_website_host: string | null
@@ -210,6 +214,8 @@ function createDiscoveryLead(
 ): DiscoveryLead {
   return {
     ...lead,
+    // A listing title becomes the company name only when its tail is clearly promotional; otherwise it is kept as given.
+    company_name: cleanBusinessName(lead.company_name),
     email: null,
     email_source: null,
     email_confidence: null,
@@ -305,6 +311,7 @@ function mergeDiscoveryLead(existing: DiscoveryLead, incoming: DiscoveryLead): D
     email: websiteChanged ? null : existing.email,
     email_source: websiteChanged ? null : existing.email_source,
     email_confidence: websiteChanged ? null : existing.email_confidence,
+    email_strong_for_fallback: websiteChanged ? false : existing.email_strong_for_fallback,
     is_generic_email: websiteChanged ? false : existing.is_generic_email,
     enrichment_attempted: websiteChanged ? false : existing.enrichment_attempted,
     enriched_website_host: websiteChanged ? null : existing.enriched_website_host,
@@ -444,7 +451,7 @@ function buildSerperQueries(query: string, city: string) {
 function calculateMetrics(leads: DiscoveryLead[]): ScrapeMetrics {
   const leadsWithWebsite = leads.filter((lead) => hasUsableWebsite(lead.website)).length
   const leadsWithValidEmail = leads.filter((lead) => Boolean(lead.email)).length
-  const strongSignalLeads = leads.filter((lead) => lead.email_confidence === 'high').length
+  const strongSignalLeads = leads.filter(countsAsStrongEmail).length
   const enrichmentRate =
     leadsWithWebsite === 0 ? 0 : Number((leadsWithValidEmail / leadsWithWebsite).toFixed(2))
 
@@ -527,6 +534,7 @@ async function enrichLeadQueue(
       lead.email = emailRecord.value
       lead.email_source = emailRecord.emailSource
       lead.email_confidence = emailRecord.emailConfidence
+      lead.email_strong_for_fallback = 'fallbackStrong' in emailRecord && emailRecord.fallbackStrong === true
       lead.is_generic_email = emailRecord.isGenericEmail
 
       send(`✨ ${lead.company_name}`)
@@ -767,7 +775,7 @@ export async function runSharedProspectorDiscovery(
       totalApiCost = roundCostEstimate(totalApiCost + GOOGLE_DISCOVERY_COST_ESTIMATE)
 
       const weakLeadCount = validDiscoveredLeads.filter(
-        (lead) => !lead.email || lead.email_confidence !== 'high'
+        (lead) => !lead.email || !countsAsStrongEmail(lead)
       ).length
       const missingLeadCount = Math.max(0, maxLeads - usableLeads(validDiscoveredLeads).length)
       // Make room for replacements of candidates that had a website but no usable contact.
