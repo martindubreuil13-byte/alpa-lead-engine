@@ -377,13 +377,17 @@ test('the progress hook only reads, pauses when hidden, and stops when everythin
 
 test('My Leads stays read-only, shows a real profile state per lead, and offers a "Profile ready" filter', () => {
   const page = read('app/dashboard/my-leads/page.tsx')
-  assert.match(page, /deriveLeadProfileState\(lead, jobByLead\.get\(lead\.id\)\)/)
   assert.ok(!/\.(insert|update|upsert|delete|rpc)\(/.test(page), 'the page performs no writes and calls no function')
-  assert.match(page, /\.not\('run_id', 'is', null\)/, 'historical jobs are not even read as progress')
-  const client = read('app/dashboard/my-leads/MyLeadsWorkspaceClient.tsx')
-  assert.match(client, /Profile ready/)
-  assert.match(client, /LEAD_PROFILE_LABEL\[lead\.profile_state \?\? 'not_started'\]/)
-  assert.ok(!/fetch\(\s*['"`]\/api\/(leads\/process|research|admin)/.test(client))
+  assert.ok(!/\.from\(/.test(page), 'the page no longer reads the library at all')
+  // the state per lead is derived on the server from the stored profile and the lead's own run job (historical jobs are not read)
+  const list = read('lib/my-leads/list.ts')
+  assert.match(list, /deriveLeadProfileState\(/)
+  assert.match(list, /\.not\('run_id', 'is', null\)/, 'historical jobs are not even read as progress')
+  assert.ok(!/\.(insert|update|upsert|delete)\(/.test(list))
+  assert.match(read('lib/my-leads/ui-state.ts'), /ready: \{ label: 'Profile ready'/)
+  assert.match(read('lib/my-leads/ui-state.ts'), /ready: 'Profile ready'/) // the filter option
+  const workspace = ['MyLeadsWorkspace', 'LeadRow', 'LeadDossier', 'CommandBar', 'OverviewStrip', 'useLeadList'].map((name) => read(`components/my-leads/${name}.${name === 'useLeadList' ? 'ts' : 'tsx'}`)).join('\n')
+  assert.ok(!/fetch\(\s*['"`]\/api\/(leads\/process|research|admin)/.test(workspace))
 })
 
 test('the operator guide documents both switches, the budgets, the lifecycle and the rollback', () => {
