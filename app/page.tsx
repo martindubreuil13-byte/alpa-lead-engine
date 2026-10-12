@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Instrument_Serif } from 'next/font/google'
 import FreshStartCta from '@/components/landing/FreshStartCta'
 import FreeTrialCommandFlow from '@/components/landing/FreeTrialCommandFlow'
 import PublicHeader from '@/components/site/PublicHeader'
@@ -30,7 +31,14 @@ export const metadata: Metadata = {
   },
 }
 
-const heading = 'text-3xl font-semibold leading-[1.12] tracking-tight sm:text-4xl lg:text-5xl'
+const displaySerif = Instrument_Serif({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-display',
+  display: 'swap',
+})
+
+const heading = 'font-display text-3xl font-normal leading-[1.12] tracking-normal sm:text-4xl lg:text-5xl'
 const section = 'relative mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20 lg:px-10 lg:py-24'
 const cta = 'inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-[#d9bd82] px-6 py-3 text-sm font-semibold text-[#101a2c] transition-colors hover:bg-[#ead4a8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d9bd82] sm:w-auto'
 const features = [
@@ -52,7 +60,7 @@ const audiences = [
 
 export default function HomePage() {
   return (
-    <main className="overflow-hidden bg-[#081222] text-[#f5f1e8]">
+    <main className={`${displaySerif.variable} overflow-hidden bg-[#081222] text-[#f5f1e8]`}>
       <LandingPageTracker />
       <script
         type="application/ld+json"
@@ -107,7 +115,7 @@ export default function HomePage() {
       <section className={`${section} grid gap-12 pt-12 lg:grid-cols-2 lg:items-center lg:gap-16`}>
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.22em] text-[#d9bd82]">ALPA by MINDRA</p>
-          <h1 className="mt-6 text-[2.6rem] font-semibold leading-[1.06] tracking-[-0.04em] sm:text-6xl lg:text-[4.5rem]">You need customers.<br /><span className="text-[#d9bd82]">We find them for you.</span></h1>
+          <h1 className="mt-6 font-display text-[2.6rem] font-normal leading-[1.06] tracking-normal sm:text-6xl lg:text-[4.5rem]">You need customers.<br /><span className="text-[#d9bd82]">We find them for you.</span></h1>
           <p className="mt-7 max-w-xl text-base leading-8 text-slate-300 sm:text-lg">Tell ALPA what kind of businesses you’re looking for. We’ll find them, tell you who they are, what they do, and how to reach them.</p>
           <p className="mt-5 text-base font-medium leading-7">You focus on turning conversations into customers.</p>
           <div className="mt-8"><FreshStartCta className={cta}>Find 25 businesses free →</FreshStartCta></div>
