@@ -31,6 +31,7 @@ export async function extractWebsiteSnapshot(
 
   try {
     const homepage = await safeFetchWebsite(normalizeWebsiteUrl(website), options.fetchOptions)
+    let contentTruncated = Boolean(homepage.truncated)
     const parsedHomepage = parseHomepage(homepage.html, homepage.url)
     const researchPages: ResearchPage[] = [
       {
@@ -51,6 +52,7 @@ export async function extractWebsiteSnapshot(
         if (!url) return null
         try {
           const page = await safeFetchWebsite(url, options.fetchOptions)
+          if (page.truncated) contentTruncated = true
           return {
             kind,
             url: page.url,
@@ -81,6 +83,7 @@ export async function extractWebsiteSnapshot(
         source_urls: usablePages.map((page) => page.url),
         html_hash: htmlHash,
         extracted_at: new Date().toISOString(),
+        ...(contentTruncated ? { content_truncated: true } : {}),
       },
       duration_ms: Date.now() - startTime,
       cost: 0,
@@ -136,7 +139,10 @@ function parseHomepage(
     'what-we-do',
     'features',
   ])
-  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
+  // The lookbehind makes a match start only at the beginning of a run of address characters. Without it, a long unbroken run
+  // (an inline base64 image, a data blob) is rescanned from every position, which grows with the square of its length and
+  // cannot be interrupted. The addresses found are the same.
+  const emailRegex = /(?<![a-zA-Z0-9._%+-])([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
   const visibleEmail = (html.match(emailRegex) || []).find((email) => !isNoReplyEmail(email)) || null
   const phoneRegex = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g
   const faviconUrl = extractFaviconUrl($, baseUrl)

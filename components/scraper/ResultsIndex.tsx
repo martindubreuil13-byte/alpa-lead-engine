@@ -99,7 +99,9 @@ function ContactLine({ icon, muted = false, children }: { icon: ReactNode; muted
   )
 }
 
-const REASON_TEXT: Record<'budget' | 'cancelled' | 'research_failed', string> = {
+const REASON_TEXT: Record<'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website', string> = {
+  run_limit: "Not researched: this search's research limit was reached.",
+  no_website: 'This business has no website to read.',
   budget: 'This search reached its research limit.',
   cancelled: 'Research was stopped for this search.',
   research_failed: 'The website could not be researched.',

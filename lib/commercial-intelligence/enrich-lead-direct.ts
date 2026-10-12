@@ -168,7 +168,7 @@ export async function enrichLeadDirect(
     const research = await runResearchStages(
       lead.website,
       {
-        snapshot: (website, { signal }) => extractWebsiteSnapshot(website, { fetchOptions: { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS } }),
+        snapshot: (website, { signal }) => extractWebsiteSnapshot(website, { fetchOptions: { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS, truncateAtMaxBytes: true } }),
         signals: (website, { signal }) => generateBusinessSignals(website, { signal }),
         profile: (website, snapshot, signals, { signal }) => generateCommercialProfile(website, snapshot, signals, { signal }),
       },

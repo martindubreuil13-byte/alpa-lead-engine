@@ -95,21 +95,33 @@ export type IntelligenceStage = {
 
 const noun = (count: number) => (count === 1 ? 'profile' : 'profiles')
 
-function resolvedNote(summary: RunSummary): string {
-  const parts = [
-    summary.failed + summary.partial > 0 ? `${summary.failed + summary.partial} could not be completed` : null,
-    summary.unavailable > 0 ? `${summary.unavailable} without a website to read` : null,
-    summary.cancelled > 0 ? `${summary.cancelled} stopped` : null,
-  ].filter(Boolean)
-  return parts.join(' · ')
+/** Why the profiles that were never researched were left out, from the run's own record. */
+export type UnavailableBreakdown = { noWebsite: number; overLimit: number }
+
+function resolvedNote(summary: RunSummary, breakdown?: UnavailableBreakdown | null): string {
+  // Four distinct outcomes: generated (the headline), tried but unsuccessful, left out by the run limit, no website.
+  const unsuccessful = summary.failed + summary.partial
+  const parts = breakdown
+    ? [
+        unsuccessful > 0 ? `${unsuccessful} research ${unsuccessful === 1 ? 'attempt' : 'attempts'} unsuccessful` : null,
+        breakdown.overLimit > 0 ? `${breakdown.overLimit} not researched (run limit)` : null,
+        breakdown.noWebsite > 0 ? `${breakdown.noWebsite} with no website` : null,
+        summary.cancelled > 0 ? `${summary.cancelled} stopped` : null,
+      ]
+    : [
+        unsuccessful > 0 ? `${unsuccessful} could not be completed` : null,
+        summary.unavailable > 0 ? `${summary.unavailable} unavailable` : null,
+        summary.cancelled > 0 ? `${summary.cancelled} stopped` : null,
+      ]
+  return parts.filter(Boolean).join(' · ')
 }
 
 /**
  * The third stage, from real counts. `researchRunning` is whether research is actually switched on right now (server
  * confirmed); it is never inferred from the existence of queued jobs.
  */
-export function describeIntelligence(summary: RunSummary | null, researchRunning: boolean): IntelligenceStage | null {
-  const stage = describeStage(summary, researchRunning)
+export function describeIntelligence(summary: RunSummary | null, researchRunning: boolean, breakdown?: UnavailableBreakdown | null): IntelligenceStage | null {
+  const stage = describeStage(summary, researchRunning, breakdown)
   if (!stage || !summary) return stage
   // Authorized profiles are the ones that were ever going to be researched (not those without a website or over the cap).
   // A profile is resolved once it is ready or has ended; queued, researching and retrying ones are not, so the line
@@ -119,13 +131,13 @@ export function describeIntelligence(summary: RunSummary | null, researchRunning
   return { ...stage, progress: authorized > 0 ? Math.min(resolved / authorized, 1) : null }
 }
 
-function describeStage(summary: RunSummary | null, researchRunning: boolean): IntelligenceStage | null {
+function describeStage(summary: RunSummary | null, researchRunning: boolean, breakdown?: UnavailableBreakdown | null): IntelligenceStage | null {
   if (!summary) return null
   const { ready, total } = summary
   const counts = `${ready} of ${total} ${noun(total)} ready`
 
   if (summary.unresolved === 0) {
-    const note = resolvedNote(summary)
+    const note = resolvedNote(summary, breakdown)
     if (summary.runStatus === 'cancelled' && ready === 0) {
       return { phase: 'stopped', headline: 'Business intelligence stopped', detail: note || 'Research was stopped for this search', ready, total, live: false }
     }
@@ -183,10 +195,13 @@ export function describeProfileNote(stage: IntelligenceStage | null | undefined)
 // Customer-safe reasons (the stored error text is internal and is never shown as is)
 // ---------------------------------------------------------------------------------------------
 
-export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | null
+export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website' | null
 
-export function toProfileReason(state: ProfileState, lastError: string | null | undefined): ProfileReason {
+export function toProfileReason(state: ProfileState, lastError: string | null | undefined, initialState?: string | null): ProfileReason {
   if (state === 'cancelled') return 'cancelled'
+  // The database reports both as unavailable; the run's own record says which it was.
+  if (state === 'unavailable' && initialState === 'unavailable_no_website') return 'no_website'
+  if (state === 'unavailable' && (initialState === 'skipped_limit' || initialState === 'skipped_existing')) return 'run_limit'
   if (state !== 'failed' && state !== 'partial') return null
   if (lastError && /budget_exhausted/i.test(lastError)) return 'budget'
   return 'research_failed'
@@ -269,6 +284,7 @@ export function buildProfileCard(lead: StoredLead): ProfileCard | null {
     .map((url) => ({ label: new URL(url).pathname === '/' || new URL(url).pathname === '' ? new URL(url).hostname.replace(/^www\./, '') : new URL(url).pathname.replace(/\/$/, ''), url }))
 
   const limitations = ['Written by AI from the text of the website. It is not independently verified.']
+  if (lead.website_snapshot?.content_truncated === true) limitations.push('A very large page was only read in part (its first 1 MB).')
   if (pagesRead.length > 0 && pagesRead.length < 3) limitations.push(`Based on ${pagesRead.length === 1 ? 'one page' : `${pagesRead.length} pages`} of the website.`)
   if (!audience) limitations.push('The website did not clearly describe who it serves.')
 

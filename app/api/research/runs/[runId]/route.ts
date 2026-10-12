@@ -49,6 +49,18 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
   const progressRows = (rows ?? []) as RunProgressRow[]
   if (progressRows.length === 0) return NextResponse.json({ ok: true, runId: id, stage: null, rows: [], profiles: {} }, { headers: NO_STORE })
 
+  // Why each business was or was not researched, from the run's own record (readable by its owner). The progress function
+  // reports both "no website" and "over the run limit" as unavailable; this keeps them apart.
+  const { data: runLeads } = await (supabase as any).from('ci_research_run_leads').select('lead_id, initial_state').eq('run_id', id)
+  const initialByLead = new Map<string, string>((runLeads ?? []).map((row: { lead_id: string; initial_state: string }) => [row.lead_id, row.initial_state]))
+  const breakdown = { noWebsite: 0, overLimit: 0 }
+  for (const row of progressRows) {
+    if (row.state !== 'unavailable') continue
+    const initial = initialByLead.get(row.lead_id)
+    if (initial === 'unavailable_no_website') breakdown.noWebsite += 1
+    else if (initial === 'skipped_limit' || initial === 'skipped_existing') breakdown.overLimit += 1
+  }
+
   const readyIds = progressRows.filter((row) => row.state === 'ready').map((row) => row.lead_id)
   const profiles: Record<string, ProfileCard> = {}
   if (readyIds.length > 0) {
@@ -85,11 +97,11 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       retryable,
       running: status.running,
       summary,
-      stage: describeIntelligence(summary, status.running),
+      stage: describeIntelligence(summary, status.running, breakdown),
       timing,
       // One attempt per profile: a profile whose research failed or timed out is shown as unavailable (with its reason) so the
       // run can finish. The stage counts above still come from the raw states, and a manual retry still checks the raw state.
-      rows: progressRows.map((row) => ({ leadId: row.lead_id, state: row.state === 'failed' || row.state === 'partial' ? 'unavailable' : row.state, reason: toProfileReason(row.state, row.last_error) })),
+      rows: progressRows.map((row) => ({ leadId: row.lead_id, state: row.state === 'failed' || row.state === 'partial' ? 'unavailable' : row.state, reason: toProfileReason(row.state, row.last_error, initialByLead.get(row.lead_id)) })),
       profiles,
     },
     { headers: NO_STORE }

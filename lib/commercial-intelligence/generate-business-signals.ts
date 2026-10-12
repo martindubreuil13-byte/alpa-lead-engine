@@ -102,7 +102,7 @@ export async function generateBusinessSignals(
 
 async function fetchPage(url: string, signal?: AbortSignal): Promise<PageAnalysisResult | null> {
   try {
-    const response = await safeFetchWebsite(url, { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS })
+    const response = await safeFetchWebsite(url, { signal, timeoutMs: RESEARCH_FETCH_TIMEOUT_MS, totalTimeoutMs: RESEARCH_FETCH_TIMEOUT_MS, truncateAtMaxBytes: true })
 
     return {
       html: response.html,
@@ -187,7 +187,9 @@ function analyzePageContent(
     )
 
     // Email & phone
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
+    // The lookbehind keeps this linear on a long unbroken run (an inline base64 image): a match can only start at the
+    // beginning of a run of address characters. The same addresses are found.
+    const emailRegex = /(?<![a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
     const hasVisibleEmail = emailRegex.test(html)
 
     const phoneRegex = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/

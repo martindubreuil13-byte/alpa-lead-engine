@@ -54,7 +54,7 @@ test('"complete" is never shown while a job is unresolved; failures and gaps are
   const done = describeIntelligence(summarizeRun(rows({ ready: 20, failed: 2, unavailable: 3 }), NOW), true)
   assert.equal(done.phase, 'complete')
   assert.equal(done.headline, '20 business profiles ready')
-  assert.equal(done.detail, '2 could not be completed · 3 without a website to read')
+  assert.equal(done.detail, '2 could not be completed · 3 unavailable')
   assert.equal(describeIntelligence(summarizeRun(rows({ ready: 20, failed: 5 }), NOW), true).ready, 20)
 })
 

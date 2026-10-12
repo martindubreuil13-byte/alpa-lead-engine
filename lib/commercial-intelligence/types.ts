@@ -18,6 +18,8 @@ export interface WebsiteSnapshot {
     github?: string
   }
   html_hash: string // SHA256 of full HTML for dedup
+  /** True when a page was larger than the read limit and only its first part was read. Absent otherwise. */
+  content_truncated?: boolean
   extracted_at: string // ISO timestamp
   page_language?: string
   favicon_url?: string
