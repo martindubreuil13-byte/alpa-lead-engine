@@ -10,6 +10,10 @@ export const RESEARCH_HARD_LIMITS = {
   maxStaleSeconds: 3600,
   /** Shortest stale-claim timeout: a job is never reclaimed while it could still be running. */
   minStaleSeconds: 60,
+  /** Most claim rounds one tick may run (each round claims at most `batchSize` jobs and runs them `concurrency` at a time). */
+  maxRounds: 30,
+  /** Most follow-up ticks one dispatched tick chain may trigger. The first tick is depth 0, so a chain is at most 1 + this. */
+  maxContinuations: 6,
 } as const
 
 /** The effective limits for the current configuration, for operators. Reads the environment only. */

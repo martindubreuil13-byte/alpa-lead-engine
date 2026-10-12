@@ -12,9 +12,9 @@ const stage = (counts, running = true, breakdown) => describeIntelligence(summar
 test('progress is counted against the businesses authorized for research, not every saved business', () => {
   // Laval: 20 saved, 10 authorized (8 over the run limit, 2 with no website). It used to read "0 of 20".
   const preparing = stage({ queued: 10, unavailable: 10 })
-  assert.equal(preparing.detail, '0 of 10 profiles generated')
+  assert.equal(preparing.detail, '0 generated of 10 eligible · 10 queued')
   const midway = stage({ ready: 4, researching: 2, queued: 4, unavailable: 10 })
-  assert.equal(midway.detail, '4 of 10 profiles generated')
+  assert.equal(midway.detail, '4 generated of 10 eligible · 2 processing · 4 queued')
   assert.equal(midway.progress, 0.4)
   assert.equal(stage({ ready: 9, failed: 1, unavailable: 10 }, true, { noWebsite: 2, overLimit: 8 }).headline, '9 business profiles generated')
 })

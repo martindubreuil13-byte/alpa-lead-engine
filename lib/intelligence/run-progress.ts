@@ -138,7 +138,17 @@ function describeStage(summary: RunSummary | null, researchRunning: boolean, bre
   // and those left out by the run limit are never researched. With none authorized there is nothing to count against.
   const authorized = summary.total - summary.unavailable
   const total = authorized
-  const counts = authorized > 0 ? `${ready} of ${authorized} ${noun(authorized)} generated` : 'No businesses authorized for research'
+  // "Eligible" is stated, not promised: only businesses with a readable website are authorized, and a website can still fail.
+  const counts = authorized > 0 ? `${ready} generated of ${authorized} eligible` : 'No businesses authorized for research'
+  // What is happening to the rest, while research runs: processing now, waiting, ended without a profile, and the businesses
+  // that were never eligible because they have no website.
+  const live = [
+    counts,
+    summary.researching > 0 ? `${summary.researching} processing` : null,
+    summary.queued + summary.retryPending > 0 ? `${summary.queued + summary.retryPending} queued` : null,
+    summary.failed + summary.partial > 0 ? `${summary.failed + summary.partial} unsuccessful` : null,
+    breakdown && breakdown.noWebsite > 0 ? `${breakdown.noWebsite} with no website` : null,
+  ].filter(Boolean).join(' · ')
 
   if (summary.unresolved === 0) {
     const note = resolvedNote(summary, breakdown)
@@ -175,10 +185,10 @@ function describeStage(summary: RunSummary | null, researchRunning: boolean, bre
   }
 
   if (summary.researching > 0 || ready > 0 || summary.retryPending > 0) {
-    return { phase: 'researching', headline: 'Research in progress', detail: counts, ready, total, live: true }
+    return { phase: 'researching', headline: 'Research in progress', detail: live, ready, total, live: true }
   }
 
-  return { phase: 'preparing', headline: 'Preparing business intelligence', detail: counts, ready, total, live: true }
+  return { phase: 'preparing', headline: 'Preparing business intelligence', detail: live, ready, total, live: true }
 }
 
 /**

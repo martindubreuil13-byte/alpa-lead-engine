@@ -45,7 +45,7 @@ export async function runBackgroundWorkerCore(
   // The emergency switch is checked before anything else: no recovery, no claim, no database call.
   // Jobs and profiles stay exactly as they are while research is off.
   if (!(options.researchEnabled ?? isResearchEnabled())) {
-    return { ok: true, disabled: true, claimed: 0, recovered: 0, permanentlyFailedDuringRecovery: 0, completed: 0, retrying: 0, failed: 0, interrupted: 0, estimatedCost: 0, results: [] }
+    return { ok: true, disabled: true, moreWork: false, claimed: 0, recovered: 0, permanentlyFailedDuringRecovery: 0, completed: 0, retrying: 0, failed: 0, interrupted: 0, estimatedCost: 0, results: [] }
   }
   const jobDeadlineMs = options.jobDeadlineMs ?? RESEARCH_DEADLINE_MS
   const graceMs = options.graceMs ?? RESEARCH_DEADLINE_GRACE_MS
@@ -56,10 +56,12 @@ export async function runBackgroundWorkerCore(
   const tickEnd = now() + tickBudgetMs
   // One round is the original behaviour. Several rounds let one tick keep a customer's run moving: each round claims
   // only what can still finish before the tick ends, and a new round starts only if one whole job still fits.
-  const maxRounds = Math.min(Math.max(options.maxRounds ?? 1, 1), 20)
+  const maxRounds = Math.min(Math.max(options.maxRounds ?? 1, 1), RESEARCH_HARD_LIMITS.maxRounds)
   const recovery = await dependencies.recover(client, options.staleTimeoutSeconds || WORKER_DEFAULTS.staleTimeoutSeconds)
   const results: Array<{ queueId: string; leadId: string; status: string; cost: number }> = []
   let claimedTotal = 0
+  // True once a claim came back empty: nothing more is eligible right now (none left, or a budget/limit stopped the claim).
+  let exhausted = false
 
   for (let round = 0; round < maxRounds; round += 1) {
     const remainingMs = tickEnd - now()
@@ -67,7 +69,10 @@ export async function runBackgroundWorkerCore(
     // Never claim more than this round can finish: unfinished claims sit in 'processing' until stale recovery.
     const batchSize = jobsThatFit(requestedBatch, { parallel: concurrency, budgetMs: round === 0 ? undefined : remainingMs })
     const claimed = await dependencies.claim(client, batchSize)
-    if (claimed.length === 0) break
+    if (claimed.length === 0) {
+      exhausted = true
+      break
+    }
     claimedTotal += claimed.length
     await processRound(claimed)
   }
@@ -115,6 +120,8 @@ export async function runBackgroundWorkerCore(
 
   return {
     ok: true,
+    // The tick stopped on its own limits (rounds or time) while jobs were still being claimed, so more may remain.
+    moreWork: !exhausted && claimedTotal > 0,
     claimed: claimedTotal,
     recovered: recovery.resetCount,
     permanentlyFailedDuringRecovery: recovery.failedCount,

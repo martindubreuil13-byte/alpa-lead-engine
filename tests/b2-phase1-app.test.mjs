@@ -36,10 +36,10 @@ const NOW = Date.parse('2026-10-11T10:01:00Z')
 
 test('every stage statement is a function of real counts: preparing, researching, complete, not running', () => {
   const preparing = describeIntelligence(summarizeRun(rows({ queued: 25 }), NOW), true)
-  assert.deepEqual([preparing.phase, preparing.headline, preparing.detail, preparing.live], ['preparing', 'Preparing business intelligence', '0 of 25 profiles generated', true])
+  assert.deepEqual([preparing.phase, preparing.headline, preparing.detail, preparing.live], ['preparing', 'Preparing business intelligence', '0 generated of 25 eligible · 25 queued', true])
 
   const researching = describeIntelligence(summarizeRun(rows({ ready: 12, researching: 4, queued: 9 }), NOW), true)
-  assert.deepEqual([researching.phase, researching.headline, researching.detail], ['researching', 'Research in progress', '12 of 25 profiles generated'])
+  assert.deepEqual([researching.phase, researching.headline, researching.detail], ['researching', 'Research in progress', '12 generated of 25 eligible · 4 processing · 9 queued'])
 
   const complete = describeIntelligence(summarizeRun(rows({ ready: 25 }), NOW), true)
   assert.deepEqual([complete.phase, complete.headline, complete.live], ['complete', '25 business profiles generated', false])

@@ -244,10 +244,10 @@ test('the application sends only parameters the run-scoped RPCs define (producti
 // ---------------------------------------------------------------------------------------------
 
 test('configuration can lower the execution limits but never raise them above the hard ceilings', () => {
-  assert.deepEqual(RESEARCH_HARD_LIMITS, { maxBatchSize: 20, maxConcurrency: 4, maxStaleSeconds: 3600, minStaleSeconds: 60 })
-  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, maxRounds: 8, staleTimeoutSeconds: 600 })
-  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '9999', CI_WORKER_CONCURRENCY: '99', CI_WORKER_STALE_SECONDS: '999999' }), { batchSize: 20, concurrency: 4, maxRounds: 8, staleTimeoutSeconds: 3600 })
-  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '-5', CI_WORKER_CONCURRENCY: 'abc', CI_WORKER_STALE_SECONDS: '5' }), { batchSize: 2, concurrency: 1, maxRounds: 8, staleTimeoutSeconds: 600 })
+  assert.deepEqual(RESEARCH_HARD_LIMITS, { maxBatchSize: 20, maxConcurrency: 4, maxStaleSeconds: 3600, minStaleSeconds: 60, maxRounds: 30, maxContinuations: 6 })
+  assert.deepEqual(resolveWorkerConfig({}), { batchSize: 2, concurrency: 1, maxRounds: 25, staleTimeoutSeconds: 180 })
+  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '9999', CI_WORKER_CONCURRENCY: '99', CI_WORKER_STALE_SECONDS: '999999' }), { batchSize: 20, concurrency: 4, maxRounds: 25, staleTimeoutSeconds: 3600 })
+  assert.deepEqual(resolveWorkerConfig({ CI_WORKER_BATCH_SIZE: '-5', CI_WORKER_CONCURRENCY: 'abc', CI_WORKER_STALE_SECONDS: '5' }), { batchSize: 2, concurrency: 1, maxRounds: 25, staleTimeoutSeconds: 180 })
 })
 
 test('a tick never claims more than the hard ceiling, whatever is asked', async () => {
