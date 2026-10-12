@@ -168,11 +168,11 @@ test('confident and possible emails stay distinguishable on the rows', () => {
 
 const saved25 = SCENARIO.leads
 
-test('entitled users see and export all 25; only the guest preview is limited to five', () => {
+test('all users see all 25 businesses; guest exports require email', () => {
   assert.equal(getAccessibleResults(saved25, true).length, 25)
-  assert.equal(getAccessibleResults(saved25, false).length, 5)
+  assert.equal(getAccessibleResults(saved25, false).length, 25)
   assert.equal(buildLeadCsv(getAccessibleResults(saved25, true)).trim().split('\n').length, 26)
-  assert.equal(buildLeadCsv(getAccessibleResults(saved25, false)).trim().split('\n').length, 6)
+  assert.equal(buildLeadCsv(getAccessibleResults(saved25, false)).trim().split('\n').length, 26)
   assert.equal(describeShown(25, 25), null)
   assert.equal(describeShown(5, 25), 'Showing 5 of 25')
 })

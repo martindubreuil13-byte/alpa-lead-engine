@@ -72,6 +72,7 @@ export type DiscoveryLead = {
   /** The email replaced a high-confidence low-priority role, so it still counts as strong for the fallback decision. Not persisted. */
   email_strong_for_fallback?: boolean
   is_generic_email: boolean
+  website_intelligence?: import('../guest/website-facts').WebsiteFacts | null
   enrichment_attempted: boolean
   enriched_website_host: string | null
   /** How well the website was inspected for an email (see email-inspection.ts). Not persisted. */
@@ -525,8 +526,9 @@ async function enrichLeadQueue(
 
       send(`🔬 ${lead.company_name}`)
 
-      const { record: emailRecord, inspection } = await enrichEmailWithInspection(lead.website)
+      const { record: emailRecord, inspection, websiteFacts } = await enrichEmailWithInspection(lead.website)
       lead.email_inspection = mergeInspection(lead.email_inspection, inspection)
+      lead.website_intelligence = websiteFacts ?? lead.website_intelligence
 
       // The log line (and the progress counters built from it) is unchanged: "no email" here means no
       // address was found. How well the site was inspected travels separately, on the lead itself.

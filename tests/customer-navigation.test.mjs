@@ -118,10 +118,11 @@ test('no customer-facing page offers to email results or compose email', () => {
   }
 })
 
-test('CSV export is available without email on Discover, the trial flow and the leads list', () => {
+test('guest CSV export requests email; signed-in exports remain direct', () => {
   assert.match(read('app/dashboard/scraper/page.tsx'), /Export CSV/)
   assert.match(read('app/dashboard/scraper/page.tsx'), /onExportCsv=\{\(\) => \{\s*setShowTrialLimitModal\(false\)\s*downloadPreviewLeads\(\)/)
-  assert.match(read('components/landing/FreeTrialCommandFlow.tsx'), /downloadLeadCsv\(allLeads\)/)
+  assert.match(read('components/landing/FreeTrialCommandFlow.tsx'), /trial\/results\?download=1/)
+  assert.match(read('components/guest/GuestResults.tsx'), /api\/guest\/export/)
   assert.match(read('app/dashboard/leads/LeadsPageClient.tsx'), /Download CSV/)
 })
 

@@ -4,6 +4,7 @@ type CsvLead = Pick<TrialLead, 'company_name' | 'email' | 'phone' | 'city'> & {
   website?: string | null
   commercial_profile?: any | null
   ci_completed_at?: string | null
+  website_intelligence?: import('../guest/website-facts').WebsiteFacts | null
 }
 
 function formatCsvValue(value: any): string {
@@ -32,6 +33,10 @@ export function buildLeadCsv(leads: CsvLead[]) {
     'Core Services',
     'Keywords',
     'Last Refreshed',
+    'Website Title',
+    'Website Description',
+    'Website Topics',
+    'Website Sources',
   ]
 
   const rows = leads.map((lead) => {
@@ -53,13 +58,17 @@ export function buildLeadCsv(leads: CsvLead[]) {
       formatCsvValue(profile?.core_services || []),
       formatCsvValue(profile?.keywords || []),
       lastRefreshed,
+      lead.website_intelligence?.title || '',
+      lead.website_intelligence?.description || '',
+      formatCsvValue(lead.website_intelligence?.headings || []),
+      formatCsvValue(lead.website_intelligence?.source_urls || []),
     ]
   })
 
   return [headers, ...rows]
     .map((row) =>
       row
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .map((value) => `"${(/^[=+@\-\t\r]/.test(String(value)) ? "'" : "") + String(value).replace(/"/g, '""')}"`)
         .join(',')
     )
     .join('\n')

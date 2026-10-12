@@ -355,11 +355,12 @@ test('other consumers of the discovery code and stream are unaffected', () => {
   // agent missions call the shared discovery with two arguments only
   const executor = read('lib/agent/mission-executor.ts')
   assert.match(executor, /mode: 'fast',\s*\},\s*\(\) => \{\}\s*\)/)
-  // the landing trial flow only acts on 'lead' and 'result' events and ignores everything else
+  // the landing trial also follows real backend progress, while completion still uses the result
   const trial = read('components/landing/FreeTrialCommandFlow.tsx')
   assert.match(trial, /evt\.type === 'lead'/)
   assert.match(trial, /evt\.type === 'result'/)
-  assert.doesNotMatch(trial, /evt\.type === 'progress'/)
+  assert.match(trial, /evt\.type === 'progress'/)
+  assert.doesNotMatch(trial, /STEP_DELAYS/)
   // Discover reads progress at both parse sites and still decides completion on the result event
   const page = read('app/dashboard/scraper/page.tsx')
   assert.equal((page.match(/parsed\?\.type === 'progress'/g) || []).length, 2)

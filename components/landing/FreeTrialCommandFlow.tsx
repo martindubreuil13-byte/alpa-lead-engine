@@ -6,10 +6,7 @@ import { CheckCircle2, MapPin, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { enableGuestTrialMode } from '@/lib/session/guest-trial-mode'
-import { resetGuestSession } from '@/lib/session/resetGuestSession'
-import { getOrCreateGuestSessionId, upsertGuestLead } from '@/lib/guest-session'
-import { downloadLeadCsv } from '@/lib/leads/csv'
-import { supabase } from '@/lib/supabase'
+import { getOrCreateGuestSessionId, upsertGuestLead, getGuestLeads, saveGuestLeads } from '@/lib/guest-session'
 import { type TrialLead, FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { createAnalyticsSearchId, trackEvent } from '@/lib/track'
@@ -21,7 +18,7 @@ const STEPS = [
   'Finding active businesses',
   'Inspecting websites',
   'Checking contact availability',
-  'Validating lead quality',
+  'Preparing available information',
   'Preparing your lead list',
 ]
 
@@ -37,8 +34,6 @@ function countLeadContacts(leads: TrialLead[]) {
   )
 }
 
-// Steps 0-4 are scheduled; step 5 ("Preparing your lead list") revealed only on backend completion
-const STEP_DELAYS = [0, 900, 1800, 3000, 4600]
 
 function fmtMMSS(s: number) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -499,14 +494,14 @@ function RewardPhase({
             {isAtLimit
               ? `You generated ${totalLeadsGenerated} leads in ${totalElapsedSeconds} seconds.`
               : fewerThanRequested
-                ? `You found ${count} validated leads in ${elapsed} seconds.`
+                ? `You found ${count} businesses in ${elapsed} seconds.`
                 : `You found ${count} leads in ${elapsed} seconds.`}
           </h2>
           <p className="mt-1.5 text-sm text-slate-500">
             {isAtLimit
               ? 'Imagine doing that every day.'
               : fewerThanRequested
-                ? 'ALPA only keeps leads it can validate.'
+                ? 'Contact details and website information vary by business.'
                 : 'That\'s how fast ALPA works.'}
           </p>
           {!isAtLimit && (
@@ -536,7 +531,7 @@ function RewardPhase({
               onClick={onViewLeads}
               className="w-full rounded-xl border border-white/[0.06] bg-white/[0.025] px-3.5 py-2.5 text-center text-xs text-slate-500 transition hover:border-white/[0.10] hover:text-slate-400"
             >
-              +{count - 3} more in dashboard
+              +{count - 3} more businesses to view
             </button>
           )}
         </div>
@@ -561,7 +556,7 @@ function RewardPhase({
   )
 }
 
-function ErrorPhase({ onAdjust, onClose }: { onAdjust: () => void; onClose: () => void }) {
+function ErrorPhase({ message, onAdjust, onClose }: { message: string; onAdjust: () => void; onClose: () => void }) {
   return (
     <>
       <div className="flex items-start justify-between gap-4">
@@ -576,10 +571,10 @@ function ErrorPhase({ onAdjust, onClose }: { onAdjust: () => void; onClose: () =
             id="trial-flow-title"
             className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl"
           >
-            No results found
+            Search incomplete
           </h2>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-            ALPA could not complete that search. Try a broader business type or location.
+            {message || 'No businesses were returned. Try a broader business type or location.'}
           </p>
         </div>
         <CloseButton onClick={onClose} />
@@ -605,6 +600,7 @@ export default function FreeTrialCommandFlow() {
 
   // Current search
   const [summaryLine, setSummaryLine] = useState('')
+  const [errorMessage,setErrorMessage] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [stepsRevealed, setStepsRevealed] = useState(0)
   const [leads, setLeads] = useState<TrialLead[]>([])
@@ -643,9 +639,24 @@ export default function FreeTrialCommandFlow() {
     }
   }, [])
 
+  useEffect(() => {
+    fetch('/api/guest/session', {cache:'no-store'}).then(res => res.ok ? res.json() : null).then(data => {
+      if (!data) return
+      saveGuestLeads(data.leads || [])
+      setAllLeads(data.leads || [])
+      setTotalLeadsGenerated(data.used || 0)
+    }).catch(() => {})
+  }, [])
+
   // Listen for open event
   useEffect(() => {
-    const open = () => setPhase('input')
+    const open = () => {
+      const saved = getGuestLeads()
+      setAllLeads(saved)
+      setTotalLeadsGenerated(prev => Math.max(prev,saved.length))
+      setPhase(saved.length ? 'reward' : 'input')
+      setLeads(saved)
+    }
     window.addEventListener('alpa:open-trial-flow', open)
     return () => window.removeEventListener('alpa:open-trial-flow', open)
   }, [])
@@ -698,8 +709,6 @@ export default function FreeTrialCommandFlow() {
     // First search only: setup guest session and auth
     if (isFirstSearchRef.current) {
       enableGuestTrialMode()
-      resetGuestSession({ regenerateSessionId: true })
-      await supabase.auth.signOut()
       sessionStorage.setItem('alpa_prospector_onboarding_seen', '1')
       isFirstSearchRef.current = false
     }
@@ -720,6 +729,7 @@ export default function FreeTrialCommandFlow() {
       metadata: { source: 'trial_flow', business_type: businessType, location },
     })
 
+    setErrorMessage('')
     setPhase('searching')
     setElapsed(0)
     elapsedRef.current = 0
@@ -735,12 +745,7 @@ export default function FreeTrialCommandFlow() {
       elapsedRef.current = s
     }, 500)
 
-    // Progressive step reveal with varied timing; step 5 revealed on completion
     clearStepTimers()
-    STEP_DELAYS.forEach((delay, i) => {
-      const t = setTimeout(() => setStepsRevealed(i + 1), delay)
-      stepTimers.current.push(t)
-    })
 
     abortRef.current = new AbortController()
 
@@ -754,11 +759,16 @@ export default function FreeTrialCommandFlow() {
           maxLeads: effectiveCount,
           outputLeadLimit: effectiveCount,
           guestSessionId: guestId,
+          guestTrial: true,
         }),
         signal: abortRef.current.signal,
       })
 
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok || !res.body) {
+        const text=await res.text()
+        const event=JSON.parse(text.replace(/^data: /,'').trim())
+        throw new Error(event.message || 'Search unavailable. Please try again.')
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -776,7 +786,9 @@ export default function FreeTrialCommandFlow() {
           if (!trimmed.startsWith('data: ')) continue
           try {
             const evt = JSON.parse(trimmed.slice(6))
-            if (evt.type === 'lead' && evt.payload) {
+            if (evt.type === 'progress') {
+              setStepsRevealed(evt.stage === 'saving' ? 5 : 3)
+            } else if (evt.type === 'lead' && evt.payload) {
               const lead = evt.payload as TrialLead
               collected.unshift(lead)
               upsertGuestLead(lead)
@@ -792,6 +804,7 @@ export default function FreeTrialCommandFlow() {
       clearStepTimers()
       stopTimer()
       if (err instanceof Error && err.name === 'AbortError') return
+      setErrorMessage(err instanceof Error ? err.message : 'Search unavailable. Please try again.')
       setPhase('error')
       return
     }
@@ -841,17 +854,17 @@ export default function FreeTrialCommandFlow() {
     })
 
     setTimeout(() => {
-      setPhase(collected.length === 0 ? 'error' : 'reward')
+      if (collected.length) { setPhase('closed'); router.push('/trial/results') }
+      else setPhase('error')
     }, 700)
-  }, [businessType, location, leadCount, remainingFreeLeads])
+  }, [businessType, location, leadCount, remainingFreeLeads, router])
 
   const downloadCsv = useCallback(() => {
     if (allLeads.length === 0) return
-    downloadLeadCsv(allLeads)
-    void trackEvent('csv_downloaded', { leads_count: allLeads.length })
-  }, [allLeads])
+    router.push('/trial/results?download=1')
+  }, [allLeads, router])
 
-  const viewLeads = useCallback(() => router.push('/dashboard/leads'), [router])
+  const viewLeads = useCallback(() => router.push('/trial/results'), [router])
   const upgrade = useCallback(() => router.push('/plans'), [router])
 
   // Persistent card: render when closed but leads exist
@@ -881,7 +894,7 @@ export default function FreeTrialCommandFlow() {
       />
 
       <div className="relative z-10 w-full max-w-lg sm:mx-4">
-        <div className="relative overflow-hidden rounded-t-[28px] border border-white/[0.08] bg-[rgba(8,14,26,0.96)] shadow-[0_32px_80px_rgba(2,6,18,0.6)] backdrop-blur-2xl sm:rounded-[28px]">
+        <div className="relative max-h-[92dvh] overflow-y-auto rounded-t-[28px] border border-white/[0.08] bg-[rgba(8,14,26,0.96)] shadow-[0_32px_80px_rgba(2,6,18,0.6)] backdrop-blur-2xl sm:rounded-[28px]">
           <div
             className="pointer-events-none absolute inset-x-16 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(96,165,250,0.32),transparent)]"
             aria-hidden="true"
@@ -932,7 +945,7 @@ export default function FreeTrialCommandFlow() {
             )}
 
             {phase === 'error' && (
-              <ErrorPhase onAdjust={() => setPhase('input')} onClose={close} />
+              <ErrorPhase message={errorMessage} onAdjust={() => setPhase('input')} onClose={close} />
             )}
           </div>
         </div>

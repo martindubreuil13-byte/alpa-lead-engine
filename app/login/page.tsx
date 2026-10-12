@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
-import { clearGuestTrial, getGuestLeads } from '@/lib/guest-session'
+import { getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 import { trackEvent } from '@/lib/track'
@@ -120,7 +120,7 @@ export default function LoginPage() {
       })
 
       writeStoredGuestClaimResult(result)
-      clearGuestTrial()
+      // Keep the guest results available after optional account creation.
 
       return result
     } catch (err) {

@@ -7,6 +7,7 @@ export const GUEST_CAPTURE_EMAIL_STORAGE_KEY = 'alpa_guest_capture_email'
 export const GUEST_LEADS_UPDATED_EVENT = 'alpa:guest-leads-updated'
 
 export type TrialLead = {
+  website_intelligence?: import('./guest/website-facts').WebsiteFacts | null
   id: string
   company_name: string
   city: string | null

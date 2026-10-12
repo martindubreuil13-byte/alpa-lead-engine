@@ -485,7 +485,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const profileNote = privatePreview
     ? 'Business Profiles are a separate step; where research has finished, its synopsis appears here.'
     : isGuest
-      ? 'Business Profiles are a separate step and are available with an account.'
+      ? 'Open your free trial results to see available website information. No account required.'
       : 'Business Profiles are available separately.'
   const engineView = buildEngineView({
     progress,
@@ -1196,6 +1196,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   }
 
   function downloadPreviewLeads() {
+    if (isGuest) { window.location.href = '/trial/results?download=1'; return }
     const exportLeads = getAccessibleResults(sessionSavedLeads, fullResultsAccess)
     if (!exportLeads.length) return
 
@@ -1353,7 +1354,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
                     disabled={!displayedPreviewLeads.length}
                     className="inline-flex min-h-[44px] items-center rounded-sm text-sm font-medium text-[#5b6372] transition-colors hover:text-[#0b1a33] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7a5f27] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {fullResultsAccess ? 'Export CSV' : 'Export preview CSV'}
+                    {'Export CSV'}
                   </button>
                 </>
               }

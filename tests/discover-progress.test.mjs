@@ -230,7 +230,7 @@ test('discovery and Business Profile building are described as separate steps', 
   assert.match(rail, /sub="Available separately"/)
   assert.match(page, /Business Profiles are a separate step/)
   assert.match(page, /Business Profiles are available separately/)
-  assert.match(page, /available with an account/) // guest
+  assert.match(page, /No account required/) // guest
   // nothing in this experience claims profiles are being, or will be, generated automatically
   assert.doesNotMatch(page, /queued for background research|being generated|Open My Leads to build/)
 })

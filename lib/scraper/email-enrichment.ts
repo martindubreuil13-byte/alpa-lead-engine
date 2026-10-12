@@ -12,6 +12,8 @@
 // pinned to the validated address (no DNS re-resolution), bounded redirects, body and time.
 // EMAIL_INTELLIGENCE_VERSION=v1 switches back to the original behaviour without a code change.
 
+import { extractWebsiteFacts, type WebsiteFacts } from '../guest/website-facts.ts'
+
 import {
   resolvePublicAddresses,
   safeFetchWebsite,
@@ -67,6 +69,7 @@ export type AccessFailure = 'robots' | 'blocked' | 'timeout' | 'too_large' | 'un
 const ACCESS_PRECEDENCE: AccessFailure[] = ['robots', 'blocked', 'timeout', 'too_large', 'unsupported', 'unavailable', 'unsafe']
 
 export type EmailEnrichmentOutcome = {
+  websiteFacts?: WebsiteFacts | null
   best: EmailCandidateV2 | null
   coverageClass: EmailCoverageClass
   /** Set when the site could not be analysed. Never set for "analysed, no email published". */
@@ -360,6 +363,7 @@ export async function enrichEmailV2(
   let truncated = false
   let pagesRequested = 0
   let pagesLoaded = 0
+  let websiteFacts: WebsiteFacts | null = null
   let rounds = 0
   let pageBase = base
   let rebased = false
@@ -420,6 +424,7 @@ export async function enrichEmailV2(
         }
 
         pagesLoaded += 1
+        if (!websiteFacts || urls[index] === pageBase) websiteFacts = extractWebsiteFacts(page.html, page.resolvedUrl)
         if (page.truncated) truncated = true
         requested.add(page.resolvedUrl)
         if (urls[index] === pageBase) state.homepage = page
@@ -466,6 +471,7 @@ export async function enrichEmailV2(
     truncated,
     pagesRequested,
     pagesLoaded,
+    websiteFacts,
     rounds,
     failureCounts: failures.reduce<Partial<Record<PageFailure, number>>>((counts, failure) => {
       counts[failure] = (counts[failure] ?? 0) + 1
@@ -523,7 +529,7 @@ function logOutcome(website: string | null, outcome: EmailEnrichmentOutcome) {
 }
 
 /** An address (if any) together with how well the website was inspected. V1 cannot tell, so it reports null. */
-export type EmailEnrichmentResult = { record: EmailValidationResult | null; inspection: EmailInspection | null }
+export type EmailEnrichmentResult = { record: EmailValidationResult | null; inspection: EmailInspection | null; websiteFacts?: WebsiteFacts | null }
 
 export type DetailedEmailEnrichers = {
   v1: (website: string | null) => Promise<EmailEnrichmentResult>
@@ -535,7 +541,7 @@ const DEFAULT_DETAILED_ENRICHERS: DetailedEmailEnrichers = {
   v2: async (website) => {
     const outcome = await enrichEmailV2(website)
     logOutcome(website, outcome)
-    return { record: outcome.best, inspection: inspectionFromOutcome(outcome) }
+    return { record: outcome.best, inspection: inspectionFromOutcome(outcome), websiteFacts: outcome.websiteFacts }
   },
 }
 

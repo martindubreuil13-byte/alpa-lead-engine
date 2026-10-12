@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
-import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
+import { guestDb, guestSession, loadGuestSession } from '@/lib/guest/server'
+import { sameOrigin } from '@/lib/guest/security'
 
 type GuestLeadInsertPayload = {
   user_id: string
@@ -18,6 +19,7 @@ type GuestLeadInsertPayload = {
   email_source: string
   is_generic_email: boolean
   cost_estimate: number
+  industry: string | null
 }
 
 type GuestClaimResponse = {
@@ -53,6 +55,7 @@ function buildGuestLeadInsertPayload(lead: TrialLead, userId: string): GuestLead
   const payload: GuestLeadInsertPayload = {
     user_id: userId,
     company_name: lead.company_name,
+    industry: lead.industry,
     ...(email ? { email } : {}),
     ...(phone ? { phone } : {}),
     website: lead.website,
@@ -86,6 +89,7 @@ function buildGuestClaimResponse(
 }
 
 export async function POST(req: Request) {
+  if (!sameOrigin(req)) return NextResponse.json({error:'Request origin refused'},{status:403})
   const cookieStore = await cookies()
 
   const supabase = createServerClient(
@@ -115,8 +119,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = await req.json().catch(() => null)
-  const leads = Array.isArray(body?.leads) ? (body.leads as TrialLead[]) : []
+  const id = await guestSession()
+  if (!id) return NextResponse.json({error:'No guest session'},{status:401})
+  const trial = await loadGuestSession(id)
+  const {data:linkedRows,error:linkError} = await guestDb().from('guest_trials').update({owner_user_id:user.id}).eq('id',id)
+   .or(`owner_user_id.is.null,owner_user_id.eq.${user.id}`).select('id')
+  if(!linkedRows?.length || linkError) return NextResponse.json({error:'Your trial could not be saved to your account.'},{status:503})
+  const leads = trial.leads as TrialLead[]
 
   if (leads.length === 0) {
     return NextResponse.json(buildGuestClaimResponse(0, 0, 0))
@@ -202,17 +211,6 @@ export async function POST(req: Request) {
 
   if (!data) {
     return NextResponse.json({ error: 'Insert succeeded without returned rows' }, { status: 500 })
-  }
-
-  // Enqueue each newly created lead for Commercial Intelligence enrichment
-  if (data && data.length > 0) {
-    for (const lead of data) {
-      await enqueueLeadEnrichment(lead.id, supabase).catch((err) => {
-        console.error(`[CI-QUEUE] Failed to enqueue lead ${lead.id}:`, err)
-        // Don't fail the entire import if enqueueing fails
-        // The repair utility can fix this later if needed
-      })
-    }
   }
 
   const imported = data.length

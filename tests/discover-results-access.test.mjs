@@ -10,11 +10,11 @@ test('signed-in results and CSV include all 25 saved leads', ()=>{
  assert.equal(csv.split('\n').length,26)
  assert.match(csv,/"Business 25"/)
 })
-test('guest results and preview CSV retain the five-lead limit', ()=>{
+test('guest results include all 25 businesses', ()=>{
  const accessible=getAccessibleResults(leads,false)
- assert.equal(accessible.length,5)
- assert.equal(buildLeadCsv(accessible).split('\n').length,6)
- assert.doesNotMatch(buildLeadCsv(accessible),/"Business 6"/)
+ assert.equal(accessible.length,25)
+ assert.equal(buildLeadCsv(accessible).split('\n').length,26)
+ assert.match(buildLeadCsv(accessible),/"Business 25"/)
  assert.equal(leads.length,25)
 })
 test('empty results export no fabricated rows', ()=>{

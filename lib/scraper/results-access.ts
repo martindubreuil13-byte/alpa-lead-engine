@@ -1,4 +1,4 @@
-/** Guest results remain a five-lead preview; signed-in users see and export their complete saved batch. */
-export function getAccessibleResults<T>(leads: T[], fullAccess: boolean): T[] {
-  return fullAccess ? leads : leads.slice(0, 5)
+/** Every discovered guest business is visible; registration is optional. */
+export function getAccessibleResults<T>(leads: T[], _fullAccess: boolean): T[] {
+  return leads
 }

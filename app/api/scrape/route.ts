@@ -1,3 +1,5 @@
+import { guestDb, guestSession } from '@/lib/guest/server'
+import { guestRateBucket, sameOrigin } from '@/lib/guest/security'
 import { after } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
@@ -84,6 +86,7 @@ type DiscoveryLead = {
   email_source: string | null
   email_confidence: EmailConfidence | null
   is_generic_email: boolean
+  website_intelligence?: import('@/lib/guest/website-facts').WebsiteFacts | null
   enrichment_attempted: boolean
   enriched_website_host: string | null
   email_inspection?: EmailInspection | null
@@ -861,7 +864,7 @@ async function runScraper(
           break
         }
 
-        const guestLead = createGuestLead(lead)
+        const guestLead = { ...createGuestLead(lead), website_intelligence: lead.website_intelligence ?? null }
         addedLeads.push(guestLead)
         options.onGuestLead?.(guestLead)
         addedCount += 1
@@ -1100,7 +1103,11 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const isGuestMode = !user && Boolean(guestSessionId)
+  const isGuestMode = !user || body.guestTrial === true
+  let serverGuestId: string | null = null
+  let guestReserved = 0
+  const guestRunId = crypto.randomUUID()
+  const guestResults: TrialLead[] = []
   const privatePreviewRequested = body.privatePreview === true
   const isPrivatePreview = isPrivatePreviewWorkerRequest(
     privatePreviewRequested,
@@ -1153,11 +1160,27 @@ export async function POST(req: Request) {
   let usesMonthlyAccounting = false
 
   if (isGuestMode) {
-    leadsLimit = 25
-    currentUsage = Math.max(0, Math.min(Number(body.existingLeadCount || 0), leadsLimit))
+    if (!sameOrigin(req)) return createSseResponse('❌ Request origin refused.',403)
+    if (!String(body.query || '').trim() || !String(body.defaultCity || '').trim()
+      || String(body.query).length > 200 || String(body.defaultCity).length > 200) return createSseResponse('❌ invalid input',400)
+    try {
+      serverGuestId = await guestSession(true)
+      const address = process.env.VERCEL === '1' ? req.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() : 'local-development'
+      if (!address || !serverGuestId) return createSseResponse('❌ Trial temporarily unavailable.',503)
+      const { data,error } = await guestDb().rpc('reserve_guest_trial',{
+        p_id:serverGuestId,p_bucket:guestRateBucket(address,process.env.SUPABASE_SERVICE_ROLE_KEY!),p_count:Math.min(requestedLeadCount,25),p_run:guestRunId,
+      })
+      if(error) throw error
+      guestReserved = Number(data)
+      if(!guestReserved) return createSseResponse('❌ Free trial allowance reached or a search is already running. Your existing results remain available.',429)
+      leadsLimit = guestReserved
+      currentUsage = 0
+    } catch {
+      return createSseResponse('❌ Trial temporarily unavailable. No search was started.',503)
+    }
   }
 
-  if (user?.id) {
+  if (user?.id && !isGuestMode) {
     const [subscription, { count }] = await Promise.all([
       resolveUserSubscription(user.id, { email: user.email }),
       supabase
@@ -1217,11 +1240,11 @@ export async function POST(req: Request) {
     region: String(body.region || '').trim(),
     // No default country: the location the customer typed decides, and an unknown country stays unknown.
     country: String(body.country || '').trim(),
-    maxLeads: requestedLeadCount,
+    maxLeads: isGuestMode ? guestReserved : requestedLeadCount,
     outputLeadLimit: remainingCapacity,
-    userId: user?.id || null,
+    userId: isGuestMode ? null : user?.id || null,
     workerEligible: isPrivatePreview,
-    accounting: user && !isPrivatePreview ? {
+    accounting: user && !isGuestMode && !isPrivatePreview ? {
       runId: crypto.randomUUID(), limit: leadsLimit,
       monthly: usesMonthlyAccounting,
     } : undefined,
@@ -1273,7 +1296,7 @@ export async function POST(req: Request) {
       await runScraper(supabase, config, send, {
         guestMode: isGuestMode,
         onGuestLead(lead) {
-          emit({ type: 'lead', payload: lead })
+          guestResults.push(lead)
         },
         onResult(result) {
           latestResult = result
@@ -1288,6 +1311,16 @@ export async function POST(req: Request) {
         },
       })
 
+      if (isGuestMode && serverGuestId) {
+        const { data,error } = await guestDb().rpc('finish_guest_trial', {p_id:serverGuestId,p_run:guestRunId,p_reserved:guestReserved,p_leads:guestResults})
+        if(error || !data) {
+          send('❌ Results could not be saved. Please reopen your trial results before retrying.')
+          startResearch(false)
+          controller.close()
+          return
+        }
+        guestResults.forEach(lead => emit({ type: 'lead', payload: lead }))
+      }
       const completedResult = latestResult as ScrapeResultPayload | null
 
       if (completedResult) {
