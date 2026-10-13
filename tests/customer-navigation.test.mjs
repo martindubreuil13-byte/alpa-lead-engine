@@ -105,7 +105,8 @@ test('no customer-facing page offers to email results or compose email', () => {
   const customerFiles = [
     'app/dashboard/scraper/page.tsx',
     'app/dashboard/leads/LeadsPageClient.tsx',
-    'components/landing/FreeTrialCommandFlow.tsx',
+    'components/trial/TrialExperience.tsx',
+    'components/trial/TrialPanels.tsx',
     'components/modals/FirstSuccessModal.tsx',
     'components/scraper/TrialLimitModal.tsx',
     'app/dashboard/settings/page.tsx',
@@ -118,10 +119,9 @@ test('no customer-facing page offers to email results or compose email', () => {
   }
 })
 
-test('guest CSV export requests email; signed-in exports remain direct', () => {
+test('guest CSV export is immediate and needs no email; signed-in exports remain direct', () => {
   assert.match(read('app/dashboard/scraper/page.tsx'), /Export CSV/)
   assert.match(read('app/dashboard/scraper/page.tsx'), /onExportCsv=\{\(\) => \{\s*setShowTrialLimitModal\(false\)\s*downloadPreviewLeads\(\)/)
-  assert.match(read('components/landing/FreeTrialCommandFlow.tsx'), /trial\/results\?download=1/)
   assert.match(read('components/guest/GuestResults.tsx'), /api\/guest\/export/)
   assert.match(read('app/dashboard/leads/LeadsPageClient.tsx'), /Download CSV/)
 })

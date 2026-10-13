@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Instrument_Serif } from 'next/font/google'
 import FreshStartCta from '@/components/landing/FreshStartCta'
-import FreeTrialCommandFlow from '@/components/landing/FreeTrialCommandFlow'
 import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
 import LandingPageTracker from '@/components/tracking/LandingPageTracker'
@@ -234,7 +233,6 @@ export default function HomePage() {
         </div>
       </section>
       <ResourcesFooter compact />
-      <FreeTrialCommandFlow />
     </main>
   )
 }

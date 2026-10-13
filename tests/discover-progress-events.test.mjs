@@ -356,7 +356,7 @@ test('other consumers of the discovery code and stream are unaffected', () => {
   const executor = read('lib/agent/mission-executor.ts')
   assert.match(executor, /mode: 'fast',\s*\},\s*\(\) => \{\}\s*\)/)
   // the landing trial also follows real backend progress, while completion still uses the result
-  const trial = read('components/landing/FreeTrialCommandFlow.tsx')
+  const trial = read('components/trial/useTrialSearch.ts')
   assert.match(trial, /evt\.type === 'lead'/)
   assert.match(trial, /evt\.type === 'result'/)
   assert.match(trial, /evt\.type === 'progress'/)

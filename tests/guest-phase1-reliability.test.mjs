@@ -4,7 +4,6 @@ import assert from 'node:assert/strict'
 
 import { safeRandomId } from '../lib/guest/safe-id.ts'
 import { safeGetItem, safeRemoveItem, safeSetItem } from '../lib/guest/safe-storage.ts'
-import { clearTrialParam, consumeTrialOpenRequest, OPEN_TRIAL_HREF, requestTrialOpen } from '../lib/guest/open-request.ts'
 import { recoverGuestSearch } from '../lib/guest/recovery.ts'
 import { describeSearchFailure, detectInAppBrowser, parseErrorBody } from '../lib/guest/search-errors.ts'
 import { classifyReserveRefusal } from '../lib/guest/reserve-refusal.ts'
@@ -79,37 +78,9 @@ test('no guest or analytics code touches browser storage or crypto.randomUUID di
   const track = read('lib/track.ts')
   // the only direct storage use left in track.ts is inside try/catch helpers that existed before and cannot stop a search
   assert.doesNotMatch(track, /createAnalyticsSearchId[\s\S]{0,300}window\.crypto\.randomUUID/)
-  const flow = read('components/landing/FreeTrialCommandFlow.tsx')
-  assert.doesNotMatch(flow, /window\.(local|session)Storage|crypto\.randomUUID|sessionStorage\.setItem/)
-})
-
-// ---- the tap is never lost ----
-
-test('a tap before the dialog component mounted is remembered and consumed exactly once', () => {
-  const win = new EventTarget()
-  win.location = { search: '' }
-  requestTrialOpen(win)
-  assert.equal(consumeTrialOpenRequest(win), true)
-  assert.equal(consumeTrialOpenRequest(win), false)
-})
-
-test('following the link (a pre-hydration tap) opens the dialog through ?trial=1, and the parameter is then removed', () => {
-  assert.equal(OPEN_TRIAL_HREF, '/?trial=1')
-  const win = { location: { search: '?trial=1', href: 'https://alpa.test/?trial=1&utm_source=ig#top' }, history: { state: null, replaceState(_s, _t, url) { this.url = url } } }
-  assert.equal(consumeTrialOpenRequest(win), true)
-  clearTrialParam(win)
-  assert.equal(win.history.url, '/?utm_source=ig#top')
-  assert.equal(consumeTrialOpenRequest({ location: { search: '?utm_source=ig' } }), false)
-})
-
-test('the landing call to action is a real link that still opens in place when the page is ready', () => {
-  const cta = read('components/landing/FreshStartCta.tsx')
-  assert.match(cta, /<a href=\{OPEN_TRIAL_HREF\} onClick=\{handleClick\}/)
-  assert.match(cta, /event\.preventDefault\(\)/)
-  assert.match(cta, /requestTrialOpen\(\)/)
-  assert.doesNotMatch(cta, /<button/)
-  const flow = read('components/landing/FreeTrialCommandFlow.tsx')
-  assert.match(flow, /if \(consumeTrialOpenRequest\(\)\) open\(\)/)
+  for (const file of ['components/trial/useTrialSearch.ts', 'components/trial/TrialExperience.tsx']) {
+    assert.doesNotMatch(read(file), /window\.(local|session)Storage|crypto\.randomUUID|sessionStorage\.setItem/, file)
+  }
 })
 
 // ---- recovery ----
@@ -255,29 +226,22 @@ test('the session endpoint reports whether a search is running, and never expose
   assert.match(read('app/api/guest/session/route.ts'), /searching:false/)
 })
 
-test('the search component: setup inside the guarded block, stalls detected, recovery on a lost connection, no silent failures', () => {
-  const flow = read('components/landing/FreeTrialCommandFlow.tsx')
-  const start = flow.slice(flow.indexOf('const startSearch = useCallback'), flow.indexOf('const downloadCsv'))
+test('the search hook: setup inside the guarded block, stalls detected, recovery on a lost connection, no silent failures', () => {
+  const hook = read('components/trial/useTrialSearch.ts')
+  const start = hook.slice(hook.indexOf('const start = useCallback'))
   // setup (storage, ids, analytics) is inside the try, so an exception becomes a visible error instead of a dead button
-  assert.ok(start.indexOf('try {') < start.indexOf('enableGuestTrialMode()'))
   assert.ok(start.indexOf('try {') < start.indexOf('getOrCreateGuestSessionId()'))
   assert.ok(start.indexOf('try {') < start.indexOf('createAnalyticsSearchId()'))
-  assert.match(start, /showFailure\(describeSearchFailure\(\{\}\)\)/)
-  assert.match(start, /STALL_AFTER_MS/)
-  assert.match(start, /runRecovery\(\{ assumeStarted: false, baselineAttempts: baseline\.attempts/)
+  assert.match(start, /fail\(describeSearchFailure\(\{\}\)\)/)
+  assert.match(hook, /STALL_AFTER_MS/)
+  assert.match(start, /recover\(\{ assumeStarted: false, baselineAttempts: baseline\.attempts/)
   assert.match(start, /body\?\.code === 'GUEST_RUNNING'/)
   assert.match(start, /report\('trial_search_failed'/)
   assert.match(start, /searchingRef\.current = false/)
-  // the old error parsing that produced "Unexpected token" is gone
-  assert.doesNotMatch(flow, /JSON\.parse\(text\.replace/)
+  assert.match(hook, /wakeLock/)
+  assert.match(hook, /if \(!businessType\.trim\(\) \|\| !location\.trim\(\) \|\| searchingRef\.current\) return/, 'a search is never started twice at once')
   // a search in progress is picked up again after a reload
-  assert.match(flow, /data\.searching && !searchingRef\.current/)
-  assert.match(flow, /wakeLock/)
-})
-
-test('the search is never started twice at once', () => {
-  const flow = read('components/landing/FreeTrialCommandFlow.tsx')
-  assert.match(flow, /if \(!businessType\.trim\(\) \|\| !location\.trim\(\) \|\| searchingRef\.current\) return/)
+  assert.match(read('components/trial/TrialExperience.tsx'), /if \(data\?\.searching\) void resume\(\)/)
 })
 
 // ---- Phase 1b: no email collection, immediate CSV, one thank-you ----

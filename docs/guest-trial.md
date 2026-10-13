@@ -28,3 +28,11 @@ Verification: typecheck, lint (existing warnings), production build, full offlin
 - Guest email capture and the marketing checkbox are removed. After the first CSV download the results page shows one thank-you ("Your businesses are ready." with a link to plans) and no discount.
 - Returning visitors are recognised by the existing signed cookie and server-side allowance (25 businesses in total, 3 searches); results are restored from `GET /api/guest/session`. No fingerprinting.
 - Not yet built: the 50%-first-month moment when the allowance is exhausted (UI only, no checkout discount), the feedback question, and keeping website facts after signup.
+
+## Phase 2: the /trial route
+
+- `/trial` replaces the landing modal. The landing call to action is a plain link (`FreshStartCta` -> `/trial`); `FreeTrialCommandFlow` and the open-event plumbing are deleted. The route is not indexed.
+- It reuses the application's `DiscoverSearchForm` and `DiscoverEngine`. Progress is the engine's own stream (`applyDiscoveryLog`, `applyProgressEvent`, `confirmDiscoveryResult`, `buildEngineView`); nothing is simulated.
+- `components/trial/useTrialSearch.ts` owns one run: guarded setup, the stream, stall detection, wake lock, recovery from the server's record, telemetry. `TrialExperience` chooses what to show from `GET /api/guest/session`: a running search (resumed), all free businesses used, welcome back (businesses saved), or the search form.
+- Results stay at `/trial/results` (restyled in the visual-parity phase). Back from the results returns to the welcome-back state.
+- Verification: `node --test tests/guest-phase2-trial.test.mjs`; `BASE_URL=... node tests/guest-trial-browser.mjs` (16 phone and desktop scenarios); `tests/guest-browser.mjs` (25-business CSV: header plus 25 rows).

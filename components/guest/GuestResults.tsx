@@ -29,16 +29,15 @@ export default function GuestResults() {
   setDownloaded(true)
   void trackEvent('trial_csv_downloaded',{leads_count:leads.length})
  }
- return <main className="min-h-screen bg-[#080e1a] px-4 py-8 text-slate-200 sm:px-8">
+ return <div className="text-slate-200">
   <div className="mx-auto max-w-4xl">
-   <Link href="/" className="text-sm text-blue-300">ALPA · Home</Link>
-   <h1 className="mt-8 font-serif text-4xl text-white">Your free businesses</h1>
+   <h1 className="font-display text-4xl text-white sm:text-5xl">Your free businesses</h1>
    <p className="mt-3 text-sm text-slate-400">View every returned business and its available details. Contact information can be missing or outdated; delivery and accuracy are not guaranteed.</p>
    {loading ? <p role="status" className="mt-8">Loading your results…</p> : error ? <p role="alert" className="mt-8">{error}</p> : <>
     <div className="my-6 flex flex-wrap items-center gap-4">
      <p>{leads.length} of up to 25 businesses</p>
      {leads.length > 0 && <a href="/api/guest/export" onClick={onDownload} className={`inline-flex min-h-[44px] items-center rounded-lg bg-blue-500 px-5 py-3 font-medium text-white ${readyToDownload && !downloaded ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-[#080e1a]' : ''}`}>{readyToDownload && !downloaded ? 'Your CSV is ready — tap to download' : 'Download CSV'}</a>}
-     <Link href="/" className="text-sm text-blue-300">Return to free search</Link>
+     <Link href="/trial" className="inline-flex min-h-[44px] items-center text-sm text-blue-300">Find more businesses</Link>
     </div>
     {downloaded && <section role="status" className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
      <h2 className="text-xl font-medium text-white">Your businesses are ready.</h2>
@@ -79,5 +78,5 @@ export default function GuestResults() {
     {leads.length > 0 && <p className="mt-8 text-sm text-slate-400">Results stay available in this browser for 30 days. <Link href="/login?mode=signup" className="text-blue-300">Create an optional free account</Link> to save businesses and return to your trial information on another device during those 30 days. <Link href="/plans" className="text-blue-300">View plans</Link> when you need more.</p>}
    </>}
   </div>
- </main>
+ </div>
 }
