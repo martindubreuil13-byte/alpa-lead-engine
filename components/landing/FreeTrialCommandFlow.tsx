@@ -10,6 +10,10 @@ import { getOrCreateGuestSessionId, upsertGuestLead, getGuestLeads, saveGuestLea
 import { type TrialLead, FREE_TRIAL_LEAD_LIMIT } from '@/lib/trial'
 import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { createAnalyticsSearchId, trackEvent } from '@/lib/track'
+import { safeSetItem } from '@/lib/guest/safe-storage'
+import { clearTrialParam, consumeTrialOpenRequest, OPEN_TRIAL_EVENT } from '@/lib/guest/open-request'
+import { recoverGuestSearch, type GuestSnapshot } from '@/lib/guest/recovery'
+import { describeSearchFailure, detectInAppBrowser, parseErrorBody, type SearchFailure } from '@/lib/guest/search-errors'
 
 type Phase = 'closed' | 'input' | 'searching' | 'reward' | 'error'
 
@@ -380,14 +384,21 @@ function SearchingPhase({
   location,
   elapsed,
   stepsRevealed,
+  reconnecting = false,
 }: {
   businessType: string
   location: string
   elapsed: number
   stepsRevealed: number
+  reconnecting?: boolean
 }) {
   return (
     <>
+      {reconnecting && (
+        <p role="status" className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.07] px-3.5 py-2.5 text-sm leading-relaxed text-amber-100">
+          The connection was interrupted. Your search keeps running on ALPA&apos;s servers, and we are reconnecting to it.
+        </p>
+      )}
       <div>
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400/80" />
@@ -556,7 +567,23 @@ function RewardPhase({
   )
 }
 
-function ErrorPhase({ message, onAdjust, onClose }: { message: string; onAdjust: () => void; onClose: () => void }) {
+function ErrorPhase({
+  message,
+  title,
+  retryable,
+  resultsAvailable,
+  onAdjust,
+  onViewResults,
+  onClose,
+}: {
+  message: string
+  title: string
+  retryable: boolean
+  resultsAvailable: boolean
+  onAdjust: () => void
+  onViewResults: () => void
+  onClose: () => void
+}) {
   return (
     <>
       <div className="flex items-start justify-between gap-4">
@@ -564,26 +591,51 @@ function ErrorPhase({ message, onAdjust, onClose }: { message: string; onAdjust:
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
             <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Search incomplete
+              {title}
             </span>
           </div>
           <h2
             id="trial-flow-title"
             className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl"
           >
-            Search incomplete
+            {title}
           </h2>
-          <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
+          <p role="alert" className="mt-1.5 text-sm leading-relaxed text-slate-400">
             {message || 'No businesses were returned. Try a broader business type or location.'}
           </p>
         </div>
         <CloseButton onClick={onClose} />
       </div>
-      <div className="mt-6">
-        <CmdBar onClick={onAdjust} prefix="Search" label="Adjust search" dot="blue" />
+      <div className="mt-6 space-y-2.5">
+        {resultsAvailable && <CmdBar onClick={onViewResults} prefix="Your leads" label="View my businesses" dot="emerald" conversion />}
+        {(retryable || !resultsAvailable) && <CmdBar onClick={onAdjust} prefix="Search" label={retryable ? 'Try again' : 'Adjust search'} dot="blue" />}
       </div>
     </>
   )
+}
+
+const STALL_AFTER_MS = 45_000
+
+class SearchFailureError extends Error {
+  failure: SearchFailure
+  constructor(failure: SearchFailure) {
+    super(failure.message)
+    this.failure = failure
+  }
+}
+
+type WakeLockLike = { release: () => Promise<void> }
+
+function deviceContext() {
+  try {
+    return {
+      online: navigator.onLine,
+      in_app_browser: detectInAppBrowser(navigator.userAgent),
+      standalone: window.matchMedia?.('(display-mode: standalone)').matches ?? false,
+    }
+  } catch {
+    return {}
+  }
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -601,6 +653,8 @@ export default function FreeTrialCommandFlow() {
   // Current search
   const [summaryLine, setSummaryLine] = useState('')
   const [errorMessage,setErrorMessage] = useState('')
+  const [failure, setFailure] = useState<SearchFailure | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [stepsRevealed, setStepsRevealed] = useState(0)
   const [leads, setLeads] = useState<TrialLead[]>([])
@@ -622,6 +676,14 @@ export default function FreeTrialCommandFlow() {
   const abortRef = useRef<AbortController | null>(null)
   const elapsedRef = useRef(0)
   const isFirstSearchRef = useRef(true)
+  const searchingRef = useRef(false)
+  const closedRef = useRef(false)
+  const stalledRef = useRef(false)
+  const lastByteRef = useRef(0)
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const wakeLockRef = useRef<WakeLockLike | null>(null)
+  const baselineRef = useRef<{ attempts: number | null; leads: number | null }>({ attempts: null, leads: null })
+  const lastSnapshotRef = useRef<GuestSnapshot | null>(null)
 
   const remainingFreeLeads = Math.max(0, FREE_TRIAL_LEAD_LIMIT - totalLeadsGenerated)
   const isAtLimit = remainingFreeLeads === 0
@@ -639,26 +701,158 @@ export default function FreeTrialCommandFlow() {
     }
   }, [])
 
-  useEffect(() => {
-    fetch('/api/guest/session', {cache:'no-store'}).then(res => res.ok ? res.json() : null).then(data => {
-      if (!data) return
-      saveGuestLeads(data.leads || [])
-      setAllLeads(data.leads || [])
-      setTotalLeadsGenerated(data.used || 0)
-    }).catch(() => {})
+  const fetchSnapshot = useCallback(async (timeoutMs = 8_000): Promise<GuestSnapshot | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch('/api/guest/session', { cache: 'no-store', signal: controller.signal })
+      if (!res.ok) return null
+      const data = (await res.json()) as GuestSnapshot
+      lastSnapshotRef.current = data
+      return data
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
   }, [])
 
-  // Listen for open event
+  function report(event: string, data: Record<string, unknown>) {
+    void trackEvent(event, { metadata: { ...deviceContext(), ...data } })
+  }
+
+  function startTicker(startTime: number) {
+    timerRef.current && clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      const seconds = Math.floor((Date.now() - startTime) / 1000)
+      setElapsed(seconds)
+      elapsedRef.current = seconds
+    }, 500)
+  }
+
+  async function acquireWakeLock() {
+    try {
+      const nav = navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockLike> } }
+      if (nav.wakeLock && !wakeLockRef.current) wakeLockRef.current = await nav.wakeLock.request('screen')
+    } catch {
+      // optional: the search still runs, and recovery covers a locked screen
+    }
+  }
+
+  function releaseWakeLock() {
+    const lock = wakeLockRef.current
+    wakeLockRef.current = null
+    void lock?.release().catch(() => {})
+  }
+
+  function stopWatchdog() {
+    watchdogRef.current && clearInterval(watchdogRef.current)
+    watchdogRef.current = null
+  }
+
+  function showFailure(next: SearchFailure) {
+    setFailure(next)
+    setErrorMessage(next.message)
+    setPhase('error')
+  }
+
+  /**
+   * The connection was lost, or a search was already running. The search itself continues on the server, so wait for its
+   * real outcome from the server's own record and then show it, instead of reporting an error that did not happen.
+   */
+  const runRecovery = useCallback(
+    async (input: { assumeStarted: boolean; baselineAttempts: number | null; baselineLeads: number | null; stage: string; searchId?: string | null }) => {
+      setPhase('searching')
+      setReconnecting(true)
+      if (!timerRef.current) startTicker(Date.now() - elapsedRef.current * 1000)
+
+      const outcome = await recoverGuestSearch({
+        fetchSession: () => fetchSnapshot(),
+        baselineAttempts: input.baselineAttempts,
+        baselineLeads: input.baselineLeads,
+        assumeStarted: input.assumeStarted,
+        onWaiting: () => setReconnecting(true),
+        shouldStop: () => closedRef.current,
+      })
+
+      setReconnecting(false)
+      stopTimer()
+      if (closedRef.current) return
+      report('trial_search_recovered', { stage: input.stage, outcome: outcome.state, leads: 'leads' in outcome ? outcome.leads : 0, elapsed_s: elapsedRef.current })
+
+      if (outcome.state === 'completed' && outcome.leads > 0) {
+        const saved = (lastSnapshotRef.current?.leads ?? []) as TrialLead[]
+        saveGuestLeads(saved)
+        setAllLeads(saved)
+        setLeads(saved)
+        setTotalLeadsGenerated(Math.max(saved.length, Number(lastSnapshotRef.current?.used ?? 0)))
+        setStepsRevealed(STEPS.length)
+        setTimeout(() => { setPhase('closed'); router.push('/trial/results') }, 400)
+        return
+      }
+      if (outcome.state === 'completed') {
+        setFailure(null)
+        setErrorMessage('The search finished but found no businesses. Try a broader business type or a different location.')
+        setPhase('error')
+        return
+      }
+      if (outcome.state === 'not_started') {
+        showFailure({ kind: 'network', message: 'We could not reach ALPA, so no search ran and nothing was used. Please try again.', retryable: true, resultsAvailable: false })
+        return
+      }
+      showFailure({ kind: 'timeout', message: 'Your search may still be finishing. Open your businesses in a minute to check.', retryable: false, resultsAvailable: true })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fetchSnapshot, router]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchSnapshot().then(async data => {
+      if (!data || cancelled) return
+      saveGuestLeads((data.leads as TrialLead[]) || [])
+      setAllLeads((data.leads as TrialLead[]) || [])
+      setTotalLeadsGenerated(data.used || 0)
+      baselineRef.current = { attempts: data.attempts ?? 0, leads: data.leads?.length ?? 0 }
+      // The page was reloaded (or reopened) while a search was still running: pick it back up.
+      if (data.searching && !searchingRef.current) {
+        searchingRef.current = true
+        closedRef.current = false
+        try {
+          await runRecovery({ assumeStarted: true, baselineAttempts: null, baselineLeads: null, stage: 'resume' })
+        } finally {
+          searchingRef.current = false
+        }
+      }
+    })
+    return () => { cancelled = true }
+  }, [fetchSnapshot, runRecovery])
+
+  // Open the dialog. A request made before this component mounted (a tap during page load) is picked up here, not lost.
   useEffect(() => {
     const open = () => {
+      consumeTrialOpenRequest()
+      clearTrialParam()
+      if (searchingRef.current) return
+      closedRef.current = false
       const saved = getGuestLeads()
       setAllLeads(saved)
       setTotalLeadsGenerated(prev => Math.max(prev,saved.length))
       setPhase(saved.length ? 'reward' : 'input')
       setLeads(saved)
     }
-    window.addEventListener('alpa:open-trial-flow', open)
-    return () => window.removeEventListener('alpa:open-trial-flow', open)
+    window.addEventListener(OPEN_TRIAL_EVENT, open)
+    if (consumeTrialOpenRequest()) open()
+    return () => window.removeEventListener(OPEN_TRIAL_EVENT, open)
+  }, [])
+
+  // Keep the screen on while searching, and take the lock back after the visitor returns to the tab.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && searchingRef.current) void acquireWakeLock()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
   // Focus input when phase opens
@@ -674,6 +868,8 @@ export default function FreeTrialCommandFlow() {
       timerRef.current && clearInterval(timerRef.current)
       stepTimers.current.forEach(clearTimeout)
       abortRef.current?.abort()
+      watchdogRef.current && clearInterval(watchdogRef.current)
+      void wakeLockRef.current?.release().catch(() => {})
     }
   }, [])
 
@@ -688,6 +884,7 @@ export default function FreeTrialCommandFlow() {
   }
 
   const close = useCallback(() => {
+    closedRef.current = true
     abortRef.current?.abort()
     stopTimer()
     clearStepTimers()
@@ -704,52 +901,75 @@ export default function FreeTrialCommandFlow() {
   }, [])
 
   const startSearch = useCallback(async () => {
-    if (!businessType.trim() || !location.trim()) return
+    if (!businessType.trim() || !location.trim() || searchingRef.current) return
+    searchingRef.current = true
+    closedRef.current = false
+    stalledRef.current = false
 
-    // First search only: setup guest session and auth
-    if (isFirstSearchRef.current) {
-      enableGuestTrialMode()
-      sessionStorage.setItem('alpa_prospector_onboarding_seen', '1')
-      isFirstSearchRef.current = false
-    }
-
-    const guestId = getOrCreateGuestSessionId()
-    const analyticsSearchId = createAnalyticsSearchId()
-    const effectiveCount = Math.min(leadCount, remainingFreeLeads)
-    setRequestedCount(effectiveCount)
-    setCardDismissed(false)
-
-    trackGaEvent('free_trial_search_start', {
-      business_type: businessType,
-      location,
-      lead_count: effectiveCount,
-    })
-    void trackEvent('trial_search_started', {
-      search_id: analyticsSearchId,
-      metadata: { source: 'trial_flow', business_type: businessType, location },
-    })
-
-    setErrorMessage('')
-    setPhase('searching')
-    setElapsed(0)
-    elapsedRef.current = 0
-    setStepsRevealed(1)
-
+    const startedAt = Date.now()
     const collected: TrialLead[] = []
-
-    // Real elapsed timer
-    const startTime = Date.now()
-    timerRef.current = setInterval(() => {
-      const s = Math.floor((Date.now() - startTime) / 1000)
-      setElapsed(s)
-      elapsedRef.current = s
-    }, 500)
-
-    clearStepTimers()
-
-    abortRef.current = new AbortController()
+    let analyticsSearchId: string | null = null
+    let stage: 'setup' | 'request' | 'stream' = 'setup'
+    let sawResult = false
+    let baseline = { ...baselineRef.current }
 
     try {
+      // First search only: set up the guest session. Every step here tolerates blocked storage and a missing crypto API.
+      if (isFirstSearchRef.current) {
+        enableGuestTrialMode()
+        safeSetItem('session', 'alpa_prospector_onboarding_seen', '1')
+        isFirstSearchRef.current = false
+      }
+
+      const guestId = getOrCreateGuestSessionId()
+      analyticsSearchId = createAnalyticsSearchId()
+      const effectiveCount = Math.min(leadCount, remainingFreeLeads)
+      setRequestedCount(effectiveCount)
+      setCardDismissed(false)
+
+      trackGaEvent('free_trial_search_start', {
+        business_type: businessType,
+        location,
+        lead_count: effectiveCount,
+      })
+      void trackEvent('trial_search_started', {
+        search_id: analyticsSearchId,
+        metadata: { source: 'trial_flow', business_type: businessType, location, ...deviceContext() },
+      })
+
+      setErrorMessage('')
+      setFailure(null)
+      setReconnecting(false)
+      setPhase('searching')
+      setElapsed(0)
+      elapsedRef.current = 0
+      setStepsRevealed(1)
+      startTicker(startedAt)
+      clearStepTimers()
+      void acquireWakeLock()
+
+      // What the server already holds, so a lost connection can later be told apart from a search that never started.
+      const fresh = await fetchSnapshot(4_000)
+      if (fresh) {
+        baseline = { attempts: fresh.attempts ?? 0, leads: fresh.leads?.length ?? 0 }
+        baselineRef.current = baseline
+        if (fresh.searching) {
+          await runRecovery({ assumeStarted: true, baselineAttempts: null, baselineLeads: null, stage: 'already_running', searchId: analyticsSearchId })
+          return
+        }
+      }
+
+      stage = 'request'
+      abortRef.current = new AbortController()
+      lastByteRef.current = Date.now()
+      stopWatchdog()
+      watchdogRef.current = setInterval(() => {
+        if (Date.now() - lastByteRef.current > STALL_AFTER_MS) {
+          stalledRef.current = true
+          abortRef.current?.abort()
+        }
+      }, 5_000)
+
       const res = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -763,19 +983,25 @@ export default function FreeTrialCommandFlow() {
         }),
         signal: abortRef.current.signal,
       })
+      lastByteRef.current = Date.now()
 
       if (!res.ok || !res.body) {
-        const text=await res.text()
-        const event=JSON.parse(text.replace(/^data: /,'').trim())
-        throw new Error(event.message || 'Search unavailable. Please try again.')
+        const body = parseErrorBody(await res.text().catch(() => ''))
+        if (body?.code === 'GUEST_RUNNING') {
+          await runRecovery({ assumeStarted: true, baselineAttempts: null, baselineLeads: null, stage: 'running_refusal', searchId: analyticsSearchId })
+          return
+        }
+        throw new SearchFailureError(describeSearchFailure({ status: res.status, code: body?.code }))
       }
 
+      stage = 'stream'
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
 
       while (true) {
         const { done, value } = await reader.read()
+        lastByteRef.current = Date.now()
         if (done) break
         buf += decoder.decode(value, { stream: true })
         const lines = buf.split('\n')
@@ -793,20 +1019,58 @@ export default function FreeTrialCommandFlow() {
               collected.unshift(lead)
               upsertGuestLead(lead)
             } else if (evt.type === 'result' && evt.payload?.summaryLine) {
+              sawResult = true
               setSummaryLine(evt.payload.summaryLine as string)
+            } else if (evt.type === 'result') {
+              sawResult = true
             }
           } catch {
             // malformed SSE line
           }
         }
       }
+
+      // The stream ended without the search saying it finished (a proxy or the phone cut it): ask the server what happened.
+      if (!sawResult && collected.length === 0) {
+        report('trial_search_failed', { stage, kind: 'stream_ended_early', elapsed_s: Math.floor((Date.now() - startedAt) / 1000) })
+        await runRecovery({ assumeStarted: false, baselineAttempts: baseline.attempts, baselineLeads: baseline.leads, stage, searchId: analyticsSearchId })
+        return
+      }
     } catch (err) {
       clearStepTimers()
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000)
+
+      if (err instanceof SearchFailureError) {
+        report('trial_search_failed', { stage, kind: err.failure.kind, elapsed_s: elapsedSeconds })
+        stopTimer()
+        showFailure(err.failure)
+        return
+      }
+
+      // The visitor closed the dialog on purpose: nothing to report.
+      if (closedRef.current && !stalledRef.current) return
+
+      const connectionLost = stage !== 'setup'
+      report('trial_search_failed', {
+        stage,
+        kind: stalledRef.current ? 'stalled' : connectionLost ? 'connection_lost' : 'setup_error',
+        error_name: err instanceof Error ? err.name : 'unknown',
+        elapsed_s: elapsedSeconds,
+      })
+
+      if (connectionLost) {
+        stalledRef.current = false
+        await runRecovery({ assumeStarted: false, baselineAttempts: baseline.attempts, baselineLeads: baseline.leads, stage, searchId: analyticsSearchId })
+        return
+      }
+
       stopTimer()
-      if (err instanceof Error && err.name === 'AbortError') return
-      setErrorMessage(err instanceof Error ? err.message : 'Search unavailable. Please try again.')
-      setPhase('error')
+      showFailure(describeSearchFailure({}))
       return
+    } finally {
+      stopWatchdog()
+      releaseWakeLock()
+      searchingRef.current = false
     }
 
     clearStepTimers()
@@ -825,6 +1089,7 @@ export default function FreeTrialCommandFlow() {
       const existingIds = new Set(prev.map(l => l.id))
       return [...collected.filter(l => !existingIds.has(l.id)), ...prev]
     })
+    baselineRef.current = { attempts: (baseline.attempts ?? 0) + 1, leads: (baseline.leads ?? 0) + collected.length }
 
     trackGaEvent('free_trial_search_complete', { lead_count: collected.length })
     const contactCounts = countLeadContacts(collected)
@@ -835,7 +1100,7 @@ export default function FreeTrialCommandFlow() {
       business_type: businessType.trim(),
       location: location.trim(),
       filters_used: {
-        requested_leads: effectiveCount,
+        requested_leads: Math.min(leadCount, remainingFreeLeads),
         source: 'trial_flow',
       },
       leads_count: collected.length,
@@ -855,9 +1120,10 @@ export default function FreeTrialCommandFlow() {
 
     setTimeout(() => {
       if (collected.length) { setPhase('closed'); router.push('/trial/results') }
-      else setPhase('error')
+      else { setFailure(null); setErrorMessage(''); setPhase('error') }
     }, 700)
-  }, [businessType, location, leadCount, remainingFreeLeads, router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessType, location, leadCount, remainingFreeLeads, router, fetchSnapshot, runRecovery])
 
   const downloadCsv = useCallback(() => {
     if (allLeads.length === 0) return
@@ -923,6 +1189,7 @@ export default function FreeTrialCommandFlow() {
                 location={location}
                 elapsed={elapsed}
                 stepsRevealed={stepsRevealed}
+                reconnecting={reconnecting}
               />
             )}
 
@@ -945,7 +1212,15 @@ export default function FreeTrialCommandFlow() {
             )}
 
             {phase === 'error' && (
-              <ErrorPhase message={errorMessage} onAdjust={() => setPhase('input')} onClose={close} />
+              <ErrorPhase
+                message={errorMessage}
+                title={failure?.kind === 'limit' || failure?.kind === 'running' ? 'Your businesses are ready' : 'Search incomplete'}
+                retryable={failure?.retryable ?? true}
+                resultsAvailable={failure?.resultsAvailable ?? false}
+                onAdjust={() => setPhase('input')}
+                onViewResults={viewLeads}
+                onClose={close}
+              />
             )}
           </div>
         </div>

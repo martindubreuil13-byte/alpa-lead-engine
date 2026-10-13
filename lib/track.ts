@@ -1,5 +1,8 @@
 'use client'
 
+import { safeGetItem, safeSetItem } from '@/lib/guest/safe-storage'
+import { safeRandomId } from '@/lib/guest/safe-id'
+
 const ATTRIBUTION_KEY = 'alpa_attribution'
 const FIRST_VISIT_KEY = 'alpa_first_visit_tracked'
 const CURRENT_SEARCH_KEY = 'alpa_current_search_id'
@@ -85,8 +88,9 @@ function getAttribution() {
 
 export function createAnalyticsSearchId() {
   if (typeof window === 'undefined') return null
-  const searchId = window.crypto.randomUUID()
-  window.localStorage.setItem(CURRENT_SEARCH_KEY, searchId)
+  // Analytics must never stop a search: no crypto.randomUUID or storage is assumed.
+  const searchId = safeRandomId()
+  safeSetItem('local', CURRENT_SEARCH_KEY, searchId)
   return searchId
 }
 
@@ -126,9 +130,8 @@ export async function trackEvent(event: string, data: Record<string, unknown> = 
   }
 
   try {
-    const session_id =
-      window.localStorage.getItem('session_id') || window.crypto.randomUUID()
-    window.localStorage.setItem('session_id', session_id)
+    const session_id = safeGetItem('local', 'session_id') || safeRandomId()
+    safeSetItem('local', 'session_id', session_id)
     const explicitSearchId = typeof data.search_id === 'string' ? data.search_id : null
     const search_id = explicitSearchId || getCurrentAnalyticsSearchId()
 

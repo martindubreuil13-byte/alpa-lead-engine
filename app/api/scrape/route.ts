@@ -1,5 +1,7 @@
 import { guestDb, guestSession } from '@/lib/guest/server'
 import { guestRateBucket, sameOrigin } from '@/lib/guest/security'
+import { classifyReserveRefusal } from '@/lib/guest/reserve-refusal'
+import { GUEST_MESSAGES, type GuestErrorCode } from '@/lib/guest/search-errors'
 import { after } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
@@ -204,8 +206,8 @@ function getUsageWarning(leadsUsed: number, leadsLimit: number): 'none' | 'warni
   return 'none'
 }
 
-function createSseResponse(message: string, status = 200) {
-  return new Response(`data: ${JSON.stringify({ type: 'log', message })}\n\n`, {
+function createSseResponse(message: string, status = 200, code?: GuestErrorCode) {
+  return new Response(`data: ${JSON.stringify({ type: 'log', message, ...(code ? { code } : {}) })}\n\n`, {
     status,
     headers: {
       'Content-Type': 'text/event-stream',
@@ -1160,23 +1162,30 @@ export async function POST(req: Request) {
   let usesMonthlyAccounting = false
 
   if (isGuestMode) {
-    if (!sameOrigin(req)) return createSseResponse('❌ Request origin refused.',403)
+    const refuse = (code: GuestErrorCode, status: number) => createSseResponse(`❌ ${GUEST_MESSAGES[code]}`, status, code)
+    if (!sameOrigin(req)) return refuse('GUEST_ORIGIN', 403)
     if (!String(body.query || '').trim() || !String(body.defaultCity || '').trim()
-      || String(body.query).length > 200 || String(body.defaultCity).length > 200) return createSseResponse('❌ invalid input',400)
+      || String(body.query).length > 200 || String(body.defaultCity).length > 200) return refuse('GUEST_INVALID', 400)
     try {
       serverGuestId = await guestSession(true)
       const address = process.env.VERCEL === '1' ? req.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() : 'local-development'
-      if (!address || !serverGuestId) return createSseResponse('❌ Trial temporarily unavailable.',503)
+      if (!address || !serverGuestId) return refuse('GUEST_UNAVAILABLE', 503)
       const { data,error } = await guestDb().rpc('reserve_guest_trial',{
         p_id:serverGuestId,p_bucket:guestRateBucket(address,process.env.SUPABASE_SERVICE_ROLE_KEY!),p_count:Math.min(requestedLeadCount,25),p_run:guestRunId,
       })
       if(error) throw error
       guestReserved = Number(data)
-      if(!guestReserved) return createSseResponse('❌ Free trial allowance reached or a search is already running. Your existing results remain available.',429)
+      if(!guestReserved) {
+        // The reservation function answers 0 for every refusal; say which one, so the visitor knows whether to wait, open
+        // the results already saved, or try another network. Reading the row changes nothing.
+        const { data: row } = await guestDb().from('guest_trials').select('created_at,attempts,used,active_until').eq('id', serverGuestId).maybeSingle()
+        const code = classifyReserveRefusal(row)
+        return refuse(code, code === 'GUEST_UNAVAILABLE' ? 503 : code === 'GUEST_EXPIRED' ? 410 : 429)
+      }
       leadsLimit = guestReserved
       currentUsage = 0
     } catch {
-      return createSseResponse('❌ Trial temporarily unavailable. No search was started.',503)
+      return refuse('GUEST_UNAVAILABLE', 503)
     }
   }
 
@@ -1261,9 +1270,20 @@ export async function POST(req: Request) {
     if (await researchRequested) await kickResearch(origin)
   })
 
+  // A guest on a phone may sit behind a carrier proxy that drops a silent connection. A comment line every few seconds (ignored
+  // by the browser's event parser) keeps the stream visibly alive and lets the page tell "quiet" from "gone".
+  let keepAlive: ReturnType<typeof setInterval> | null = null
+  const stopKeepAlive = () => { if (keepAlive) { clearInterval(keepAlive); keepAlive = null } }
+
   const stream = new ReadableStream({
     async start(controller) {
       let latestResult: ScrapeResultPayload | null = null
+      const closeStream = () => { stopKeepAlive(); try { controller.close() } catch { /* the browser already closed its stream */ } }
+      if (isGuestMode) {
+        keepAlive = setInterval(() => {
+          try { controller.enqueue(encoder.encode(': ping\n\n')) } catch { stopKeepAlive() }
+        }, 12_000)
+      }
 
       const emit = (payload: unknown) => {
         try {
@@ -1280,7 +1300,7 @@ export async function POST(req: Request) {
       if (!config.query || !config.defaultCity) {
         send('❌ invalid input')
         startResearch(false)
-        controller.close()
+        closeStream()
         return
       }
 
@@ -1288,7 +1308,7 @@ export async function POST(req: Request) {
         send('❌ invalid input')
         send('🎉 done')
         startResearch(false)
-        controller.close()
+        closeStream()
         return
       }
 
@@ -1316,7 +1336,7 @@ export async function POST(req: Request) {
         if(error || !data) {
           send('❌ Results could not be saved. Please reopen your trial results before retrying.')
           startResearch(false)
-          controller.close()
+          closeStream()
           return
         }
         guestResults.forEach(lead => emit({ type: 'lead', payload: lead }))
@@ -1386,9 +1406,9 @@ export async function POST(req: Request) {
       }
 
       startResearch(false)
-      try { controller.close() } catch { /* the browser already closed its stream */ }
+      closeStream()
     },
-    cancel() {},
+    cancel() { stopKeepAlive() },
   })
 
   return new Response(stream, {

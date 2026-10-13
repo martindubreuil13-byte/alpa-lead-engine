@@ -1,6 +1,7 @@
 'use client'
 
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
+import { OPEN_TRIAL_HREF, requestTrialOpen } from '@/lib/guest/open-request'
 import { trackEvent } from '@/lib/track'
 
 export default function FreshStartCta({
@@ -18,7 +19,10 @@ export default function FreshStartCta({
     return 'other'
   }
 
-  function handleClick() {
+  function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
+    // Once the page is interactive the dialog opens in place. Before that (a tap during page load) the link itself is followed
+    // and the landing page opens the dialog on arrival, so the tap is never lost.
+    event.preventDefault()
     const sourcePage = getSourcePage()
     trackGaEvent('free_trial_cta_click', {
       cta_location: getCtaLocation(),
@@ -26,12 +30,12 @@ export default function FreshStartCta({
       visitor_type: 'anonymous',
     })
     void trackEvent('trial_started', { metadata: { source: 'landing_cta' } })
-    window.dispatchEvent(new CustomEvent('alpa:open-trial-flow'))
+    requestTrialOpen()
   }
 
   return (
-    <button type="button" onClick={handleClick} className={className}>
+    <a href={OPEN_TRIAL_HREF} onClick={handleClick} className={className}>
       {children}
-    </button>
+    </a>
   )
 }

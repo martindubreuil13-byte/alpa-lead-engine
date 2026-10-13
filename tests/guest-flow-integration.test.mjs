@@ -57,6 +57,7 @@ test('real guest route → discovery engine → durable 25 businesses → email-
  const priorCalls=state.searchCalls
  const blocked=await search(req('/api/scrape',{query:'businesses',defaultCity:'Toronto',maxLeads:25,existingLeadCount:0,guestSessionId:'new-browser-counter'}))
  assert.equal(blocked.status,429)
+ assert.match(await blocked.text(),/"code":"GUEST_ALLOWANCE_USED"/,'the visitor is told the free allowance is used, not a generic refusal')
  assert.equal(state.searchCalls,priorCalls)
  assert.equal((await download(req('/api/guest/export',{email:'invalid',marketingOptIn:false}))).status,400)
  assert.equal((await download(req('/api/guest/export',{email:'a@b.com',marketingOptIn:false},'https://evil.example'))).status,403)

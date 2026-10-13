@@ -7,7 +7,7 @@ export function guestDb() {return {
   if(name==='finish_guest_trial') {state.used-=args.p_reserved-args.p_leads.length;state.leads.push(...args.p_leads);return {data:true}}
   throw new Error(`Unexpected RPC ${name}`)
  },
- from:()=>({update:values=>({eq:()=>{Object.assign(state,values);return {then:resolve=>resolve({error:null}),or:()=>({select:async()=>({data:[{id:'fixture'}],error:null})})}}})}),
+ from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{created_at:new Date().toISOString(),attempts:1,used:state.used,active_until:null},error:null})})}),update:values=>({eq:()=>{Object.assign(state,values);return {then:resolve=>resolve({error:null}),or:()=>({select:async()=>({data:[{id:'fixture'}],error:null})})}}})}),
 }}
 export function createServerClient(){return {
  auth:{getUser:async()=>({data:{user:state.user || null}})},

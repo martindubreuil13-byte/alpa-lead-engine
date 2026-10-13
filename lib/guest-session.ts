@@ -1,3 +1,5 @@
+import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/guest/safe-storage'
+import { safeRandomId } from '@/lib/guest/safe-id'
 import {
   FREE_TRIAL_LEAD_LIMIT,
   GUEST_CAPTURE_EMAIL_STORAGE_KEY,
@@ -7,8 +9,10 @@ import {
   type TrialLead,
 } from '@/lib/trial'
 
+// Storage here is a convenience mirror of the server-held trial. It must never be able to stop a search, so every access goes
+// through the guarded helpers and still works in memory when the browser blocks storage.
 function canUseStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+  return typeof window !== 'undefined'
 }
 
 function dispatchGuestLeadUpdate() {
@@ -30,12 +34,12 @@ function buildGuestLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'pho
 
 export function getGuestSessionId() {
   if (!canUseStorage()) return null
-  return window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY)
+  return safeGetItem('local', GUEST_SESSION_STORAGE_KEY)
 }
 
 export function getGuestCaptureEmail() {
   if (!canUseStorage()) return ''
-  return window.localStorage.getItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY) || ''
+  return safeGetItem('local', GUEST_CAPTURE_EMAIL_STORAGE_KEY) || ''
 }
 
 export function saveGuestCaptureEmail(email: string) {
@@ -44,11 +48,11 @@ export function saveGuestCaptureEmail(email: string) {
   const normalizedEmail = email.trim().toLowerCase()
 
   if (!normalizedEmail) {
-    window.localStorage.removeItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY)
+    safeRemoveItem('local', GUEST_CAPTURE_EMAIL_STORAGE_KEY)
     return
   }
 
-  window.localStorage.setItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY, normalizedEmail)
+  safeSetItem('local', GUEST_CAPTURE_EMAIL_STORAGE_KEY, normalizedEmail)
 }
 
 export function getOrCreateGuestSessionId() {
@@ -57,15 +61,15 @@ export function getOrCreateGuestSessionId() {
   const existing = getGuestSessionId()
   if (existing) return existing
 
-  const nextId = crypto.randomUUID()
-  window.localStorage.setItem(GUEST_SESSION_STORAGE_KEY, nextId)
+  const nextId = safeRandomId()
+  safeSetItem('local', GUEST_SESSION_STORAGE_KEY, nextId)
   return nextId
 }
 
 export function getGuestLeads(): TrialLead[] {
   if (!canUseStorage()) return []
 
-  const raw = window.localStorage.getItem(GUEST_LEADS_STORAGE_KEY)
+  const raw = safeGetItem('local', GUEST_LEADS_STORAGE_KEY)
   if (!raw) return []
 
   try {
@@ -79,10 +83,7 @@ export function getGuestLeads(): TrialLead[] {
 export function saveGuestLeads(leads: TrialLead[]) {
   if (!canUseStorage()) return
 
-  window.localStorage.setItem(
-    GUEST_LEADS_STORAGE_KEY,
-    JSON.stringify(leads.slice(0, FREE_TRIAL_LEAD_LIMIT))
-  )
+  safeSetItem('local', GUEST_LEADS_STORAGE_KEY, JSON.stringify(leads.slice(0, FREE_TRIAL_LEAD_LIMIT)))
   dispatchGuestLeadUpdate()
 }
 
@@ -124,8 +125,8 @@ export function updateGuestLead(id: string, updates: Partial<TrialLead>) {
 export function clearGuestTrial() {
   if (!canUseStorage()) return
 
-  window.localStorage.removeItem(GUEST_LEADS_STORAGE_KEY)
-  window.localStorage.removeItem(GUEST_SESSION_STORAGE_KEY)
-  window.localStorage.removeItem(GUEST_CAPTURE_EMAIL_STORAGE_KEY)
+  safeRemoveItem('local', GUEST_LEADS_STORAGE_KEY)
+  safeRemoveItem('local', GUEST_SESSION_STORAGE_KEY)
+  safeRemoveItem('local', GUEST_CAPTURE_EMAIL_STORAGE_KEY)
   dispatchGuestLeadUpdate()
 }
