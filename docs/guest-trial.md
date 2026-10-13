@@ -4,7 +4,7 @@ Released from production typography baseline 38da65a in an isolated worktree.
 
 The landing trial calls the existing `/api/scrape` discovery engine in explicit guest mode. It does not sign out existing customers or consult subscription accounting for the guest search. After completion, `/trial/results` immediately shows all returned businesses, available contacts, and expandable website facts. Those facts are extracted from the safe, robots-aware pages already read for email discovery; no extra AI research is scheduled. Missing fields and possible addresses are shown honestly.
 
-Guest results are stored in the new service-only `guest_trials` table before lead events are delivered. A signed HttpOnly, Secure, SameSite cookie selects the trial. Browser storage is a convenience mirror, not an allowance or export authority. Email-only export validates and records an email plus the separate optional marketing consent, then returns an actual CSV attachment. No emails are sent by this feature.
+Guest results are stored in the new service-only `guest_trials` table before lead events are delivered. A signed HttpOnly, Secure, SameSite cookie selects the trial. Browser storage is a convenience mirror, not an allowance or export authority. The CSV is a plain `GET /api/guest/export` that returns the visitor's own businesses as an attachment immediately. No email, account or card is requested, nothing about the download is stored, and no emails are sent. (The `email`, `marketing_opt_in` and `consent_at` columns of `guest_trials` remain from the earlier design and are no longer written or read.)
 
 A guest can request up to 25 businesses in total, with at most three searches. A transaction reserves capacity before any provider call; unused capacity is returned after a completed run. Each guest has one active search. A keyed daily hash of Vercel's client IP limits a shared address to six trial search attempts per UTC day. This is reasonable abuse friction, not identity-based prevention. Cookie deletion, new IPs, and shared networks remain limitations. Interrupted runs whose receipt never completes conservatively retain reserved capacity. Expired sessions cannot search or export.
 
@@ -22,3 +22,9 @@ Verification: typecheck, lint (existing warnings), production build, full offlin
 - Refusals carry a code (`GUEST_RUNNING`, `GUEST_SEARCHES_USED`, `GUEST_ALLOWANCE_USED`, `GUEST_RATE_LIMITED`, `GUEST_EXPIRED`, `GUEST_UNAVAILABLE`, `GUEST_ORIGIN`, `GUEST_INVALID`) read from the trial row after `reserve_guest_trial` answers 0; no database change was needed.
 - `trial_search_failed` and `trial_search_recovered` events carry stage, kind, elapsed time, online state and in-app-browser name.
 - Verification: `node --test tests/guest-phase1-reliability.test.mjs`; `BASE_URL=... node tests/guest-phase1-browser.mjs` (mobile Chromium, every request answered locally). It is not a substitute for a real iPhone or Android device.
+
+## Conversion decisions (Phase 1b)
+
+- Guest email capture and the marketing checkbox are removed. After the first CSV download the results page shows one thank-you ("Your businesses are ready." with a link to plans) and no discount.
+- Returning visitors are recognised by the existing signed cookie and server-side allowance (25 businesses in total, 3 searches); results are restored from `GET /api/guest/session`. No fingerprinting.
+- Not yet built: the 50%-first-month moment when the allowance is exhausted (UI only, no checkout discount), the feedback question, and keeping website facts after signup.

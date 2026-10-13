@@ -1,20 +1,18 @@
 import { NextResponse } from 'next/server'
-import { guestDb, guestSession, loadGuestSession } from '@/lib/guest/server'
-import { sameOrigin, validExportEmail } from '@/lib/guest/security'
+import { guestSession, loadGuestSession } from '@/lib/guest/server'
 import { buildLeadCsv } from '@/lib/leads/csv'
-export async function POST(req: Request) {
- if(!sameOrigin(req)) return NextResponse.json({error:'Request origin refused'},{status:403})
+
+// The visitor's own businesses as a CSV, immediately: no email, account or card, and nothing is stored about the download.
+// It is a plain GET so a phone can simply follow the link (a form post plus a script-built download is unreliable on iOS and
+// in in-app browsers). The signed guest cookie is the only credential, and it can only ever return that visitor's own results.
+export async function GET() {
  try {
-  const body = await req.json()
-  if(!validExportEmail(body.email) || typeof body.marketingOptIn !== 'boolean') return NextResponse.json({error:'Please enter a valid email address.'},{status:400})
   const id = await guestSession()
-  if(!id) return NextResponse.json({error:'Start a free search first.'},{status:401})
+  if(!id) return NextResponse.json({error:'Start a free search first.'},{status:401,headers:{'Cache-Control':'no-store'}})
   const trial = await loadGuestSession(id)
-  if(!trial.leads.length) return NextResponse.json({error:'No businesses are available to download yet.'},{status:400})
-  const {error} = await guestDb().from('guest_trials').update({email:body.email.trim().toLowerCase(),marketing_opt_in:body.marketingOptIn,consent_at:new Date().toISOString()}).eq('id',id)
-  if(error) throw error
-  return new Response(buildLeadCsv(trial.leads),{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="alpa-businesses.csv"','Cache-Control':'no-store'}})
+  if(!trial.leads.length) return NextResponse.json({error:'No businesses are available to download yet.'},{status:400,headers:{'Cache-Control':'no-store'}})
+  return new Response(buildLeadCsv(trial.leads),{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="alpa-businesses.csv"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}})
  } catch {
-  return NextResponse.json({error:'Download unavailable. Your results are still saved; please try again.'},{status:503})
+  return NextResponse.json({error:'Download unavailable. Your results are still saved; please try again.'},{status:503,headers:{'Cache-Control':'no-store'}})
  }
 }

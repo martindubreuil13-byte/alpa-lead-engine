@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { signGuestId, readGuestId, guestRateBucket, validExportEmail, sameOrigin } from '../lib/guest/security.ts'
+import { signGuestId, readGuestId, guestRateBucket, sameOrigin } from '../lib/guest/security.ts'
 import { extractWebsiteFacts } from '../lib/guest/website-facts.ts'
 import { enrichEmailV2 } from '../lib/scraper/email-enrichment.ts'
 import { buildLeadCsv } from '../lib/leads/csv.ts'
@@ -19,9 +19,7 @@ test('IP limiter stores a keyed daily hash, not a raw address',()=>{
  assert.notEqual(key,guestRateBucket('192.0.2.2','test',date))
  assert.notEqual(key,guestRateBucket('192.0.2.1','test',new Date('2026-10-13')))
 })
-test('email validation and same-origin mutations reject invalid inputs',()=>{
- for(const email of ['', 'bad', 'a@b', 'a\n@b.com', null, 'a'.repeat(255)+'@b.com'])assert.equal(validExportEmail(email),false)
- assert.equal(validExportEmail(' guest@example.com '),true)
+test('same-origin mutations reject foreign origins',()=>{
  assert.equal(sameOrigin(new Request('https://alpa.example/api/guest/export',{headers:{origin:'https://evil.example'}})),false)
  assert.equal(sameOrigin(new Request('https://alpa.example/api/guest/export',{headers:{origin:'https://alpa.example'}})),true)
 })

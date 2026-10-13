@@ -35,7 +35,7 @@ export async function guestSession(create = false) {
  return id
 }
 export async function loadGuestSession(id: string) {
- const { data,error } = await guestDb().from('guest_trials').select('leads,used,attempts,email,marketing_opt_in,created_at,active_until').eq('id',id).single()
+ const { data,error } = await guestDb().from('guest_trials').select('leads,used,attempts,created_at,active_until').eq('id',id).single()
  if(error || !data || Date.parse(data.created_at) < Date.now()-GUEST_MAX_AGE*1000) throw new Error('This trial has expired. Please start again.')
  const { active_until, ...trial } = data
  // Whether a search is running now, so a phone that lost its connection can wait for the real outcome. The run id stays private.

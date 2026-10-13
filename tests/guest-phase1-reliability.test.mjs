@@ -279,3 +279,27 @@ test('the search is never started twice at once', () => {
   const flow = read('components/landing/FreeTrialCommandFlow.tsx')
   assert.match(flow, /if \(!businessType\.trim\(\) \|\| !location\.trim\(\) \|\| searchingRef\.current\) return/)
 })
+
+// ---- Phase 1b: no email collection, immediate CSV, one thank-you ----
+
+test('the guest CSV needs no email: a GET that stores nothing and returns only the cookie holder\'s own results', () => {
+  const route = read('app/api/guest/export/route.ts').replace(/^\s*\/\/.*$/gm, '')
+  assert.match(route, /export async function GET/)
+  assert.doesNotMatch(route, /export async function POST/)
+  assert.doesNotMatch(route, /email|marketing|consent|\.update\(|\.insert\(/i)
+  assert.match(route, /Content-Disposition/)
+  assert.match(route, /guestSession\(\)/)
+  assert.doesNotMatch(route, /guestSession\(true\)/, 'a download never creates a trial')
+  assert.doesNotMatch(read('lib/guest/server.ts'), /marketing_opt_in|\bemail\b/)
+})
+
+test('the results page has no email field, no marketing checkbox and no dialog; it offers the plain download and one thank-you', () => {
+  const page = read('components/guest/GuestResults.tsx')
+  assert.doesNotMatch(page, /type="email"|type="checkbox"|marketing|saveGuestCaptureEmail|Get my CSV|role="dialog"|exportOpen/i)
+  assert.match(page, /href="\/api\/guest\/export" onClick=\{onDownload\}/)
+  assert.doesNotMatch(page, /download="/, 'the file name comes from the server header; a download attribute is not needed and can cancel the save')
+  assert.match(page, /Your businesses are ready\./)
+  assert.match(page, /Thanks for giving ALPA a try\. Now go start some conversations\./)
+  assert.match(page, /Explore ALPA plans →/)
+  assert.doesNotMatch(page, /50%|discount|off your first month/i, 'no discount at the download moment')
+})

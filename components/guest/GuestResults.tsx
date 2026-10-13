@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { type TrialLead } from '@/lib/trial'
-import { saveGuestLeads, saveGuestCaptureEmail } from '@/lib/guest-session'
+import { saveGuestLeads } from '@/lib/guest-session'
+import { trackEvent } from '@/lib/track'
 
 function safeUrl(value: string | null | undefined) {
  try { const url = new URL(value || ''); return ['https:','http:'].includes(url.protocol) ? url.href : null } catch { return null }
@@ -13,35 +14,20 @@ export default function GuestResults() {
  const [leads,setLeads] = useState<TrialLead[]>([])
  const [loading,setLoading] = useState(true)
  const [error,setError] = useState('')
- const [exportOpen,setExportOpen] = useState(false)
- const [email,setEmail] = useState('')
- const [marketing,setMarketing] = useState(false)
- const [busy,setBusy] = useState(false)
- const [downloadError,setDownloadError] = useState('')
  const [downloaded,setDownloaded] = useState(false)
- const emailRef = useRef<HTMLInputElement>(null)
+ const readyToDownload = params.get('download') === '1'
  useEffect(()=>{
   fetch('/api/guest/session',{cache:'no-store'}).then(async res=>{
    const data=await res.json()
    if(!res.ok) throw new Error(data.error)
    setLeads(data.leads || [])
    saveGuestLeads(data.leads || [])
-   setEmail(data.email || '')
-   if(params.get('download') === '1' && data.leads?.length) setExportOpen(true)
   }).catch(err=>setError(err.message || 'Your results could not be loaded. Please refresh.')).finally(()=>setLoading(false))
- },[params])
- useEffect(()=>{
-  if(exportOpen) emailRef.current?.focus()
- },[exportOpen])
- async function download(event: React.FormEvent) {
-  event.preventDefault();setBusy(true);setDownloadError('')
-  try {
-   const res = await fetch('/api/guest/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,marketingOptIn:marketing})})
-   if(!res.ok) { const data=await res.json();throw new Error(data.error) }
-   const url=URL.createObjectURL(await res.blob())
-   const a=document.createElement('a');a.href=url;a.download='alpa-businesses.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)
-   saveGuestCaptureEmail(email);setDownloaded(true);setExportOpen(false)
-  } catch(err) {setDownloadError(err instanceof Error ? err.message : 'Please try again.')} finally {setBusy(false)}
+ },[])
+ function onDownload() {
+  // The browser follows the link and saves the file. The thank-you appears right away; nothing is asked for or stored.
+  setDownloaded(true)
+  void trackEvent('trial_csv_downloaded',{leads_count:leads.length})
  }
  return <main className="min-h-screen bg-[#080e1a] px-4 py-8 text-slate-200 sm:px-8">
   <div className="mx-auto max-w-4xl">
@@ -51,10 +37,15 @@ export default function GuestResults() {
    {loading ? <p role="status" className="mt-8">Loading your results…</p> : error ? <p role="alert" className="mt-8">{error}</p> : <>
     <div className="my-6 flex flex-wrap items-center gap-4">
      <p>{leads.length} of up to 25 businesses</p>
-     {leads.length > 0 && <button className="rounded-lg bg-blue-500 px-5 py-3 font-medium text-white" onClick={()=>{setMarketing(false);setExportOpen(true)}}>Download CSV</button>}
+     {leads.length > 0 && <a href="/api/guest/export" onClick={onDownload} className={`inline-flex min-h-[44px] items-center rounded-lg bg-blue-500 px-5 py-3 font-medium text-white ${readyToDownload && !downloaded ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-[#080e1a]' : ''}`}>{readyToDownload && !downloaded ? 'Your CSV is ready — tap to download' : 'Download CSV'}</a>}
      <Link href="/" className="text-sm text-blue-300">Return to free search</Link>
     </div>
-    {downloaded && <p role="status" className="mb-6 text-emerald-300">Your CSV is ready. Your results are still available here.</p>}
+    {downloaded && <section role="status" className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+     <h2 className="text-xl font-medium text-white">Your businesses are ready.</h2>
+     <p className="mt-2 text-slate-300">Thanks for giving ALPA a try. Now go start some conversations.</p>
+     <Link href="/plans" className="mt-3 inline-block text-blue-300">Explore ALPA plans →</Link>
+     <p className="mt-3 text-sm text-slate-500">Your results stay available here, so you can come back to them.</p>
+    </section>}
     {!leads.length && <p>No results yet. Start a free search from the home page.</p>}
     <div className="space-y-4">
      {leads.map(lead=>{
@@ -88,22 +79,5 @@ export default function GuestResults() {
     {leads.length > 0 && <p className="mt-8 text-sm text-slate-400">Results stay available in this browser for 30 days. <Link href="/login?mode=signup" className="text-blue-300">Create an optional free account</Link> to save businesses and return to your trial information on another device during those 30 days. <Link href="/plans" className="text-blue-300">View plans</Link> when you need more.</p>}
    </>}
   </div>
-  {exportOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onKeyDown={event=>{if(event.key === 'Escape' && !busy)setExportOpen(false)}}>
-   <form onSubmit={download} onKeyDown={event=>{
-    if(event.key !== 'Tab') return
-    const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input,button:not(:disabled)'))
-    const first=controls[0],last=controls[controls.length-1]
-    if(event.shiftKey && document.activeElement === first){event.preventDefault();last?.focus()}
-    if(!event.shiftKey && document.activeElement === last){event.preventDefault();first?.focus()}
-   }} role="dialog" aria-modal="true" aria-labelledby="export-title" className="w-full max-w-md rounded-2xl border border-white/10 bg-[#101a2a] p-6">
-    <h2 id="export-title" className="text-2xl text-white">Download your businesses</h2>
-    <p className="mt-3 text-sm text-slate-400">Enter your email to download the full CSV immediately. No account or password. We do not send an email copy automatically.</p>
-    <label className="mt-5 block" htmlFor="export-email">Email address</label>
-    <input ref={emailRef} id="export-email" type="email" required maxLength={254} autoComplete="email" value={email} onChange={event=>setEmail(event.target.value)} className="mt-2 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-3 text-white" />
-    <label className="mt-5 flex items-start gap-3 text-sm"><input type="checkbox" checked={marketing} onChange={event=>setMarketing(event.target.checked)} className="mt-1" />Email me ALPA news and offers (optional).</label>
-    {downloadError && <p role="alert" className="mt-4 text-red-300">{downloadError}</p>}
-    <div className="mt-6 flex gap-3"><button type="submit" disabled={busy} className="rounded-lg bg-blue-500 px-5 py-3 text-white disabled:opacity-50">{busy ? 'Preparing…' : 'Get my CSV'}</button><button type="button" disabled={busy} onClick={()=>setExportOpen(false)} className="px-4 py-3">Cancel</button></div>
-   </form>
-  </div>}
  </main>
 }
