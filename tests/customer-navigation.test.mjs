@@ -122,7 +122,7 @@ test('no customer-facing page offers to email results or compose email', () => {
 test('guest CSV export is immediate and needs no email; signed-in exports remain direct', () => {
   assert.match(read('app/dashboard/scraper/page.tsx'), /Export CSV/)
   assert.match(read('app/dashboard/scraper/page.tsx'), /onExportCsv=\{\(\) => \{\s*setShowTrialLimitModal\(false\)\s*downloadPreviewLeads\(\)/)
-  assert.match(read('components/guest/GuestResults.tsx'), /api\/guest\/export/)
+  assert.match(read('components/guest/GuestWorkspace.tsx'), /api\/guest\/export/)
   assert.match(read('app/dashboard/leads/LeadsPageClient.tsx'), /Download CSV/)
 })
 

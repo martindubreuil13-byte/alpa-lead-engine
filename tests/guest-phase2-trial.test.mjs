@@ -83,7 +83,7 @@ test('a visitor with no free businesses left gets a calm state with the way forw
 })
 
 test('results stay reachable and lead back into the trial', () => {
-  const results = read('components/guest/GuestResults.tsx')
+  const results = read('components/guest/GuestWorkspace.tsx')
   assert.doesNotMatch(results, /<main|min-h-screen/, 'the page shell comes from the trial layout')
   assert.match(results, /href="\/trial"/)
   assert.match(results, /Your businesses are ready\./)

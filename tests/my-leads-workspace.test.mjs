@@ -124,7 +124,7 @@ test('the actions that belong in the dossier are all there: archive, restore, de
   assert.match(workspace, /downloadLeadCsv\(data\.leads, getLeadCsvFilename\('my-leads'\)\)/)
   assert.match(workspace, /Export CSV/)
   assert.match(workspace, /navigator\.clipboard\.writeText/)
-  assert.match(source.LeadDossier, /aria-label=\{`Copy \$\{label\.toLowerCase\(\)\}`\}/)
+  assert.match(source.DossierView, /aria-label=\{`Copy \$\{label\.toLowerCase\(\)\}`\}/)
   for (const label of ['Archive', 'Restore', 'Delete permanently']) assert.ok(source.LeadDossier.includes(label), label)
   // a failed action is rolled back and said so
   assert.match(workspace, /if \(!result\.success\) \{[\s\S]*showToast\(failure, 'error'\)/)
@@ -145,7 +145,10 @@ test('the workspace structure: header, overview, command bar, list, dossier sect
   assert.match(workspace, /<h1[^>]*>My Leads<\/h1>/)
   assert.match(workspace, /<OverviewStrip/)
   assert.match(workspace, /<CommandBar/)
-  for (const heading of ['Business overview', 'Business Intelligence', 'Commercial opportunities', 'Business signals', 'Contact information', 'Notes and actions']) assert.ok(source.LeadDossier.includes(heading), heading)
+  // the shared business profile leads with who they are, what they do and how to reach them; the member's own sections follow
+  for (const heading of ['Who they are', 'What they do', 'How to reach them']) assert.ok(source.DossierView.includes(heading), heading)
+  for (const heading of ['Business Intelligence', 'Business signals', 'Notes and actions']) assert.ok(source.LeadDossier.includes(heading), heading)
+  assert.match(source.LeadDossier, /<DossierView model=\{memberDossierModel\(lead\)\}/)
   for (const label of ['Businesses', 'Profiles ready', 'Awaiting intelligence', 'Need attention']) assert.ok(source.OverviewStrip.includes(label), label)
   assert.match(source.ConnectTools, /Connect your tools/)
   assert.match(source.ConnectTools, /Coming soon/)
@@ -154,22 +157,24 @@ test('the workspace structure: header, overview, command bar, list, dossier sect
 })
 
 test('sections with nothing behind them are left out; nothing is invented', () => {
-  assert.match(source.LeadDossier, /hasOpportunities = Boolean\(profile && \(profile\.core_services\.length \|\| profile\.target_customer\)\)/)
-  assert.match(source.LeadDossier, /\{hasOpportunities && profile \? \(/)
+  const model = read('lib/my-leads/dossier-model.ts')
+  assert.match(source.DossierView, /\{what\.offers\.length \? /)
+  assert.match(source.DossierView, /\{what\.serves \? /)
+  assert.match(source.DossierView, /\{!hasWhat \? /)
   assert.match(source.LeadDossier, /card\?\.facts\.signals\.length \? \(/)
-  assert.match(source.LeadDossier, /No contact details were found for this business\./)
+  assert.match(model, /No contact details were found for this business\./)
   assert.match(source.LeadDossier, /No notes yet\./)
-  assert.match(source.LeadDossier, /STATE_TEXT\[intelligence\.state\]/) // a business with no profile says why, from its real state
-  assert.ok(!/competitive_advantage|website_snapshot|business_signals/.test(source.LeadDossier), 'raw payloads and unverifiable claims are not rendered')
+  assert.match(model, /STATE_TEXT\[intelligence\.state\]/) // a business with no profile says why, from its real state
+  assert.ok(!/competitive_advantage|website_snapshot|business_signals/.test(source.LeadDossier + source.DossierView + model), 'raw payloads and unverifiable claims are not rendered')
 })
 
 test('keyboard, screen-reader and reduced-motion support', () => {
-  assert.match(source.LeadRow, /aria-expanded=\{expanded\}/)
-  assert.match(source.LeadRow, /aria-controls=\{panelId\}/)
+  assert.match(source.LeadRow, /aria-expanded=\{hasPanel \? expanded : undefined\}/)
+  assert.match(source.LeadRow, /aria-controls=\{hasPanel \? panelId : undefined\}/)
   assert.match(source.LeadRow, /role="region"/)
   assert.match(source.LeadRow, /aria-label=\{`Select \$\{item\.company_name\}`\}/)
   assert.match(source.LeadRow, /motion-safe:animate-pulse/)
-  assert.match(source.OverviewStrip, /aria-pressed/)
+  assert.match(source.MetricStrip, /aria-pressed/)
   assert.match(source.CommandBar, /role="tablist"/)
   assert.match(source.CommandBar, /aria-pressed=\{on\}/)
   assert.match(source.MyLeadsWorkspace, /role="toolbar"/)
@@ -188,7 +193,8 @@ test('there is no "Open profile": the whole business is read inline, and nothing
   assert.ok(!/dashboard\/leads\//.test(all), 'no link or navigation into the legacy lead-management / email-composer page')
   assert.ok(!/router\.push\(/.test(all), 'the workspace replaces the address (filters) but never navigates away')
   // the complete dossier is still available inline when a row is expanded
-  for (const section of ['Business overview', 'Contact information', 'Business Intelligence', 'Notes and actions']) assert.ok(source.LeadDossier.includes(section), section)
+  for (const section of ['Who they are', 'What they do', 'How to reach them']) assert.ok(source.DossierView.includes(section), section)
+  for (const section of ['Business Intelligence', 'Notes and actions']) assert.ok(source.LeadDossier.includes(section), section)
   assert.match(source.MyLeadsWorkspace, /<LeadDossier\s+id=\{item\.id\}/)
   assert.match(source.LeadRow, /\{expanded \? \(/)
   // the legacy page and its email sending are not touched by this change

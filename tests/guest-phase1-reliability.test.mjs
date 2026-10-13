@@ -258,7 +258,7 @@ test('the guest CSV needs no email: a GET that stores nothing and returns only t
 })
 
 test('the results page has no email field, no marketing checkbox and no dialog; it offers the plain download and one thank-you', () => {
-  const page = read('components/guest/GuestResults.tsx')
+  const page = read('components/guest/GuestWorkspace.tsx')
   assert.doesNotMatch(page, /type="email"|type="checkbox"|marketing|saveGuestCaptureEmail|Get my CSV|role="dialog"|exportOpen/i)
   assert.match(page, /href="\/api\/guest\/export" onClick=\{onDownload\}/)
   assert.doesNotMatch(page, /download="/, 'the file name comes from the server header; a download attribute is not needed and can cancel the save')
