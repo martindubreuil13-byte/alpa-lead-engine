@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
-import { getGuestLeads } from '@/lib/guest-session'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 import { trackEvent } from '@/lib/track'
@@ -89,15 +88,10 @@ export default function LoginPage() {
   }
 
   async function claimGuestTrialIfNeeded(): Promise<GuestClaimResult | null> {
-    const guestLeads = getGuestLeads()
-    if (guestLeads.length === 0) return null
-
+    // The server holds the trial (and its website facts) behind the visitor's signed cookie, so the claim does not depend on
+    // anything this browser kept: storage can be blocked or cleared and the businesses still come across. With no trial it is a no-op.
     try {
-      const res = await fetch('/api/guest/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leads: guestLeads }),
-      })
+      const res = await fetch('/api/guest/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
 
       const data = (await res.json().catch(() => null)) as GuestClaimResult | null
 

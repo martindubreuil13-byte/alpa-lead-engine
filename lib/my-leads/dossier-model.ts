@@ -18,25 +18,36 @@ export type DossierContact = {
   missing: string[]
 }
 
+/** The website's own words about the business, as read by rules. Never written or extended by AI. */
+export type DossierSite = {
+  text: string | null
+  /** A website title shown only when there is no description to show. */
+  titleLine: string | null
+  topics: string[]
+  topicsLabel: string
+  sources: Array<{ label: string; url: string }>
+  caveat: string | null
+}
+
+/** What ALPA's AI wrote about the business from its website (a member's Business Intelligence). Absent until one exists. */
+export type DossierAi = {
+  text: string
+  offers: string[]
+  serves: string | null
+}
+
 export type DossierModel = {
   name: string
   /** WHO: industry and place first, then any other identifying detail the data holds. */
   who: string[]
-  /** WHAT: a factual description, where it came from, and what else the business says about itself. */
+  /** WHAT: the AI summary and the website's own words are kept apart and labelled as different things. */
   what: {
-    text: string | null
-    /** "From their website", for the line above or below the text. Null when there is no text. */
-    attribution: string | null
-    /** A website title shown only when there is no description to show. */
-    titleLine: string | null
-    topics: string[]
-    topicsLabel: string
-    offers: string[]
-    serves: string | null
-    /** What to say when there is nothing to show. */
+    ai: DossierAi | null
+    site: DossierSite | null
+    /** Why there is no AI profile, from the real state, when there is none (shown quietly next to the website's words). */
+    aiNote: string | null
+    /** What to say when there is nothing at all to show. */
     empty: string
-    sources: Array<{ label: string; url: string }>
-    caveat: string | null
   }
   contact: DossierContact
 }
@@ -80,12 +91,36 @@ export function safeHttpUrl(value: string | null | undefined): string | null {
 
 const clean = (value: string | null | undefined) => String(value ?? '').replace(/\s+/g, ' ').trim()
 
+// ----------------------------------------------------------------------------------------------------------------------- shared
+type FactsLike = { title?: string | null; description?: string | null; headings?: string[] | null; source_urls?: string[] | null } | null | undefined
+
+/** The website's own words as a labelled block; null when the website gave nothing to show. */
+function siteBlock(facts: FactsLike, partial: boolean): DossierSite | null {
+  const description = clean(facts?.description)
+  const title = clean(facts?.title)
+  const topics = (facts?.headings ?? []).map(clean).filter(Boolean).slice(0, 8)
+  if (!description && !title && topics.length === 0) return null
+  const sources = (facts?.source_urls ?? [])
+    .map((url) => ({ label: hostOf(url) ?? 'Website', url: safeHttpUrl(url) ?? '' }))
+    .filter((source) => source.url)
+  return {
+    text: description || null,
+    titleLine: !description && title ? title : null,
+    topics,
+    topicsLabel: 'Topics on their website',
+    sources,
+    caveat: `These are statements from the business website. ALPA has not independently confirmed them.${partial ? ' Some website pages could not be read.' : ''}`,
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------- member
 export function memberDossierModel(lead: LeadDossier): DossierModel {
   const { intelligence, contact } = lead
   const card = intelligence.card
   const profile = intelligence.profile
   const reason = intelligence.reason ? REASON_TEXT[intelligence.reason] : null
+  const stateText = `${STATE_TEXT[intelligence.state] ?? 'No business profile is available.'}${reason ? ` ${reason}` : ''}`
+  const site = siteBlock(lead.website, lead.website?.inspection?.partial === true)
   return {
     name: lead.company_name,
     who: [
@@ -93,16 +128,10 @@ export function memberDossierModel(lead: LeadDossier): DossierModel {
       hostOf(contact.website) ?? '',
     ].filter(Boolean),
     what: {
-      text: card ? card.summary : null,
-      attribution: card ? 'A summary of what their website says' : null,
-      titleLine: null,
-      topics: [],
-      topicsLabel: '',
-      offers: profile?.core_services ?? [],
-      serves: profile?.target_customer ?? null,
-      empty: `${STATE_TEXT[intelligence.state] ?? 'No business profile is available.'}${reason ? ` ${reason}` : ''}`,
-      sources: [],
-      caveat: null,
+      ai: card ? { text: card.summary, offers: profile?.core_services ?? [], serves: profile?.target_customer ?? null } : null,
+      site,
+      aiNote: !card && site ? stateText : null,
+      empty: stateText,
     },
     contact: {
       name: contact.name,
@@ -122,9 +151,6 @@ export function memberDossierModel(lead: LeadDossier): DossierModel {
  */
 export function guestDossierModel(lead: TrialLead): DossierModel {
   const facts = lead.website_intelligence ?? null
-  const description = clean(facts?.description)
-  const title = clean(facts?.title)
-  const topics = (facts?.headings ?? []).map(clean).filter(Boolean).slice(0, 8)
   const email = clean(lead.email) || null
   const phone = clean(lead.phone) || null
   const website = safeHttpUrl(lead.website)
@@ -140,27 +166,10 @@ export function guestDossierModel(lead: TrialLead): DossierModel {
   else if (unreadable) empty = 'Its website could not be read, so there is no description.'
   else if (facts) empty = 'No descriptive text was found on the pages ALPA read.'
 
-  const sources = (facts?.source_urls ?? [])
-    .map((url) => ({ label: hostOf(url) ?? 'Website', url: safeHttpUrl(url) ?? '' }))
-    .filter((source) => source.url)
-
   return {
     name: lead.company_name,
     who: [[lead.industry, lead.city].filter(Boolean).join(' · ') || 'Industry and location were not provided', hostOf(lead.website) ?? ''].filter(Boolean),
-    what: {
-      text: description || null,
-      attribution: description ? 'From their website' : null,
-      titleLine: !description && title ? title : null,
-      topics,
-      topicsLabel: 'Topics on their website',
-      offers: [],
-      serves: null,
-      empty,
-      sources,
-      caveat: facts && (description || title || topics.length)
-        ? `These are statements from the business website. ALPA has not independently confirmed them.${lead.email_inspection?.partial ? ' Some website pages could not be read.' : ''}`
-        : null,
-    },
+    what: { ai: null, site: siteBlock(facts, lead.email_inspection?.partial === true), aiNote: null, empty },
     contact: {
       name: null,
       email,

@@ -8,6 +8,7 @@
 // (kilobytes per lead) are never part of a list response; the card gets a short preview of the profile summary, and the full
 // dossier is a separate request made when one business is opened.
 
+import { parseStoredWebsiteFacts, type StoredWebsiteFacts } from '../leads/stored-website-facts.ts'
 import { buildProfileCard, deriveLeadProfileState, LEAD_PROFILE_LABEL, toProfileReason, type LeadProfileState, type ProfileCard, type ProfileReason } from '../intelligence/run-progress.ts'
 
 type Client = any
@@ -192,7 +193,7 @@ export async function fetchLeadPage(client: Client, userId: string, params: List
 
 // ------------------------------------------------------------------------------------------------------------------ dossier
 const DOSSIER_COLUMNS =
-  'id, company_name, industry, city, email, phone, website, contact_name, notes, status, pipeline_stage, closed_at, created_at, last_activity_at, source, source_url, email_source, email_confidence, is_generic_email, ci_completed_at, commercial_profile, website_snapshot, business_signals'
+  'id, company_name, industry, city, email, phone, website, contact_name, notes, status, pipeline_stage, closed_at, created_at, last_activity_at, source, source_url, email_source, email_confidence, is_generic_email, ci_completed_at, commercial_profile, website_snapshot, business_signals, website_facts'
 
 export type LeadDossier = {
   id: string
@@ -206,6 +207,8 @@ export type LeadDossier = {
   created_at: string | null
   last_activity_at: string | null
   source: string | null
+  /** What the business's own website says, kept from the free trial; apart from the AI profile below. Null when none was kept. */
+  website: StoredWebsiteFacts | null
   contact: {
     name: string | null
     email: string | null
@@ -253,6 +256,7 @@ export async function fetchLeadDossier(client: Client, userId: string, id: strin
     created_at: row.created_at ?? null,
     last_activity_at: row.last_activity_at ?? row.created_at ?? null,
     source: row.source ?? null,
+    website: parseStoredWebsiteFacts(row.website_facts),
     contact: {
       name: text(row.contact_name),
       email: row.email ?? null,
@@ -287,7 +291,7 @@ export async function fetchLeadDossier(client: Client, userId: string, id: strin
 /** Most businesses one CSV export may carry, and how many ids one database read names (URL length). */
 export const EXPORT_MAX = 500
 const EXPORT_CHUNK = 100
-const EXPORT_COLUMNS = 'id, company_name, email, phone, website, city, commercial_profile, ci_completed_at'
+const EXPORT_COLUMNS = 'id, company_name, email, phone, website, city, commercial_profile, ci_completed_at, website_facts'
 
 export type ExportLead = {
   id: string
@@ -298,6 +302,8 @@ export type ExportLead = {
   city: string | null
   commercial_profile: unknown
   ci_completed_at: string | null
+  /** The website's own title, description and topics, when they were kept from a free trial (shown in the CSV like any other business). */
+  website_intelligence: { title: string | null; description: string | null; headings: string[]; source_urls: string[] } | null
 }
 
 /**
@@ -310,7 +316,11 @@ export async function fetchLeadsForExport(client: Client, userId: string, ids: s
   for (let i = 0; i < unique.length; i += EXPORT_CHUNK) {
     const { data, error } = await client.from('leads').select(EXPORT_COLUMNS).eq('user_id', userId).in('id', unique.slice(i, i + EXPORT_CHUNK))
     if (error) throw new Error('Leads could not be read')
-    for (const row of (data ?? []) as ExportLead[]) found.set(row.id, row)
+    for (const row of (data ?? []) as Array<ExportLead & { website_facts?: unknown }>) {
+      const { website_facts, ...rest } = row
+      const facts = parseStoredWebsiteFacts(website_facts)
+      found.set(row.id, { ...rest, website_intelligence: facts ? { title: facts.title, description: facts.description, headings: facts.headings, source_urls: facts.source_urls } : null })
+    }
   }
   return unique.map((id) => found.get(id)).filter((row): row is ExportLead => Boolean(row))
 }

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import {spawn} from 'node:child_process'
 import {chromium} from 'playwright'
+import {buildStoredWebsiteFacts} from '../lib/leads/stored-website-facts.ts'
 
 const SUPA = 'http://localhost:3398'
 const base = process.env.BASE_URL || 'http://localhost:3303'
@@ -33,16 +34,18 @@ for (let i = 0; i < 60; i += 1) { try { await fetch(base + '/login'); break } ca
 
 const item = (n, over = {}) => ({id: `m-${n}`, company_name: `Member Business ${n}`, industry: 'Plumbing', city: 'Laval', email: `a@m${n}.ca`, phone: '+1 450 555 0100', website: `https://m${n}.ca`, has: {email: true, phone: true, website: true}, archived: false, created_at: '2026-10-01T00:00:00Z', last_activity_at: '2026-10-12T00:00:00Z', intelligence: {state: 'ready', label: 'Profile ready', preview: 'Plumbing for homes.'}, ...over})
 const items = [item(1), item(2, {intelligence: {state: 'queued', label: 'Queued', preview: null}, has: {email: false, phone: true, website: true}, email: null}), item(3, {intelligence: {state: 'failed', label: 'Needs attention', preview: null}})]
-const dossier = (id) => ({ok: true, lead: {
+const dossier = (id, over = {}) => ({ok: true, lead: {
   id, company_name: 'Member Business 1', industry: 'Plumbing', city: 'Laval', archived: false, status: null, pipeline_stage: null, notes: 'Called last week.', created_at: '2026-10-01T00:00:00Z', last_activity_at: '2026-10-12T00:00:00Z', source: null,
   contact: {name: 'Jo Tremblay', email: 'a@m1.ca', email_source: null, email_confidence: 'high', is_generic_email: false, phone: '+1 450 555 0100', website: 'https://m1.ca', source_url: null},
   intelligence: {state: 'ready', label: 'Profile ready', reason: null, researched_at: '2026-10-05T00:00:00Z',
     card: {summary: 'Residential plumbing repairs and installations.', services: [], audience: null, facts: {signals: ['Mentions pricing'], pagesRead: ['Home', 'Services'], sources: [{label: 'm1.ca', url: 'https://m1.ca/'}]}, limitations: ['Based on two pages only.']},
     profile: {industry: 'Plumbing', business_category: 'Home services', primary_service: null, core_services: ['Repairs', 'Installations'], target_customer: 'Homeowners', keywords: ['pipes', 'heating']}},
+  website: null,
+  ...over,
 }})
 
 const results = []
-async function scenario(name, device, fn) {
+async function scenario(name, device, fn, extra = {}) {
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone' ? {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 3} : {viewport: {width: 1280, height: 900}})
   const session = {access_token: 'aaa.bbb.ccc', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, refresh_token: 'r', user: USER}
@@ -60,7 +63,8 @@ async function scenario(name, device, fn) {
       const shown = q ? items.filter((i) => i.company_name.toLowerCase().includes(q)) : items
       return route.fulfill({json: {ok: true, items: shown, total: shown.length, page: 1, pageSize: 25, hasMore: false}})
     }
-    if (url.pathname.startsWith('/api/my-leads/') && url.pathname !== '/api/my-leads/export') return route.fulfill({json: dossier(url.pathname.split('/').pop())})
+    if (url.pathname === '/api/guest/session') return route.fulfill({json: {leads: extra.guestLeads ?? [], used: (extra.guestLeads ?? []).length, attempts: 1, searching: false}})
+    if (url.pathname.startsWith('/api/my-leads/') && url.pathname !== '/api/my-leads/export') return route.fulfill({json: extra.dossier ? extra.dossier(url.pathname.split('/').pop()) : dossier(url.pathname.split('/').pop())})
     if (url.pathname.startsWith('/api/')) return route.fulfill({json: {}})
     return route.continue()
   })
@@ -96,7 +100,8 @@ await scenario('members: an expanded row shows the shared who / what / how to re
   const region = page.getByRole('region', {name: /Member Business 1 details/})
   for (const h of ['Who they are', 'What they do', 'How to reach them', 'Business Intelligence', 'Business signals', 'Notes and actions']) await region.getByRole('heading', {name: h}).waitFor()
   await region.getByText('Residential plumbing repairs and installations.').waitFor()
-  await region.getByText('A summary of what their website says').waitFor()
+  await region.getByText('AI summary', {exact: true}).waitFor()
+  await region.getByText('Written by AI from their website. Not independently verified.').waitFor()
   await region.getByText('Repairs · Installations').waitFor()
   await region.getByText('Homeowners').waitFor()
   assert.equal(await region.locator('a[href="mailto:a@m1.ca"]').count(), 1)
@@ -128,6 +133,81 @@ await scenario('members on a phone: still inline (no bottom sheet), full control
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
   await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-phone-dossier.png'})
 })
+
+
+// ------------------------------------------------------------------------------------------ Phase 4: guest -> signup -> member
+const guestLead = {id: 'g-1', company_name: 'Clinique Laval', city: 'Laval', industry: 'Dentist', email: 'info@cliniquelaval.ca', phone: null, website: 'https://cliniquelaval.ca', email_confidence: 'medium', is_generic_email: false,
+  website_intelligence: {title: 'Clinique Laval', description: 'Family dental care in Laval since 1998.', headings: ['Teeth whitening', 'Implants'], source_urls: ['https://cliniquelaval.ca/']}, email_inspection: {state: 'checked', partial: true}, created_at: '2026-10-13T00:00:00Z'}
+// What the claim stores for that business (the real function), as the database would hand it back, with no AI profile.
+const stored = JSON.parse(JSON.stringify(buildStoredWebsiteFacts(guestLead)))
+const imported = (over = {}) => (id) => ({ok: true, lead: {
+  id, company_name: guestLead.company_name, industry: 'Dentist', city: 'Laval', archived: false, status: null, pipeline_stage: null, notes: null, created_at: '2026-10-13T00:00:00Z', last_activity_at: null, source: 'serper',
+  website: stored,
+  contact: {name: null, email: guestLead.email, email_source: null, email_confidence: 'medium', is_generic_email: false, phone: null, website: guestLead.website, source_url: null},
+  intelligence: {state: 'not_started', label: 'Not generated', reason: null, researched_at: null, card: null, profile: null},
+  ...over,
+}})
+
+await scenario('guest dossier -> signup -> My Leads: the website facts are the same words, labelled as the website\'s, with no AI summary invented', 'desktop', async (page) => {
+  // 1. what the guest sees
+  await page.goto(base + '/trial/results')
+  await page.getByRole('button', {name: /Clinique Laval/}).first().click()
+  const guestRegion = page.getByRole('region', {name: /Clinique Laval details/})
+  await guestRegion.getByText('Family dental care in Laval since 1998.').waitFor()
+  const guestText = await guestRegion.innerText()
+  // 2. the same business after signup, in the member workspace
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  const region = page.getByRole('region', {name: /details/})
+  for (const h of ['Who they are', 'What they do', 'How to reach them']) await region.getByRole('heading', {name: h}).waitFor()
+  await region.getByText('Family dental care in Laval since 1998.').waitFor()
+  await region.getByText('Teeth whitening').waitFor()
+  await region.getByText('Implants').waitFor()
+  assert.equal(await region.getByText('AI summary').count(), 0, 'no AI summary is shown or invented')
+  await region.getByText('No business profile has been generated for this business yet.').waitFor()
+  assert.equal(await region.locator('a[href="mailto:info@cliniquelaval.ca"]').count(), 1)
+  const memberText = await region.innerText()
+  for (const sentence of ['Family dental care in Laval since 1998.', 'Teeth whitening', 'Implants', 'These are statements from the business website. ALPA has not independently confirmed them. Some website pages could not be read.']) {
+    assert.ok(guestText.includes(sentence), `the guest saw: ${sentence}`)
+    assert.ok(memberText.includes(sentence), `kept after signup: ${sentence}`)
+  }
+  await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-imported-dossier.png'})
+}, {guestLeads: [guestLead], dossier: imported()})
+
+await scenario('imported business with missing contact details and incomplete facts: stated plainly, nothing filled in', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  const region = page.getByRole('region', {name: /details/})
+  await region.getByText(/Their website is titled “Only a title”\./).waitFor()
+  assert.equal(await region.getByText('AI summary').count(), 0)
+  assert.equal(await region.locator('a[href^="tel:"]').count(), 0, 'no phone invented')
+  assert.equal(await region.locator('a[href^="mailto:"]').count(), 0, 'no email invented')
+  await region.getByText('No contact details were found for this business.').waitFor()
+}, {dossier: imported({website: {...stored, description: null, title: 'Only a title', headings: [], inspection: null}, contact: {name: null, email: null, email_source: null, email_confidence: null, is_generic_email: false, phone: null, website: null, source_url: null}})})
+
+await scenario('when the business also has an AI profile, both are shown and labelled as different things', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  const region = page.getByRole('region', {name: /details/})
+  await region.getByText('AI summary', {exact: true}).waitFor()
+  await region.getByText('Written by AI from their website. Not independently verified.').waitFor()
+  await region.getByText('From their website', {exact: true}).waitFor()
+  await region.getByText('Family dental care in Laval since 1998.').waitFor()
+  await region.getByText('Residential plumbing repairs and installations.').waitFor()
+  await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-ai-and-website.png'})
+}, {dossier: (id) => dossier(id, {website: stored})})
+
+await scenario('members on a phone see the imported facts inline as well', 'phone', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  await page.getByRole('region', {name: /details/}).getByText('Family dental care in Laval since 1998.').waitFor()
+  assert.equal(await page.getByRole('dialog').count(), 0)
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+}, {dossier: imported()})
 
 stop()
 console.log('stub saw:', stubLog.slice(0, 8))

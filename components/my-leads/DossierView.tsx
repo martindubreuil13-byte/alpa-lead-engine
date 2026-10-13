@@ -54,7 +54,7 @@ export default function DossierView({
   children?: React.ReactNode
 }) {
   const { what, contact } = model
-  const hasWhat = Boolean(what.text || what.titleLine || what.offers.length || what.serves || what.topics.length)
+  const { ai, site } = what
   return (
     <div className="space-y-7">
       <div className={cn('grid gap-x-10 gap-y-7', layout === 'inline' && 'md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)_minmax(0,1fr)]')}>
@@ -68,39 +68,50 @@ export default function DossierView({
         </Section>
 
         <Section title="What they do">
-          {what.text ? (
-            <>
-              <p className="max-w-prose text-[0.95rem] leading-7 text-[#243049]">{what.text}</p>
-              {what.attribution ? <p className={`text-xs ${MUTED}`}>{what.attribution}</p> : null}
-            </>
-          ) : what.titleLine ? (
-            <p className="max-w-prose text-sm leading-6 text-[#243049]">Their website is titled “{what.titleLine}”.</p>
-          ) : null}
-          {what.offers.length ? <p className="text-sm text-[#243049]"><span className={MUTED}>Offers </span>{what.offers.join(' · ')}</p> : null}
-          {what.serves ? <p className="text-sm text-[#243049]"><span className={MUTED}>Serves </span>{what.serves}</p> : null}
-          {what.topics.length ? (
+          {ai ? (
             <div className="space-y-1.5">
-              <p className={`text-xs ${MUTED}`}>{what.topicsLabel}</p>
-              <ul className="flex flex-wrap gap-1.5">
-                {what.topics.map((topic) => (
-                  <li key={topic} className="rounded-full border border-[#d9d3c4] px-2.5 py-0.5 text-xs text-[#3b4455]">{topic}</li>
-                ))}
-              </ul>
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#5b6372]">AI summary</p>
+              <p className="max-w-prose text-[0.95rem] leading-7 text-[#243049]">{ai.text}</p>
+              <p className={`text-xs ${MUTED}`}>Written by AI from their website. Not independently verified.</p>
+              {ai.offers.length ? <p className="text-sm text-[#243049]"><span className={MUTED}>Offers </span>{ai.offers.join(' · ')}</p> : null}
+              {ai.serves ? <p className="text-sm text-[#243049]"><span className={MUTED}>Serves </span>{ai.serves}</p> : null}
             </div>
           ) : null}
-          {!hasWhat ? <p className={`text-sm ${MUTED}`}>{what.empty}</p> : null}
-          {what.sources.length ? (
-            <p className={`text-xs ${MUTED}`}>
-              Source:{' '}
-              {what.sources.map((source, index) => (
-                <span key={source.url}>
-                  {index > 0 ? ' · ' : ''}
-                  <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4 md:min-h-[32px] hover:text-[#0b1a33]">{source.label}</a>
-                </span>
-              ))}
-            </p>
+          {site ? (
+            <div className={cn('space-y-1.5', ai && 'border-t border-[#d9d3c4]/70 pt-3')}>
+              {ai ? <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#5b6372]">From their website</p> : null}
+              {site.text ? (
+                <p className={cn('max-w-prose leading-7 text-[#243049]', ai ? 'text-sm' : 'text-[0.95rem]')}>{site.text}</p>
+              ) : site.titleLine ? (
+                <p className="max-w-prose text-sm leading-6 text-[#243049]">Their website is titled “{site.titleLine}”.</p>
+              ) : null}
+              {site.text && !ai ? <p className={`text-xs ${MUTED}`}>From their website</p> : null}
+              {site.topics.length ? (
+                <div className="space-y-1.5">
+                  <p className={`text-xs ${MUTED}`}>{site.topicsLabel}</p>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {site.topics.map((topic) => (
+                      <li key={topic} className="rounded-full border border-[#d9d3c4] px-2.5 py-0.5 text-xs text-[#3b4455]">{topic}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {site.sources.length ? (
+                <p className={`text-xs ${MUTED}`}>
+                  Source:{' '}
+                  {site.sources.map((source, index) => (
+                    <span key={source.url}>
+                      {index > 0 ? ' · ' : ''}
+                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-[#0b1a33] md:min-h-[32px]">{source.label}</a>
+                    </span>
+                  ))}
+                </p>
+              ) : null}
+              {site.caveat ? <p className={`text-xs ${MUTED}`}>{site.caveat}</p> : null}
+            </div>
           ) : null}
-          {what.caveat ? <p className={`text-xs ${MUTED}`}>{what.caveat}</p> : null}
+          {!ai && what.aiNote ? <p className={`text-xs ${MUTED}`}>{what.aiNote}</p> : null}
+          {!ai && !site ? <p className={`text-sm ${MUTED}`}>{what.empty}</p> : null}
         </Section>
 
         <Section title="How to reach them">

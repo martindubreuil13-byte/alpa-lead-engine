@@ -18,13 +18,13 @@ test('a complete business reads as who they are, what they do and how to reach t
   const m = guestDossierModel(lead())
   assert.equal(m.name, 'Clinique Laval')
   assert.deepEqual(m.who, ['Dentist · Laval', 'cliniquelaval.ca'])
-  assert.equal(m.what.text, 'Family dental care in Laval since 1998.')
-  assert.equal(m.what.attribution, 'From their website')
-  assert.deepEqual(m.what.topics, ['Teeth whitening', 'Implants'])
-  assert.match(m.what.caveat, /not independently confirmed/)
+  assert.equal(m.what.ai, null, 'a guest has no AI summary, and none is invented')
+  assert.equal(m.what.site.text, 'Family dental care in Laval since 1998.')
+  assert.deepEqual(m.what.site.topics, ['Teeth whitening', 'Implants'])
+  assert.match(m.what.site.caveat, /not independently confirmed/)
   assert.deepEqual([m.contact.email, m.contact.phone, m.contact.website], ['info@cliniquelaval.ca', '+1 450 555 0100', 'https://cliniquelaval.ca/'])
   assert.deepEqual(m.contact.missing, [])
-  assert.deepEqual(m.what.sources, [{ label: 'cliniquelaval.ca', url: 'https://cliniquelaval.ca/' }])
+  assert.deepEqual(m.what.site.sources, [{ label: 'cliniquelaval.ca', url: 'https://cliniquelaval.ca/' }])
 })
 
 test('missing contact details are named as missing, never guessed', () => {
@@ -43,20 +43,20 @@ test('an unreadable website is reported as such, for both the email and the desc
 })
 
 test('incomplete website intelligence: only what exists is shown; a title is shown only when there is no description', () => {
-  assert.equal(guestDossierModel(lead({ website_intelligence: facts({ description: null }) })).what.titleLine, 'Clinique Laval')
-  assert.equal(guestDossierModel(lead()).what.titleLine, null)
+  assert.equal(guestDossierModel(lead({ website_intelligence: facts({ description: null }) })).what.site.titleLine, 'Clinique Laval')
+  assert.equal(guestDossierModel(lead()).what.site.titleLine, null)
   const bare = guestDossierModel(lead({ website_intelligence: facts({ title: null, description: null, headings: [] }) }))
-  assert.equal(bare.what.text, null); assert.equal(bare.what.caveat, null)
+  assert.equal(bare.what.site, null)
   assert.equal(bare.what.empty, 'No descriptive text was found on the pages ALPA read.')
   assert.equal(guestDossierModel(lead({ website_intelligence: null })).what.empty, 'ALPA could not read a description for this business.')
   assert.match(guestDossierModel(lead({ website: null, website_intelligence: null })).what.empty, /no website listed/)
-  assert.match(guestDossierModel(lead({ website_intelligence: facts(), email_inspection: { state: 'ok', partial: true } })).what.caveat, /Some website pages could not be read/)
+  assert.match(guestDossierModel(lead({ website_intelligence: facts(), email_inspection: { state: 'checked', partial: true } })).what.site.caveat, /Some website pages could not be read/)
 })
 
 test('nothing is invented: a model contains no field that is not in the business or its website facts', () => {
   const m = guestDossierModel(lead({ industry: null, city: null }))
   assert.equal(m.who[0], 'Industry and location were not provided')
-  assert.deepEqual(m.what.offers, []); assert.equal(m.what.serves, null)
+  assert.equal(m.what.ai, null)
   assert.equal(guestDossierModel(lead({ email_confidence: 'low' })).contact.emailNote, 'Possible address.')
   assert.equal(guestDossierModel(lead({ is_generic_email: true })).contact.emailNote, 'Shared business inbox.')
 })
@@ -66,24 +66,24 @@ test('only web addresses a person can safely open are linked', () => {
   assert.equal(safeHttpUrl('data:text/html,x'), null)
   assert.equal(safeHttpUrl('https://a.ca/x'), 'https://a.ca/x')
   assert.equal(guestDossierModel(lead({ website: 'javascript:alert(1)' })).contact.website, null)
-  assert.deepEqual(guestDossierModel(lead({ website_intelligence: facts({ source_urls: ['javascript:alert(1)', 'https://ok.ca/'] }) })).what.sources.map((s) => s.url), ['https://ok.ca/'])
+  assert.deepEqual(guestDossierModel(lead({ website_intelligence: facts({ source_urls: ['javascript:alert(1)', 'https://ok.ca/'] }) })).what.site.sources.map((s) => s.url), ['https://ok.ca/'])
   assert.equal(hostOf('https://www.a.ca/page'), 'a.ca'); assert.equal(hostOf(null), null); assert.equal(hostOf('not a url at all'), 'not a url at all'.length ? hostOf('not a url at all') : null)
 })
 
 test('the member model keeps its stored profile: summary, services, audience, status wording, contact', () => {
   const dossier = {
-    id: 'm', company_name: 'Acme', industry: 'Plumbing', city: 'Laval', archived: false, status: null, pipeline_stage: null, notes: null, created_at: null, last_activity_at: null, source: null,
+    website: null, id: 'm', company_name: 'Acme', industry: 'Plumbing', city: 'Laval', archived: false, status: null, pipeline_stage: null, notes: null, created_at: null, last_activity_at: null, source: null,
     contact: { name: 'Jo', email: 'jo@acme.ca', email_source: null, email_confidence: 'low', is_generic_email: false, phone: null, website: 'https://acme.ca', source_url: null },
     intelligence: { state: 'ready', label: 'Profile ready', reason: null, researched_at: null, card: { summary: 'Plumbing for homes.', services: [], audience: null, facts: { signals: [], pagesRead: [], sources: [] }, limitations: [] },
       profile: { industry: 'Plumbing', business_category: 'Home services', primary_service: null, core_services: ['Repairs'], target_customer: 'Homeowners', keywords: ['pipes'] } },
   }
   const m = memberDossierModel(dossier)
-  assert.equal(m.what.text, 'Plumbing for homes.')
-  assert.deepEqual(m.what.offers, ['Repairs']); assert.equal(m.what.serves, 'Homeowners')
+  assert.equal(m.what.ai.text, 'Plumbing for homes.')
+  assert.deepEqual(m.what.ai.offers, ['Repairs']); assert.equal(m.what.ai.serves, 'Homeowners'); assert.equal(m.what.site, null)
   assert.equal(m.contact.emailNote, 'Lower-confidence address.'); assert.equal(m.contact.name, 'Jo')
   assert.deepEqual(m.who, ['Plumbing · Home services · Laval', 'acme.ca'])
   const waiting = memberDossierModel({ ...dossier, intelligence: { ...dossier.intelligence, state: 'queued', card: null, profile: null } })
-  assert.equal(waiting.what.text, null); assert.match(waiting.what.empty, /Queued for research/)
+  assert.equal(waiting.what.ai, null); assert.match(waiting.what.empty, /Queued for research/)
   assert.deepEqual(memberDossierModel({ ...dossier, contact: { ...dossier.contact, email: null, website: null } }).contact.missing, ['No contact details were found for this business.'])
 })
 

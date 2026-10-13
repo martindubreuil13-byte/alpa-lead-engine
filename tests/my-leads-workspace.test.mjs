@@ -158,9 +158,9 @@ test('the workspace structure: header, overview, command bar, list, dossier sect
 
 test('sections with nothing behind them are left out; nothing is invented', () => {
   const model = read('lib/my-leads/dossier-model.ts')
-  assert.match(source.DossierView, /\{what\.offers\.length \? /)
-  assert.match(source.DossierView, /\{what\.serves \? /)
-  assert.match(source.DossierView, /\{!hasWhat \? /)
+  assert.match(source.DossierView, /\{ai\.offers\.length \? /)
+  assert.match(source.DossierView, /\{ai\.serves \? /)
+  assert.match(source.DossierView, /\{!ai && !site \? /)
   assert.match(source.LeadDossier, /card\?\.facts\.signals\.length \? \(/)
   assert.match(model, /No contact details were found for this business\./)
   assert.match(source.LeadDossier, /No notes yet\./)
