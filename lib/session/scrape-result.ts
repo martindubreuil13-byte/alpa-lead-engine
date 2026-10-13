@@ -1,4 +1,5 @@
 import type { TrialLead } from '@/lib/trial'
+import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/guest/safe-storage'
 
 const SCRAPE_RESULT_STORAGE_KEY = 'alpa_latest_scrape_result'
 const INBOX_FOCUS_STORAGE_KEY = 'alpa_focus_inbox'
@@ -17,6 +18,8 @@ export type StoredGuestClaimResult = {
   imported: number
   skipped_invalid: number
   skipped_duplicate: number
+  /** Businesses a free account had no room for. Never discarded silently: the notice says so. */
+  skipped_allowance?: number
 }
 
 function canUseStorage() {
@@ -60,9 +63,7 @@ export function rememberResearchRun(runId: string | null) {
 }
 
 export function readStoredGuestClaimResult(): StoredGuestClaimResult | null {
-  if (!canUseStorage()) return null
-
-  const raw = window.sessionStorage.getItem(GUEST_CLAIM_RESULT_STORAGE_KEY)
+  const raw = safeGetItem('session', GUEST_CLAIM_RESULT_STORAGE_KEY)
   if (!raw) return null
 
   try {
@@ -78,6 +79,7 @@ export function readStoredGuestClaimResult(): StoredGuestClaimResult | null {
         imported: parsed.imported,
         skipped_invalid: parsed.skipped_invalid,
         skipped_duplicate: parsed.skipped_duplicate,
+        skipped_allowance: typeof parsed.skipped_allowance === 'number' ? parsed.skipped_allowance : 0,
       }
     }
   } catch {}
@@ -86,13 +88,11 @@ export function readStoredGuestClaimResult(): StoredGuestClaimResult | null {
 }
 
 export function writeStoredGuestClaimResult(result: StoredGuestClaimResult) {
-  if (!canUseStorage()) return
-  window.sessionStorage.setItem(GUEST_CLAIM_RESULT_STORAGE_KEY, JSON.stringify(result))
+  safeSetItem('session', GUEST_CLAIM_RESULT_STORAGE_KEY, JSON.stringify(result))
 }
 
 export function clearStoredGuestClaimResult() {
-  if (!canUseStorage()) return
-  window.sessionStorage.removeItem(GUEST_CLAIM_RESULT_STORAGE_KEY)
+  safeRemoveItem('session', GUEST_CLAIM_RESULT_STORAGE_KEY)
 }
 
 export function clearStoredScrapeResult() {

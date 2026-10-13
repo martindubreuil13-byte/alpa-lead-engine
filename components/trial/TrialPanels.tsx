@@ -33,30 +33,6 @@ export function WelcomeBack({ saved, searches, onFindMore }: { saved: number; se
   )
 }
 
-/** All free businesses used. A calm state with the way forward, not a form that leads to an error. */
-export function AllowanceUsed({ saved }: { saved: number }) {
-  return (
-    <Panel label="Free businesses used">
-      <h1 className="font-display text-[2.5rem] leading-[1.04] tracking-tight text-white/95 sm:text-[3.5rem]">
-        You&apos;ve used your free businesses.
-      </h1>
-      <p className="mt-5 text-lg leading-8 text-white/75">
-        {saved > 0 ? `Your ${saved} ${saved === 1 ? 'business is' : 'businesses are'} saved and ready whenever you are.` : 'Your free search is complete.'}
-      </p>
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-8">
-        {saved > 0 ? (
-          <Link href="/trial/results" className="btn-primary-gold btn-quiet w-full uppercase tracking-[0.14em] sm:w-auto">
-            View my businesses →
-          </Link>
-        ) : null}
-        <Link href="/plans" className={LINK}>
-          Explore ALPA plans →
-        </Link>
-      </div>
-    </Panel>
-  )
-}
-
 /** A search that could not finish, in plain words, with the right next step. */
 export function SearchFailed({ failure, message, onTryAgain }: { failure: SearchFailure | null; message?: string; onTryAgain: () => void }) {
   const text = failure?.message ?? message ?? 'The search could not be completed. Please try again.'

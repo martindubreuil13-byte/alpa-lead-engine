@@ -105,6 +105,7 @@ export default function LoginPage() {
         imported: data?.imported ?? 0,
         skipped_invalid: data?.skipped_invalid ?? 0,
         skipped_duplicate: data?.skipped_duplicate ?? 0,
+        skipped_allowance: data?.skipped_allowance ?? 0,
       }
 
       console.info('Guest claim result:', {

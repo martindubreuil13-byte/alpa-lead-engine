@@ -87,7 +87,9 @@ import {
   type RunTimings,
 } from '@/lib/scraper/stage-timing'
 import ProspectorOnboardingOverlay from '@/components/scraper/ProspectorOnboardingOverlay'
-import TrialLimitModal from '@/components/scraper/TrialLimitModal'
+import UpgradePanel from '@/components/conversion/UpgradePanel'
+import ClaimNotice from '@/components/guest/ClaimNotice'
+import { describeOfferEligibility } from '@/lib/billing/first-month-offer'
 import {
   getPrivatePreviewResearchStatus,
   mergePrivatePreviewResearch,
@@ -270,7 +272,6 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   const [searchFailureKind, setSearchFailureKind] = useState<SearchFailureKind | null>(null)
   const [sessionSavedLeads, setSessionSavedLeads] = useState<TrialLead[]>([])
   const [guestClaimResult, setGuestClaimResult] = useState<StoredGuestClaimResult | null>(null)
-  const [showTrialLimitModal, setShowTrialLimitModal] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [showValidation, setShowValidation] = useState(false)
@@ -352,10 +353,13 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
           visitor_type: visitorType,
         },
       })
-      setShowTrialLimitModal(true)
     }
   }, [resolvedLeadLimit, resolvedUsageCount, usageBlocked, isFree, visitorType])
-  const freeUsageWarning = !isPlanLoading && isFree && (usageWarning || usageBlocked)
+  const freeUsageWarning = !isPlanLoading && isFree && usageWarning && !usageBlocked
+  // A free member (or the legacy guest view) who has used the free businesses sees the upgrade moment in place of the search form,
+  // not a pop-up. Paid subscribers are never here (isFree is false), so they are untouched. The offer wording follows the account.
+  const showUpgradeMoment = !privatePreview && !isPlanLoading && isFree && usageBlocked
+  const upgradeEligible = describeOfferEligibility(isGuest ? null : profile).eligible
   const missingBusinessType = !businessType.trim()
   const locationTarget = city.trim() || region.trim() || country.trim()
   const missingLocation = !locationTarget
@@ -1235,6 +1239,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
   return (
     <>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:gap-10">
+        <ClaimNotice />
         {isFree ? <ProspectorOnboardingOverlay /> : null}
         {freeUsageWarning ? (
           <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
@@ -1242,7 +1247,17 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
           </div>
         ) : null}
 
-        {!showEngine ? (
+        {!showEngine && showUpgradeMoment ? (
+          <UpgradePanel
+            kind="allowance"
+            saved={resolvedUsageCount}
+            eligible={upgradeEligible}
+            audience={isGuest ? 'guest' : 'free_member'}
+            secondaryHref={isGuest ? '/trial/results' : '/dashboard/my-leads'}
+          />
+        ) : null}
+
+        {!showEngine && !showUpgradeMoment ? (
           <DiscoverSearchForm
             businessType={businessType}
             location={city}
@@ -1374,15 +1389,6 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
           </>
         ) : null}
       </div>
-
-      <TrialLimitModal
-        isOpen={!privatePreview && showTrialLimitModal}
-        onClose={() => setShowTrialLimitModal(false)}
-        onExportCsv={() => {
-          setShowTrialLimitModal(false)
-          downloadPreviewLeads()
-        }}
-      />
 
       {toastMessage ? (
         <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-white/10 bg-[#0b1220]/95 px-4 py-3 text-sm text-white shadow-[0_20px_50px_rgba(2,8,23,0.45)] backdrop-blur">

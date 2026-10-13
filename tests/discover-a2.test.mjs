@@ -312,7 +312,7 @@ test('the page no longer uses the gradient card results or the old lead cards', 
 })
 
 test('the form does not return after a result; "New search" is the one way back', () => {
-  assert.match(page, /\{!showEngine \? \(\s*<DiscoverSearchForm/)
+  assert.match(page, /\{!showEngine && !showUpgradeMoment \? \(\s*<DiscoverSearchForm/)
   assert.match(page, /onClick=\{resetSearchFlow\}/)
   assert.match(page, /New search/)
   assert.ok(!/Run another search/.test(page))

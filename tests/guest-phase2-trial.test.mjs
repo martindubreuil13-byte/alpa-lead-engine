@@ -73,13 +73,11 @@ test('a returning visitor is recognised and the way forward is clear', () => {
   assert.ok(page.indexOf('<WelcomeBack') < page.indexOf('<DiscoverSearchForm'))
 })
 
-test('a visitor with no free businesses left gets a calm state with the way forward, not a form that ends in an error', () => {
-  const panels = read('components/trial/TrialPanels.tsx')
-  const used = panels.slice(panels.indexOf('export function AllowanceUsed'), panels.indexOf('export function SearchFailed'))
-  assert.match(used, /You&apos;ve used your free businesses\./)
-  assert.match(used, /href="\/trial\/results"/)
-  assert.match(used, /href="\/plans"/)
-  assert.doesNotMatch(used, /<form|<input/)
+test('a visitor with no free businesses left gets the upgrade moment, not a form that ends in an error', () => {
+  const page = read('components/trial/TrialExperience.tsx')
+  assert.match(page, /<UpgradePanel/)
+  assert.ok(page.indexOf('allowance.exhausted || limitSeen') < page.indexOf('<WelcomeBack'))
+  assert.equal(read('components/trial/TrialPanels.tsx').includes('AllowanceUsed'), false)
 })
 
 test('results stay reachable and lead back into the trial', () => {

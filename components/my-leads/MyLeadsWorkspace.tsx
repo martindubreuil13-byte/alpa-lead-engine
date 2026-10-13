@@ -22,6 +22,8 @@ import {
 } from '@/lib/my-leads/ui-state'
 import { cn } from '@/lib/utils'
 
+import ClaimNotice from '@/components/guest/ClaimNotice'
+
 import CommandBar from './CommandBar'
 import ConnectTools from './ConnectTools'
 import LeadDossier from './LeadDossier'
@@ -145,6 +147,8 @@ export default function MyLeadsWorkspace() {
         </div>
         <ConnectTools />
       </header>
+
+      <ClaimNotice />
 
       <OverviewStrip summary={summary} active={filters.bi} onSelect={(bi) => change({ bi, view: 'active', page: 1 })} />
 

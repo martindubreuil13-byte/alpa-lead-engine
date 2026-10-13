@@ -338,7 +338,7 @@ test('the form becomes the engine for a run, and the same engine settles at the 
   assert.match(page, /const isLive = loading && !completionResult/)
   assert.match(page, /const isSettled = completionResult !== null/)
   assert.match(page, /const showEngine = isLive \|\| isSettled/)
-  assert.match(page, /\{!showEngine \? \(\s*<DiscoverSearchForm/)
+  assert.match(page, /\{!showEngine && !showUpgradeMoment \? \(\s*<DiscoverSearchForm/)
   assert.match(page, /\{showEngine \? \(\s*<DiscoverEngine/)
   assert.match(page, /buildEngineView\(\{\s*progress,\s*timings: runTimings,\s*nowMs,\s*lastEventAt,/)
   assert.match(page, /setLastEventAt\(Date\.now\(\)\)\s*\n\s*setProgress\(\(current\) => applyDiscoveryLog/)

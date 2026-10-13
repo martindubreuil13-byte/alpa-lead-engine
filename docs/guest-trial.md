@@ -53,3 +53,11 @@ Verification: typecheck, lint (existing warnings), production build, full offlin
 - **Backfill and order of deployment.** A later sign-in adds facts to businesses imported earlier (never overwriting). If the column does not exist yet, signup imports exactly as before and the facts follow once it does, so the migration and the release can happen in either order.
 - **Migration (proposed, not applied).** `supabase/proposed/20261017_leads_website_facts.sql`: one nullable `jsonb` column, no default, no index, no policy or grant change.
 - Verification: `tests/guest-signup-continuity.test.mjs` (real search and claim routes, offline), `tests/guest-phase4-storage.test.mjs`, and `tests/member-my-leads-browser.mjs` (guest dossier to member dossier).
+
+## Phase 5: the free-to-paid moment
+
+- Two moments, kept apart: a quiet thank-you after a CSV download (no discount), and the upgrade moment when someone who has used their free businesses (or searches) asks for more. The wording, eligibility and the "not active" rule live in `lib/billing/first-month-offer.ts`; the screen is `components/conversion/UpgradePanel.tsx`. See `docs/free-to-paid-offer.md` for what activating the discount requires.
+- The 50% first-month offer is a preview: `FIRST_MONTH_OFFER.status` is `'preview'`, every screen says it is not active yet, and nothing touches Stripe, checkout, prices or subscriptions.
+- Guests see it on `/trial` from the server's record of the allowance or a refused search; free members see it in place of the Discover form (the pop-up is gone); paid subscribers never do; former subscribers see the page without the discount.
+- After signup, a free account that cannot hold every guest business is told how many were saved, how many were not and where they still are (`lib/guest/claim-notice.ts`, `components/guest/ClaimNotice.tsx`).
+- Tests: `tests/guest-phase5-conversion.test.mjs`, the signup cases in `tests/guest-signup-continuity.test.mjs`, `tests/guest-trial-browser.mjs` (29 scenarios) and `tests/member-my-leads-browser.mjs` (15 scenarios; `tests/helpers/stripe-sandbox.cjs` refuses any outbound Stripe request).

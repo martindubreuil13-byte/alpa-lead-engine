@@ -10,22 +10,31 @@ import {buildStoredWebsiteFacts} from '../lib/leads/stored-website-facts.ts'
 const SUPA = 'http://localhost:3398'
 const base = process.env.BASE_URL || 'http://localhost:3303'
 const USER = {id: '11111111-1111-4111-8111-111111111111', aud: 'authenticated', role: 'authenticated', email: 'member@example.com', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z'}
-const PROFILE = {plan: 'admin', stripe_customer_id: null, stripe_subscription_id: null, subscription_status: 'active', plan_status: 'active', cancel_at_period_end: false, current_period_end: '2027-01-01T00:00:00Z', canceled_at: null, subscription_tier: 'starter', created_at: '2026-01-01T00:00:00Z'}
+const BASE_PROFILE = {plan: 'admin', stripe_customer_id: null, stripe_subscription_id: null, subscription_status: 'active', plan_status: 'active', cancel_at_period_end: false, current_period_end: '2027-01-01T00:00:00Z', canceled_at: null, subscription_tier: 'starter', created_at: '2026-01-01T00:00:00Z'}
+let PROFILE = BASE_PROFILE
 
-const cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*', 'Content-Type': 'application/json'}
+const state = {leadCount: 0}
+import fs from 'node:fs'
+const BLOCK_LOG = '/tmp/stripe-blocked-member-test.log'
+fs.writeFileSync(BLOCK_LOG, '')
+
+const cors = {'Access-Control-Expose-Headers': 'Content-Range', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*', 'Content-Type': 'application/json'}
 const stubLog = []
 const stub = http.createServer((req, res) => {
   stubLog.push(`${req.method} ${req.url.slice(0, 60)}`)
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end() }
   const object = String(req.headers.accept || '').includes('vnd.pgrst.object')
   if (req.url.startsWith('/auth/v1/user')) { res.writeHead(200, cors); return res.end(JSON.stringify(USER)) }
+  if (req.method === 'HEAD' && req.url.startsWith('/rest/v1/leads')) { res.writeHead(200, {...cors, 'Content-Range': `*/${state.leadCount}`}); return res.end() }
+  if (req.url.startsWith('/rest/v1/users')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? {id: USER.id, email: USER.email, plan: PROFILE.plan} : [{id: USER.id, email: USER.email, plan: PROFILE.plan}])) }
+  if (req.url.startsWith('/rest/v1/usage')) { res.writeHead(200, cors); const row = {leads_used: 120, leads_limit: 500, period_start: '2026-10-01T00:00:00Z', period_end: '2026-11-01T00:00:00Z'}; return res.end(JSON.stringify(object ? row : [row])) }
   if (req.url.startsWith('/rest/v1/profiles')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? PROFILE : [PROFILE])) }
   if (object) { res.writeHead(406, cors); return res.end(JSON.stringify({code: 'PGRST116', message: 'no rows', details: '', hint: ''})) }
   res.writeHead(200, cors); res.end('[]')
 }).listen(3398)
 
 const dev = spawn('npx', ['next', 'dev', '-p', '3303'], {
-  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: SUPA, NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', STRIPE_SECRET_KEY: 'sk_test_offline', NEXT_TELEMETRY_DISABLED: '1'},
+  env: {...process.env, NODE_OPTIONS: `--require ${new URL('./helpers/stripe-sandbox.cjs', import.meta.url).pathname}`, STRIPE_BLOCK_LOG: BLOCK_LOG, NEXT_PUBLIC_SUPABASE_URL: SUPA, NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', STRIPE_SECRET_KEY: 'sk_test_offline', NEXT_TELEMETRY_DISABLED: '1'},
   stdio: ['ignore', (await import('node:fs')).openSync('/tmp/member-dev.log', 'w'), (await import('node:fs')).openSync('/tmp/member-dev.log', 'a')],
 })
 const stop = () => { try { dev.kill() } catch {} stub.close() }
@@ -46,6 +55,8 @@ const dossier = (id, over = {}) => ({ok: true, lead: {
 
 const results = []
 async function scenario(name, device, fn, extra = {}) {
+  PROFILE = {...BASE_PROFILE, ...(extra.profile ?? {})}
+  state.leadCount = extra.leadCount ?? 0
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone' ? {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 3} : {viewport: {width: 1280, height: 900}})
   const session = {access_token: 'aaa.bbb.ccc', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, refresh_token: 'r', user: USER}
@@ -209,8 +220,86 @@ await scenario('members on a phone see the imported facts inline as well', 'phon
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
 }, {dossier: imported()})
 
+
+// ---------------------------------------------------------------------------------------------------- Phase 5: conversion
+const FREE = {plan: 'free', plan_status: 'free', subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, subscription_tier: 'free', current_period_end: null}
+const panelHeading = (page) => page.getByRole('heading', {name: "You've discovered your first 25 businesses."})
+const discoverForm = (page) => page.locator('#discover-business-type')
+
+await scenario('free member at 25: the upgrade moment replaces the search form (no pop-up), with the offer previewed and not promised', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/scraper')
+  await panelHeading(page).waitFor({timeout: 60000})
+  await page.getByText('Ready to find more?').waitFor()
+  await page.getByText('Enjoy 50% off your first month of ALPA when you upgrade.').waitFor()
+  await page.getByText('The discount applies to your first month only. Regular pricing resumes afterward.').waitFor()
+  await page.getByText(/not active yet, so nothing is discounted today/).waitFor()
+  await page.getByText(/Upcoming offer · not active yet/).waitFor()
+  assert.equal(await page.getByRole('link', {name: 'Explore my upgrade options →'}).getAttribute('href'), '/plans')
+  assert.equal(await page.getByRole('link', {name: 'View my businesses →'}).getAttribute('href'), '/dashboard/my-leads')
+  assert.equal(await discoverForm(page).count(), 0, 'no search form that would lead to an error')
+  assert.equal(await page.getByRole('dialog').count(), 0, 'no pop-up')
+  assert.equal(await page.getByText(/countdown|hurry|limited time|expires/i).count(), 0)
+  await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-upgrade-desktop.png'})
+}, {profile: FREE, leadCount: 25})
+
+await scenario('free member at 25 on a phone: readable, no horizontal scroll, large buttons', 'phone', async (page) => {
+  await page.goto(base + '/dashboard/scraper')
+  await panelHeading(page).waitFor({timeout: 60000})
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+  for (const link of [page.getByRole('link', {name: 'Explore my upgrade options →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
+  await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-upgrade-phone.png'})
+}, {profile: FREE, leadCount: 25})
+
+await scenario('free member with room left (10 of 25) keeps discovering normally: the search form, no upgrade moment', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/scraper')
+  await discoverForm(page).waitFor({timeout: 60000})
+  assert.equal(await panelHeading(page).count(), 0)
+  assert.equal(await page.getByText(/50% off/).count(), 0)
+}, {profile: FREE, leadCount: 10})
+
+await scenario('a free member who had a subscription before sees the same page with no discount (it is a first-month offer)', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/scraper')
+  await panelHeading(page).waitFor({timeout: 60000})
+  await page.getByText('Ready to find more?').waitFor()
+  assert.equal(await page.getByText(/50% off|first month|not active yet/i).count(), 0)
+  await page.getByRole('link', {name: 'Explore my upgrade options →'}).waitFor()
+}, {profile: {...FREE, plan_status: 'canceled', subscription_status: 'canceled', canceled_at: '2026-06-01T00:00:00Z'}, leadCount: 25})
+
+await scenario('paid subscribers are never interrupted: their search form stays, whatever their library holds', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/scraper')
+  await discoverForm(page).waitFor({timeout: 60000})
+  assert.equal(await panelHeading(page).count(), 0)
+  assert.equal(await page.getByText(/50% off/).count(), 0)
+}, {profile: {plan: 'starter', plan_status: 'active', subscription_status: 'active', stripe_customer_id: 'cus_test', stripe_subscription_id: 'sub_test', subscription_tier: 'starter', current_period_end: '2027-01-01T00:00:00Z'}, leadCount: 400})
+
+const claimed = (result) => (page) => page.addInitScript((value) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); sessionStorage.setItem('alpa_guest_claim_result', JSON.stringify(value)) } }, result)
+
+await scenario('a free account that could not hold every guest business is told so, plainly, and can dismiss it', 'desktop', async (page) => {
+  await claimed({success: true, imported: 15, skipped_invalid: 0, skipped_duplicate: 0, skipped_allowance: 10})(page)
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByText('We saved 15 of your 25 free-trial businesses to My Leads.').waitFor()
+  await page.getByText(/10 were not added\. They are still on your free trial page until that expires/).waitFor()
+  assert.equal(await page.getByRole('link', {name: 'View them →'}).getAttribute('href'), '/trial/results')
+  await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-claim-notice.png'})
+  await page.getByRole('button', {name: 'Dismiss'}).click()
+  assert.equal(await page.getByText(/free-trial businesses/).count(), 0)
+  await page.reload()
+  await rows(page).first().waitFor()
+  assert.equal(await page.getByText(/free-trial businesses/).count(), 0, 'it does not come back once dismissed')
+}, {})
+
+await scenario('when everything fits, the notice is a quiet confirmation (no plans pitch)', 'phone', async (page) => {
+  await claimed({success: true, imported: 25, skipped_invalid: 0, skipped_duplicate: 0, skipped_allowance: 0})(page)
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByText('25 of your free-trial businesses are saved in My Leads.').waitFor()
+  assert.equal(await page.getByRole('link', {name: 'Explore plans'}).count(), 0)
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+}, {})
+
 stop()
-console.log('stub saw:', stubLog.slice(0, 8))
+console.log(`Stripe attempts by the application: ${fs.readFileSync(BLOCK_LOG, 'utf8').split('\\n').filter(Boolean).length}, all refused locally by tests/helpers/stripe-sandbox.cjs; none left the machine`)
 const failed = results.filter((r) => !r.ok)
 console.log(`\n${results.length - failed.length}/${results.length} scenarios passed`)
 process.exit(failed.length ? 1 : 0)

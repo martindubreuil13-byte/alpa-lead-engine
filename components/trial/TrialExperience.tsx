@@ -13,7 +13,10 @@ import { ACHIEVEMENT_HOLD_MS, buildEngineView } from '@/lib/scraper/engine-view'
 import { buildActivityItems } from '@/lib/scraper/live-activity'
 import { trackEvent } from '@/lib/track'
 
-import { AllowanceUsed, SearchFailed, WelcomeBack } from './TrialPanels'
+import UpgradePanel from '@/components/conversion/UpgradePanel'
+import { describeOfferEligibility } from '@/lib/billing/first-month-offer'
+
+import { SearchFailed, WelcomeBack } from './TrialPanels'
 import { useTrialSearch } from './useTrialSearch'
 
 const RESULTS_HREF = '/trial/results'
@@ -86,6 +89,18 @@ export default function TrialExperience() {
     void fetchGuestSnapshot().then((data) => data && setSnapshot(data))
   }, [search])
 
+  // The server refused a search because the free businesses or searches are used: show the upgrade moment, from the server's own
+  // record of the allowance, instead of an error. (Other refusals, such as a busy network, stay plain messages.)
+  const [limitSeen, setLimitSeen] = useState(false)
+  const limitRefused = search.status === 'failed' && search.failure?.kind === 'limit'
+  const { reset: resetSearch } = search
+  useEffect(() => {
+    if (!limitRefused) return
+    setLimitSeen(true)
+    resetSearch()
+    void fetchGuestSnapshot().then((data) => data && setSnapshot(data))
+  }, [limitRefused, resetSearch])
+
   if (!loaded) {
     return <p role="status" className="py-16 text-center text-white/70">Preparing your free search…</p>
   }
@@ -124,7 +139,17 @@ export default function TrialExperience() {
     return <SearchFailed failure={search.failure} onTryAgain={tryAgain} />
   }
 
-  if (allowance.exhausted) return <AllowanceUsed saved={allowance.saved} />
+  if (allowance.exhausted || limitSeen) {
+    return (
+      <UpgradePanel
+        kind={allowance.used >= FREE_BUSINESSES || (limitSeen && allowance.attempts < 3) ? 'allowance' : 'searches'}
+        saved={allowance.saved}
+        eligible={describeOfferEligibility(null).eligible}
+        audience="guest"
+        secondaryHref={RESULTS_HREF}
+      />
+    )
+  }
 
   if (allowance.saved > 0 && !wantsForm) {
     return <WelcomeBack saved={allowance.saved} searches={allowance.attempts} onFindMore={() => setWantsForm(true)} />

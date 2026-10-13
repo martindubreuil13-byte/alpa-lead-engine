@@ -202,16 +202,97 @@ await scenario('"View my businesses" shows the restored list, and a refresh keep
   },
 })
 
-await scenario('all free businesses used: a calm state with the way forward, no search form', {
-  session: () => ({leads: leads10.concat(leads10.map((l) => ({...l, id: l.id + 'x'})), leads3.map((l) => ({...l, id: l.id + 'y'}))).slice(0, 25), used: 25, attempts: 3, searching: false}),
+const upgradeHeading = (page) => page.getByRole('heading', {name: "You've discovered your first 25 businesses."})
+const many = (n) => Array.from({length: n}, (_, i) => mk(i + 1))
+const returning = (n, attempts = 1) => ({session: () => ({leads: many(n), used: n, attempts, searching: false})})
+
+await scenario('guest with 0 businesses: the search form, no conversion anything', {
+  ...returning(0, 0),
   fn: async (page) => {
     await page.goto(base + '/trial')
-    await page.getByRole('heading', {name: /used your free businesses/i}).waitFor()
-    assert.equal(await form(page).count(), 0)
-    await page.getByRole('link', {name: 'View my businesses →'}).waitFor()
-    await page.getByRole('link', {name: 'Explore ALPA plans →'}).waitFor()
-    assert.equal(await page.getByText(/%|discount/i).count(), 0, 'no offer yet')
-    await page.screenshot({path: `${shots}/trial-phone-used.png`})
+    await form(page).waitFor()
+    assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
+    await page.getByText('25 free businesses. No account, email or card.').waitFor()
+  },
+})
+
+await scenario('guest with 10 businesses: welcomed back, still discovering normally, never pitched', {
+  ...returning(10),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await page.getByRole('heading', {name: 'Welcome back.'}).waitFor()
+    assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
+    await page.getByRole('button', {name: 'Find more businesses →'}).click()
+    await form(page).waitFor()
+    await page.getByText('15 of 25 free businesses left.').waitFor()
+  },
+})
+
+await scenario('guest with 24 businesses: one left, still a search form, no offer', {
+  ...returning(24, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await page.getByRole('heading', {name: 'Welcome back.'}).waitFor()
+    await page.getByRole('button', {name: 'Find more businesses →'}).click()
+    await form(page).waitFor()
+    await page.getByText('1 of 25 free businesses left.').waitFor()
+    assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
+  },
+})
+
+await scenario('guest with 25 businesses: the upgrade moment, offer previewed and not promised, no form, no pop-up (phone)', {
+  ...returning(25, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await upgradeHeading(page).waitFor()
+    await page.getByText('Ready to find more?').waitFor()
+    await page.getByText('Enjoy 50% off your first month of ALPA when you upgrade.').waitFor()
+    await page.getByText('The discount applies to your first month only. Regular pricing resumes afterward.').waitFor()
+    await page.getByText(/not active yet, so nothing is discounted today/).waitFor()
+    await page.getByText(/Upcoming offer · not active yet/).waitFor()
+    assert.equal(await page.getByRole('link', {name: 'Explore my upgrade options →'}).getAttribute('href'), '/plans')
+    assert.equal(await page.getByRole('link', {name: 'View my businesses →'}).getAttribute('href'), '/trial/results')
+    assert.equal(await form(page).count(), 0, 'no search form that would lead to an error')
+    assert.equal(await page.getByRole('dialog').count(), 0, 'no pop-up')
+    assert.equal(await page.getByText(/countdown|hurry|limited time|expires|last chance/i).count(), 0)
+    assert.equal(await page.locator('input[type=email]').count(), 0)
+    assert.ok(await noHorizontalScroll(page))
+    for (const link of [page.getByRole('link', {name: 'Explore my upgrade options →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
+    await page.screenshot({path: `${shots}/trial-phone-upgrade.png`})
+  },
+})
+
+await scenario('guest with 25 businesses on a desktop', {
+  device: 'desktop', ...returning(25, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await upgradeHeading(page).waitFor()
+    await page.screenshot({path: `${shots}/trial-desktop-upgrade.png`})
+  },
+})
+
+await scenario('guest who used the 3 free searches before reaching 25: a truthful headline and the same offer', {
+  ...returning(12, 3),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await page.getByRole('heading', {name: "You've used your free searches."}).waitFor()
+    await page.getByText('You discovered 12 businesses. Ready to find more?').waitFor()
+    await page.getByText('Enjoy 50% off your first month of ALPA when you upgrade.').waitFor()
+    assert.equal(await upgradeHeading(page).count(), 0, 'it does not claim 25 when there are 12')
+  },
+})
+
+await scenario('a returning guest (restored from the server record) at 25 sees the upgrade moment after a refresh too', {
+  ...returning(25, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await upgradeHeading(page).waitFor()
+    await page.reload()
+    await upgradeHeading(page).waitFor()
+    await page.getByRole('link', {name: 'View my businesses →'}).click()
+    await page.waitForURL('**/trial/results')
+    await rows(page).first().waitFor()
+    assert.equal(await page.getByText(/50% off/).count(), 0, 'the businesses page itself carries no discount')
   },
 })
 
@@ -252,13 +333,16 @@ await scenario('a shared-network limit is explained as such (not as a used allow
   },
 })
 
-await scenario('an allowance refusal from the server opens the saved businesses, not an error', {
+await scenario('a search refused because the allowance is used shows the upgrade moment, not an error', {
   scrape: (route) => route.fulfill({status: 429, contentType: 'text/event-stream', body: sse([{type: 'log', message: '❌ x', code: 'GUEST_ALLOWANCE_USED'}])}),
+  session: (n) => (n <= 2 ? fresh() : {leads: many(25), used: 25, attempts: 2, searching: false}),
   fn: async (page) => {
     await page.goto(base + '/trial')
     await form(page).waitFor()
     await search(page)
-    await page.getByRole('link', {name: 'View my businesses →'}).waitFor({timeout: 10000})
+    await upgradeHeading(page).waitFor({timeout: 10000})
+    await page.getByRole('link', {name: 'View my businesses →'}).waitFor()
+    assert.equal(await page.getByText(/something went wrong|error/i).count(), 0)
   },
 })
 
@@ -420,6 +504,7 @@ await scenario('CSV and the account link: the download is one tap, the thank-you
     await link.click()
     await download
     await page.getByText('Thanks for giving ALPA a try. Now go start some conversations.').waitFor()
+    assert.equal(await page.getByText(/50%|discount|% off/i).count(), 0, 'the download moment carries no discount: that is reserved for asking for more')
     await page.screenshot({path: `${shots}/results-phone-thanks.png`})
     const signup = page.getByRole('link', {name: 'Create a free account'})
     await signup.waitFor()

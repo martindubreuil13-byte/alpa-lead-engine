@@ -164,3 +164,21 @@ test('claim is for signed-in, same-origin visitors with a live trial',async()=>{
  reset({expired:true});state.leads=[lead(1)];assert.equal((await run()).status,410)
  reset();assert.deepEqual((await run()).body,{success:true,imported:0,skipped_invalid:0,skipped_duplicate:0,skipped_allowance:0,backfilled:0},'an empty trial imports nothing')
 })
+
+test('no additional free discoveries through signup: a guest who used 0, 10, 24 or 25 arrives with exactly that used, never a fresh 25', async () => {
+ const {getUsageState,getLeadLimit}=await import('../lib/usage/usage.ts')
+ const limit=getLeadLimit('free')
+ assert.equal(limit,25)
+ for(const guestBusinesses of [0,10,24,25]){
+  reset();state.leads=Array.from({length:guestBusinesses},(_,i)=>lead(i))
+  const {body}=await run()
+  const libraryAfter=body.imported
+  // discovery counts a free member's businesses with an email or phone; every imported one has one
+  assert.equal(libraryAfter,guestBusinesses)
+  assert.equal(limit-libraryAfter,25-guestBusinesses,'what is left to discover is exactly what the guest had left')
+  assert.equal(getUsageState(libraryAfter,limit)==='blocked',guestBusinesses>=25,`${guestBusinesses} businesses`)
+ }
+ // and a second trial (another browser) cannot add a second 25 to the same account
+ reset({otherTrials:[{id:'first'}],existingLeads:Array.from({length:25},(_,i)=>({id:`o${i}`,company_name:`O${i}`,email:`o${i}@x.ca`,phone:null,website:null,city:'X',website_facts:null}))});state.leads=Array.from({length:25},(_,i)=>lead(i))
+ assert.equal((await run()).body.imported,0)
+})
