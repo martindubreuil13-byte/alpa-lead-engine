@@ -23,7 +23,7 @@ const results = []
 const fresh = () => ({leads: [], used: 0, attempts: 0, searching: false})
 const after = (leads) => ({leads, used: leads.length, attempts: 1, searching: false})
 
-async function scenario(name, {device = 'phone', hostile = false, session = () => fresh(), scrape, delayMs = 0, fn}) {
+async function scenario(name, {device = 'phone', hostile = false, session = () => fresh(), scrape, delayMs = 0, feedback = {}, fn}) {
   if (process.env.ONLY && !name.includes(process.env.ONLY)) return
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone'
@@ -32,6 +32,7 @@ async function scenario(name, {device = 'phone', hostile = false, session = () =
   const page = await context.newPage()
   const telemetry = []
   const state = {scrapeCalls: 0, done: false, calls: 0}
+  const fb = {stored: null, fail: false, status: 503, posts: [], ...feedback}
   if (hostile) {
     await context.addInitScript(() => {
       const deny = () => { throw new DOMException('The operation is insecure.', 'SecurityError') }
@@ -49,13 +50,21 @@ async function scenario(name, {device = 'phone', hostile = false, session = () =
       return (scrape ?? ((r, s) => { s.done = true; return r.fulfill({contentType: 'text/event-stream', body: stream(leads3)}) }))(route, state)
     }
     if (url.pathname === '/api/guest/session') { state.calls += 1; return route.fulfill({json: session(state.calls, state)}) }
+    if (url.pathname === '/api/guest/feedback') {
+      if (route.request().method() === 'GET') return route.fulfill({json: {feedback: fb.stored}})
+      const body = route.request().postDataJSON()
+      fb.posts.push(body)
+      if (fb.fail) return route.fulfill({status: fb.status, json: {error: fb.status === 410 ? 'This trial has expired.' : 'Your feedback could not be saved right now.'}})
+      fb.stored = {answer: body.answer, hasComment: Boolean(body.comment) || Boolean(fb.stored?.hasComment)}
+      return route.fulfill({json: {ok: true, feedback: fb.stored}})
+    }
     if (url.pathname === '/api/guest/export') return route.fulfill({contentType: 'text/csv', headers: {'Content-Disposition': 'attachment; filename="alpa-businesses.csv"'}, body: 'a,b\n1,2\n'})
     if (url.pathname === '/api/track') { try { telemetry.push(route.request().postDataJSON()) } catch {} return route.fulfill({json: {}}) }
     if (url.pathname.startsWith('/api/')) return route.fulfill({json: {}})
     return route.continue()
   })
   let ok = true, detail = ''
-  try { await fn(page, {telemetry, state, name}) } catch (e) { ok = false; detail = String(e.message).split('\n')[0] }
+  try { await fn(page, {telemetry, state, name, fb}) } catch (e) { ok = false; detail = String(e.message).split('\n')[0] }
   await browser.close()
   results.push({name, ok, detail})
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `\n      ${detail}`}`)
@@ -519,6 +528,191 @@ await scenario('an empty trial and a failed load are both calm and recoverable',
     await page.goto(base + '/trial/results')
     await page.getByText('No businesses yet').waitFor()
     await page.getByRole('link', {name: 'Find businesses'}).waitFor()
+  },
+})
+
+
+// ------------------------------------------------------------------------------------------------------ Phase 6: feedback
+const QUESTION = 'Did ALPA find what you were looking for?'
+const question = (page) => page.getByRole('heading', {name: QUESTION})
+const openFirst = async (page) => { await page.getByRole('button', {name: /Clinique Laval/}).first().click() }
+
+await scenario('the question is not there at first, and appears quietly after the visitor opens a business (phone)', {
+  ...workspace,
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    assert.equal(await question(page).count(), 0, 'not shown before the visitor has explored')
+    await openFirst(page)
+    await page.getByRole('dialog').waitFor()
+    await page.keyboard.press('Escape')
+    await question(page).waitFor()
+    assert.equal(await page.getByRole('dialog').count(), 0, 'it did not open anything by itself')
+    for (const name of ['Yes', 'Partly', 'Not really']) assert.ok((await page.getByRole('button', {name, exact: true}).boundingBox()).height >= 44)
+    assert.ok(await noHorizontalScroll(page))
+    await page.screenshot({path: `${shots}/feedback-phone-question.png`})
+  },
+})
+
+await scenario('it also appears after filtering or downloading, and after a short while with no interaction', {
+  device: 'desktop', ...workspace,
+  fn: async (page) => {
+    await page.clock.install()
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    assert.equal(await question(page).count(), 0)
+    await page.clock.fastForward(16_000)
+    await question(page).waitFor()
+  },
+})
+
+await scenario('Yes: the thank-you, nothing else; no field, no redirect, no plans pitch, one request', {
+  device: 'desktop', ...workspace,
+  fn: async (page, {fb}) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page)
+    await question(page).waitFor()
+    const before = await page.getByRole('link', {name: /plans/i}).count()
+    await page.getByRole('button', {name: 'Yes', exact: true}).click()
+    await page.getByText('Glad ALPA helped. Good luck turning those businesses into customers.').waitFor()
+    assert.equal(await page.getByRole('textbox').count() > 0 ? await page.locator('#feedback-comment').count() : 0, 0, 'no comment field for Yes')
+    assert.equal(await page.getByRole('link', {name: /plans/i}).count(), before, 'answering adds no plans link and no offer')
+    assert.equal(await page.getByText(/50%|discount|upgrade/i).count(), 0)
+    assert.equal(await page.getByRole('dialog').count(), 0)
+    assert.ok(page.url().endsWith('/trial/results'))
+    assert.equal(fb.posts.length, 1)
+    assert.equal(fb.posts[0].answer, 'yes'); assert.equal(fb.posts[0].downloaded, false)
+    assert.deepEqual(Object.keys(fb.posts[0]).sort(), ['analyticsSessionId', 'answer', 'downloaded'], 'nothing personal is sent')
+  },
+})
+
+await scenario('Partly and Not really: an optional comment, saved separately, without email or account (phone)', {
+  ...workspace,
+  fn: async (page, {fb}) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page); await page.keyboard.press('Escape')
+    await question(page).waitFor()
+    await page.getByRole('button', {name: 'Partly', exact: true}).click()
+    const box = page.getByLabel('What could ALPA have done better?')
+    await box.waitFor()
+    assert.ok(Number.parseFloat(await box.evaluate((n) => getComputedStyle(n).fontSize)) >= 16, '16px so iOS does not zoom')
+    assert.equal(await page.locator('input[type=email]').count(), 0)
+    await page.getByText('Optional. No email or account needed.').waitFor()
+    assert.equal(fb.posts.length, 1, 'the answer is saved before any comment')
+    await page.screenshot({path: `${shots}/feedback-phone-comment.png`})
+    await box.fill('Too many without an email address.')
+    await page.getByRole('button', {name: 'Send', exact: true}).click()
+    await page.getByText('Thank you. That helps us improve.').waitFor()
+    assert.deepEqual([fb.posts.length, fb.posts[1].answer, fb.posts[1].comment], [2, 'partly', 'Too many without an email address.'])
+    assert.ok(await noHorizontalScroll(page))
+  },
+})
+
+await scenario('Not really works the same, and changing the answer to Yes replaces the comment box with the thank-you', {
+  device: 'desktop', ...workspace,
+  fn: async (page, {fb}) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page); await question(page).waitFor()
+    await page.getByRole('button', {name: 'Not really', exact: true}).click()
+    await page.getByLabel('What could ALPA have done better?').waitFor()
+    assert.equal(await page.getByRole('button', {name: 'Send', exact: true}).isDisabled(), true, 'nothing to send until something is typed')
+    await page.getByRole('button', {name: 'Yes', exact: true}).click()
+    await page.getByText('Glad ALPA helped.').waitFor()
+    assert.equal(await page.locator('#feedback-comment').count(), 0)
+    assert.deepEqual(fb.posts.map((p) => p.answer), ['not_really', 'yes'])
+  },
+})
+
+await scenario('a refresh remembers the answer and does not ask again; a comment already sent is not asked for twice', {
+  device: 'desktop', ...workspace, feedback: {stored: {answer: 'partly', hasComment: true}},
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await question(page).waitFor({timeout: 10000})
+    assert.equal(await page.getByRole('button', {name: 'Partly', exact: true}).getAttribute('aria-pressed'), 'true')
+    await page.getByText('Thank you. That helps us improve.').waitFor()
+    assert.equal(await page.locator('#feedback-comment').count(), 0)
+    await page.reload()
+    await question(page).waitFor({timeout: 10000})
+    await page.getByText('Thank you. That helps us improve.').waitFor()
+  },
+})
+
+await scenario('a stored Yes shows the thank-you again after a refresh', {
+  device: 'desktop', ...workspace, feedback: {stored: {answer: 'yes', hasComment: false}},
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await page.getByText('Glad ALPA helped. Good luck turning those businesses into customers.').waitFor({timeout: 10000})
+  },
+})
+
+await scenario('a failed save says so plainly, keeps the question usable, and succeeds on the next try', {
+  device: 'desktop', ...workspace, feedback: {fail: true},
+  fn: async (page, {fb}) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page); await question(page).waitFor()
+    await page.getByRole('button', {name: 'Yes', exact: true}).click()
+    await page.getByRole('alert').getByText('Your feedback could not be saved right now.').waitFor()
+    assert.equal(await page.getByText('Glad ALPA helped.').count(), 0, 'no thank-you for something that was not saved')
+    fb.fail = false
+    await page.getByRole('button', {name: 'Yes', exact: true}).click()
+    await page.getByText('Glad ALPA helped.').waitFor()
+  },
+})
+
+await scenario('an expired trial is told so by the server and the page carries on', {
+  device: 'desktop', ...workspace, feedback: {fail: true, status: 410},
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page); await question(page).waitFor()
+    await page.getByRole('button', {name: 'Partly', exact: true}).click()
+    await page.getByRole('alert').getByText('This trial has expired.').waitFor()
+    assert.equal(await rows(page).count(), 4, 'the businesses are still there')
+  },
+})
+
+await scenario('feedback never blocks the CSV: the download works with the question open, and the answer notes it', {
+  device: 'desktop', ...workspace,
+  fn: async (page, {fb}) => {
+    await page.goto(base + '/trial/results')
+    await rows(page).first().waitFor()
+    await openFirst(page); await question(page).waitFor()
+    await page.getByRole('button', {name: 'Partly', exact: true}).click()
+    await page.getByLabel('What could ALPA have done better?').waitFor()
+    const download = page.waitForEvent('download')
+    await page.getByRole('link', {name: /Download CSV/}).click()
+    await download
+    await page.getByText('Thanks for giving ALPA a try. Now go start some conversations.').waitFor()
+    assert.equal(await page.getByText(/50%|discount/i).count(), 0)
+    await page.getByLabel('What could ALPA have done better?').fill('More phone numbers please')
+    await page.getByRole('button', {name: 'Send', exact: true}).click()
+    await page.getByText('Thank you. That helps us improve.').waitFor()
+    assert.equal(fb.posts.at(-1).downloaded, true)
+  },
+})
+
+await scenario('no businesses, no question; and the search and upgrade pages never show it', {
+  session: () => fresh(),
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await page.getByText('No businesses yet').waitFor()
+    assert.equal(await question(page).count(), 0)
+    await page.goto(base + '/trial')
+    await form(page).waitFor()
+    assert.equal(await question(page).count(), 0)
+  },
+})
+
+await scenario('the allowance-exhausted upgrade moment stays separate: no question there', {
+  ...returning(25, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await upgradeHeading(page).waitFor()
+    assert.equal(await question(page).count(), 0)
   },
 })
 

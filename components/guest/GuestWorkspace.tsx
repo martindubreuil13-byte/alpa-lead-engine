@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Download } from 'lucide-react'
 
+import FeedbackPrompt from '@/components/guest/FeedbackPrompt'
 import BottomSheet from '@/components/ui/BottomSheet'
 import useMediaQuery from '@/components/ui/useMediaQuery'
 import CommandBar from '@/components/my-leads/CommandBar'
@@ -31,6 +32,7 @@ export default function GuestWorkspace() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [sheetId, setSheetId] = useState<string | null>(null)
   const [downloaded, setDownloaded] = useState(false)
+  const [opened, setOpened] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const phone = useMediaQuery('(max-width: 767px)')
 
@@ -66,6 +68,7 @@ export default function GuestWorkspace() {
   const sheetLead = sheetId ? leads.find((lead) => lead.id === sheetId) ?? null : null
 
   function open(lead: TrialLead) {
+    setOpened(true)
     void trackEvent('trial_business_opened', { metadata: { has_description: Boolean(lead.website_intelligence?.description) } })
     if (phone) setSheetId(lead.id)
     else setExpandedId((current) => (current === lead.id ? null : lead.id))
@@ -187,6 +190,8 @@ export default function GuestWorkspace() {
           </ul>
         )}
       </section>
+
+      {leads.length > 0 ? <FeedbackPrompt engaged={opened || downloaded || filtered} downloaded={downloaded} /> : null}
 
       {leads.length > 0 ? (
         <p className="text-sm leading-6 text-white/55">

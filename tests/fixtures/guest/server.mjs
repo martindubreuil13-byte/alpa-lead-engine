@@ -1,4 +1,4 @@
-export const state = {leads:[],used:0,email:null,marketing_opt_in:false,searchCalls:0,existingLeads:[],profile:null,otherTrials:[],updates:[],factsColumn:true}
+export const state = {leads:[],used:0,email:null,marketing_opt_in:false,searchCalls:0,existingLeads:[],profile:null,otherTrials:[],updates:[],factsColumn:true,feedbackRows:[],feedbackError:false}
 export async function guestSession() {return '4f928ea6-1c42-4a98-ae76-999adc264612'}
 export async function loadGuestSession() {if(state.expired)throw new Error('expired');return state}
 export function guestDb() {return {
@@ -7,11 +7,29 @@ export function guestDb() {return {
   if(name==='finish_guest_trial') {state.used-=args.p_reserved-args.p_leads.length;state.leads.push(...args.p_leads);return {data:true}}
   throw new Error(`Unexpected RPC ${name}`)
  },
- from:()=>({
+ from:(table)=>table==='activity_logs'?activityLogs():({
   select:()=>({eq:()=>({maybeSingle:async()=>({data:{created_at:new Date().toISOString(),attempts:1,used:state.used,active_until:null},error:null}),neq:()=>({limit:async()=>({data:state.otherTrials,error:null})})})}),
   update:values=>({eq:()=>{Object.assign(state,values);return {then:resolve=>resolve({error:null}),or:()=>({select:async()=>({data:[{id:'fixture'}],error:null})})}}}),
  }),
 }}
+// The analytics table as the feedback route uses it: select by event and trial id, insert, and update by id.
+const activityLogs=()=>{
+ const filters=[];let patch=null
+ const matches=(row)=>filters.every(([column,value])=>column==='metadata->>trial_id'?row.metadata?.trial_id===value:row[column]===value)
+ const q={
+  select:()=>q,order:()=>q,limit:()=>q,
+  eq:(column,value)=>{filters.push([column,value]);return q},
+  insert:async(row)=>{if(state.feedbackError)return {data:null,error:{message:'down'}};state.feedbackRows.push({id:`row-${state.feedbackRows.length+1}`,created_at:new Date().toISOString(),...row});return {data:null,error:null}},
+  update:(values)=>{patch=values;return q},
+  then:(resolve,reject)=>{
+   if(state.feedbackError)return Promise.resolve({data:null,error:{message:'down'}}).then(resolve,reject)
+   const rows=state.feedbackRows.filter(matches)
+   if(patch){rows.forEach(row=>Object.assign(row,patch));return Promise.resolve({data:null,error:null}).then(resolve,reject)}
+   return Promise.resolve({data:rows,error:null}).then(resolve,reject)
+  },
+ }
+ return q
+}
 const missingColumn={code:'42703',message:'column leads.website_facts does not exist'}
 const chain=(rows,error=null)=>{const p=Promise.resolve({data:rows,error});return p}
 export function createServerClient(){return {

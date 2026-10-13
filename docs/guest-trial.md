@@ -61,3 +61,10 @@ Verification: typecheck, lint (existing warnings), production build, full offlin
 - Guests see it on `/trial` from the server's record of the allowance or a refused search; free members see it in place of the Discover form (the pop-up is gone); paid subscribers never do; former subscribers see the page without the discount.
 - After signup, a free account that cannot hold every guest business is told how many were saved, how many were not and where they still are (`lib/guest/claim-notice.ts`, `components/guest/ClaimNotice.tsx`).
 - Tests: `tests/guest-phase5-conversion.test.mjs`, the signup cases in `tests/guest-signup-continuity.test.mjs`, `tests/guest-trial-browser.mjs` (29 scenarios) and `tests/member-my-leads-browser.mjs` (15 scenarios; `tests/helpers/stripe-sandbox.cjs` refuses any outbound Stripe request).
+
+## Phase 6: one question of feedback
+
+- At the end of the free-trial results, once the visitor has opened a business, filtered, downloaded, or simply been on the page a short while, a quiet inline question appears: "Did ALPA find what you were looking for?" (Yes / Partly / Not really). Yes shows a thank-you; Partly and Not really offer an optional comment ("What could ALPA have done better?"). It never opens by itself, never blocks the CSV, never leads to a sales screen, and asks for no email or account.
+- It is stored server-side, one row per trial, in the existing analytics table (`activity_logs`, event `trial_feedback`); no new table and no migration. See `docs/feedback-analysis.md` for the fields and the read-only queries for the questions we want answered.
+- Duplicates and abuse: the signed trial cookie decides which trial it is (nothing in the request names one), one row per trial, the latest answer wins, a trial can send at most 5 times, comments are plain text of at most 500 characters, and a foreign origin is refused.
+- Verification: `tests/guest-phase6-feedback.test.mjs` (the real route offline) and the feedback scenarios in `tests/guest-trial-browser.mjs`.
