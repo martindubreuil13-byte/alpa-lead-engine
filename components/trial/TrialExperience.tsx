@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import DiscoverEngine from '@/components/scraper/DiscoverEngine'
 import DiscoverSearchForm from '@/components/scraper/DiscoverSearchForm'
 import usePrefersReducedMotion from '@/components/scraper/usePrefersReducedMotion'
-import { countOptions, describeAllowance, fetchGuestSnapshot, FREE_BUSINESSES } from '@/lib/guest/snapshot'
+import { countOptions, describeAllowance, fetchGuestSnapshot, FREE_BUSINESSES, remainingNotice, searchButtonLabel } from '@/lib/guest/snapshot'
 import type { GuestSnapshot } from '@/lib/guest/recovery'
 import { ACHIEVEMENT_HOLD_MS, buildEngineView } from '@/lib/scraper/engine-view'
 import { buildActivityItems } from '@/lib/scraper/live-activity'
@@ -152,7 +152,7 @@ export default function TrialExperience() {
   }
 
   if (allowance.saved > 0 && !wantsForm) {
-    return <WelcomeBack saved={allowance.saved} searches={allowance.attempts} onFindMore={() => setWantsForm(true)} />
+    return <WelcomeBack saved={allowance.saved} searches={allowance.attempts} discovered={allowance.discovered} remaining={allowance.remaining} onFindMore={() => setWantsForm(true)} />
   }
 
   return (
@@ -168,11 +168,13 @@ export default function TrialExperience() {
       validationMessage=""
       usageText={
         allowance.saved > 0
-          ? `${allowance.remaining} of ${FREE_BUSINESSES} free businesses left.`
+          ? remainingNotice(allowance)
           : `${FREE_BUSINESSES} free businesses. No account, email or card.`
       }
       submitDisabled={false}
       isMobile={isMobile}
+      submitLabel={searchButtonLabel(allowance)}
+      hideCount={allowance.lastBusiness}
       onBusinessTypeChange={setBusinessType}
       onLocationChange={setLocation}
       onResultCountChange={setCount}

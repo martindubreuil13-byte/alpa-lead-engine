@@ -12,11 +12,11 @@ const read = (file) => fs.readFileSync(file, 'utf8')
 
 test('the upgrade moment says exactly what was agreed, and the offer is previewed, not promised', () => {
   const c = buildConversionCopy({ kind: 'allowance', saved: 25, eligible: true })
-  assert.equal(c.headline, "You've discovered your first 25 businesses.")
+  assert.equal(c.headline, "You've discovered your 25 free businesses.")
   assert.equal(c.support, 'Ready to find more?')
   assert.equal(c.offerLine, 'Enjoy 50% off your first month of ALPA when you upgrade.')
   assert.equal(c.terms, 'The discount applies to your first month only. Regular pricing resumes afterward.')
-  assert.equal(c.primaryCta, 'Explore my upgrade options →')
+  assert.equal(c.primaryCta, 'Explore ALPA plans →')
   assert.equal(c.secondaryCta, 'View my businesses →')
   assert.match(c.offerBadge, /not active yet/)
   assert.match(c.inactiveNotice, /not active yet, so nothing is discounted today/)
@@ -36,16 +36,16 @@ test('the discount is not active, and only a billing release can change that', (
 
 test('used the free searches before reaching 25 businesses: truthful headline, same offer', () => {
   const c = buildConversionCopy({ kind: 'searches', saved: 12, eligible: true })
-  assert.equal(c.headline, "You've used your free searches.")
-  assert.equal(c.support, 'You discovered 12 businesses. Ready to find more?')
+  assert.equal(c.headline, "You've used your three free searches.")
+  assert.equal(c.support, 'You discovered 12 businesses across them, before reaching your 25. Ready to find more?')
   assert.doesNotMatch(c.headline + c.support, /first 25/)
-  assert.equal(buildConversionCopy({ kind: 'searches', saved: 1, eligible: true }).support, 'You discovered 1 business. Ready to find more?')
+  assert.equal(buildConversionCopy({ kind: 'searches', saved: 1, eligible: true }).support, 'You discovered 1 business across them, before reaching your 25. Ready to find more?')
 })
 
 test('someone the offer is not for sees the same page with no discount at all', () => {
   const c = buildConversionCopy({ kind: 'allowance', saved: 25, eligible: false })
   assert.deepEqual([c.offerLine, c.offerBadge, c.terms, c.inactiveNotice, c.activeNotice], [null, null, null, null, null])
-  assert.equal(c.headline, "You've discovered your first 25 businesses.")
+  assert.equal(c.headline, "You've discovered your 25 free businesses.")
 })
 
 // ---- who it is for

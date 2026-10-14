@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import type { SearchFailure } from '@/lib/guest/search-errors'
+import { remainingNotice } from '@/lib/guest/snapshot'
 
 const LINK =
   'inline-flex min-h-[48px] items-center rounded text-base text-[#d8c28a] transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#d8c28a]'
@@ -14,19 +15,20 @@ function Panel({ children, label }: { children: React.ReactNode; label: string }
 }
 
 /** A returning visitor who has businesses saved and searches left: recognised, not asked to start over. */
-export function WelcomeBack({ saved, searches, onFindMore }: { saved: number; searches: number; onFindMore: () => void }) {
+export function WelcomeBack({ saved, searches, discovered, remaining, onFindMore }: { saved: number; searches: number; discovered: number; remaining: number; onFindMore: () => void }) {
   return (
     <Panel label="Welcome back">
       <h1 className="font-display text-[2.5rem] leading-[1.04] tracking-tight text-white/95 sm:text-[3.5rem]">Welcome back.</h1>
       <p className="mt-5 text-lg leading-8 text-white/75">
         You have {saved} {saved === 1 ? 'business' : 'businesses'} saved from your previous {searches > 1 ? 'searches' : 'search'}.
       </p>
+      <p className="mt-2 text-base leading-7 text-white/65">{remainingNotice({ discovered, remaining })}</p>
       <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-8">
         <Link href="/trial/results" className="btn-primary-gold btn-quiet w-full uppercase tracking-[0.14em] sm:w-auto">
           View my businesses →
         </Link>
         <button type="button" onClick={onFindMore} className={LINK}>
-          Find more businesses →
+          {remaining === 1 ? 'Find my last business →' : 'Find more businesses →'}
         </button>
       </div>
     </Panel>

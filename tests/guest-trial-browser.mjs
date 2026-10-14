@@ -192,7 +192,7 @@ await scenario('a returning visitor is welcomed back, offered their businesses f
     await page.screenshot({path: `${shots}/trial-phone-welcome-back.png`})
     await page.getByRole('button', {name: 'Find more businesses →'}).click()
     await form(page).waitFor()
-    await page.getByText('15 of 25 free businesses left.').waitFor()
+    await page.getByText("You've discovered 10 businesses. You have 15 free businesses remaining.").waitFor()
     assert.deepEqual(await page.getByRole('button', {pressed: undefined}).evaluateAll((els) => els.map((e) => e.textContent?.trim()).filter((t) => /^(10|15|25)$/.test(t ?? ''))), ['10', '15'])
   },
 })
@@ -211,7 +211,7 @@ await scenario('"View my businesses" shows the restored list, and a refresh keep
   },
 })
 
-const upgradeHeading = (page) => page.getByRole('heading', {name: "You've discovered your first 25 businesses."})
+const upgradeHeading = (page) => page.getByRole('heading', {name: "You've discovered your 25 free businesses."})
 const many = (n) => Array.from({length: n}, (_, i) => mk(i + 1))
 const returning = (n, attempts = 1) => ({session: () => ({leads: many(n), used: n, attempts, searching: false})})
 
@@ -233,7 +233,7 @@ await scenario('guest with 10 businesses: welcomed back, still discovering norma
     assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
     await page.getByRole('button', {name: 'Find more businesses →'}).click()
     await form(page).waitFor()
-    await page.getByText('15 of 25 free businesses left.').waitFor()
+    await page.getByText("You've discovered 10 businesses. You have 15 free businesses remaining.").waitFor()
   },
 })
 
@@ -242,10 +242,40 @@ await scenario('guest with 24 businesses: one left, still a search form, no offe
   fn: async (page) => {
     await page.goto(base + '/trial')
     await page.getByRole('heading', {name: 'Welcome back.'}).waitFor()
+    await page.getByText("You've discovered 24 businesses. You have 1 free business remaining.").first().waitFor()
+    await page.getByRole('button', {name: 'Find my last business →'}).click()
+    await form(page).waitFor()
+    await page.getByRole('button', {name: 'Find my last business →'}).waitFor()
+    assert.equal(await page.getByRole('button', {name: /^(10|25)$/}).count(), 0, 'no minimum of 10 when one is left')
+    assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
+  },
+})
+
+await scenario('guest with 24 businesses asks for the last one: the request is for exactly one business', {
+  ...returning(24, 2),
+  scrape: (route, state) => { state.body = route.request().postDataJSON(); state.done = true; return route.fulfill({contentType: 'text/event-stream', body: stream([mk(25)])}) },
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial')
+    await page.getByRole('button', {name: 'Find my last business →'}).click()
+    await form(page).waitFor()
+    await page.getByLabel('Business type').fill('dentists')
+    await page.getByLabel('Location').fill('Laval')
+    await page.getByRole('button', {name: 'Find my last business →'}).click()
+    await page.waitForURL('**/trial/results', {timeout: 30000})
+    assert.equal(state.body.maxLeads, 1)
+    assert.equal(state.body.outputLeadLimit, 1)
+  },
+})
+
+await scenario('guest with 5 left: only 5 is offered, with no minimum of 10', {
+  ...returning(20, 2),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await page.getByText("You've discovered 20 businesses. You have 5 free businesses remaining.").first().waitFor()
     await page.getByRole('button', {name: 'Find more businesses →'}).click()
     await form(page).waitFor()
-    await page.getByText('1 of 25 free businesses left.').waitFor()
-    assert.equal(await upgradeHeading(page).count(), 0); assert.equal(await page.getByText(/50% off/).count(), 0)
+    assert.equal(await page.getByRole('button', {name: '5', exact: true}).count(), 1)
+    assert.equal(await page.getByRole('button', {name: '10', exact: true}).count(), 0)
   },
 })
 
@@ -259,14 +289,14 @@ await scenario('guest with 25 businesses: the upgrade moment, offer previewed an
     await page.getByText('The discount applies to your first month only. Regular pricing resumes afterward.').waitFor()
     await page.getByText(/not active yet, so nothing is discounted today/).waitFor()
     await page.getByText(/Upcoming offer · not active yet/).waitFor()
-    assert.equal(await page.getByRole('link', {name: 'Explore my upgrade options →'}).getAttribute('href'), '/plans')
+    assert.equal(await page.getByRole('link', {name: 'Explore ALPA plans →'}).getAttribute('href'), '/plans')
     assert.equal(await page.getByRole('link', {name: 'View my businesses →'}).getAttribute('href'), '/trial/results')
     assert.equal(await form(page).count(), 0, 'no search form that would lead to an error')
     assert.equal(await page.getByRole('dialog').count(), 0, 'no pop-up')
     assert.equal(await page.getByText(/countdown|hurry|limited time|expires|last chance/i).count(), 0)
     assert.equal(await page.locator('input[type=email]').count(), 0)
     assert.ok(await noHorizontalScroll(page))
-    for (const link of [page.getByRole('link', {name: 'Explore my upgrade options →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
+    for (const link of [page.getByRole('link', {name: 'Explore ALPA plans →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
     await page.screenshot({path: `${shots}/trial-phone-upgrade.png`})
   },
 })
@@ -284,8 +314,8 @@ await scenario('guest who used the 3 free searches before reaching 25: a truthfu
   ...returning(12, 3),
   fn: async (page) => {
     await page.goto(base + '/trial')
-    await page.getByRole('heading', {name: "You've used your free searches."}).waitFor()
-    await page.getByText('You discovered 12 businesses. Ready to find more?').waitFor()
+    await page.getByRole('heading', {name: "You've used your three free searches."}).waitFor()
+    await page.getByText('You discovered 12 businesses across them, before reaching your 25. Ready to find more?').waitFor()
     await page.getByText('Enjoy 50% off your first month of ALPA when you upgrade.').waitFor()
     assert.equal(await upgradeHeading(page).count(), 0, 'it does not claim 25 when there are 12')
   },

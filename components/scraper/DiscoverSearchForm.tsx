@@ -13,6 +13,10 @@ type DiscoverSearchFormProps = {
   usageText: string
   submitDisabled: boolean
   isMobile: boolean
+  /** Replaces 'Find businesses' (for example for a visitor's last free business). */
+  submitLabel?: string
+  /** When only one count is possible there is nothing to choose, so the selector is not shown. */
+  hideCount?: boolean
   onBusinessTypeChange: (value: string) => void
   onLocationChange: (value: string) => void
   onResultCountChange: (value: string) => void
@@ -39,6 +43,8 @@ export default function DiscoverSearchForm({
   usageText,
   submitDisabled,
   isMobile,
+  submitLabel = 'Find businesses',
+  hideCount = false,
   onBusinessTypeChange,
   onLocationChange,
   onResultCountChange,
@@ -109,7 +115,7 @@ export default function DiscoverSearchForm({
         </div>
       </div>
 
-      <fieldset className="mt-10">
+      {hideCount ? null : <fieldset className="mt-10">
         <legend className="text-xs font-medium uppercase tracking-[0.2em] text-white/70">Businesses</legend>
         <div className="mt-3 flex items-center gap-8">
           {resultOptions.map((option) => {
@@ -132,7 +138,7 @@ export default function DiscoverSearchForm({
             )
           })}
         </div>
-      </fieldset>
+      </fieldset>}
 
       {validationMessage ? (
         <p role="alert" className="mt-8 text-sm text-[#d8c28a]">
@@ -146,7 +152,7 @@ export default function DiscoverSearchForm({
           disabled={submitDisabled}
           className="btn-primary-gold btn-quiet w-full uppercase tracking-[0.14em] sm:w-auto"
         >
-          {disabled ? 'Finding businesses...' : 'Find businesses'}
+          {disabled ? 'Finding businesses...' : submitLabel}
         </button>
         <p className="text-sm text-white/60">{usageText}</p>
       </div>

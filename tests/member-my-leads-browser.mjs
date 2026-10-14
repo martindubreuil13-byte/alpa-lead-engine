@@ -223,7 +223,7 @@ await scenario('members on a phone see the imported facts inline as well', 'phon
 
 // ---------------------------------------------------------------------------------------------------- Phase 5: conversion
 const FREE = {plan: 'free', plan_status: 'free', subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, subscription_tier: 'free', current_period_end: null}
-const panelHeading = (page) => page.getByRole('heading', {name: "You've discovered your first 25 businesses."})
+const panelHeading = (page) => page.getByRole('heading', {name: "You've discovered your 25 free businesses."})
 const discoverForm = (page) => page.locator('#discover-business-type')
 
 await scenario('free member at 25: the upgrade moment replaces the search form (no pop-up), with the offer previewed and not promised', 'desktop', async (page) => {
@@ -234,7 +234,7 @@ await scenario('free member at 25: the upgrade moment replaces the search form (
   await page.getByText('The discount applies to your first month only. Regular pricing resumes afterward.').waitFor()
   await page.getByText(/not active yet, so nothing is discounted today/).waitFor()
   await page.getByText(/Upcoming offer · not active yet/).waitFor()
-  assert.equal(await page.getByRole('link', {name: 'Explore my upgrade options →'}).getAttribute('href'), '/plans')
+  assert.equal(await page.getByRole('link', {name: 'Explore ALPA plans →'}).getAttribute('href'), '/plans')
   assert.equal(await page.getByRole('link', {name: 'View my businesses →'}).getAttribute('href'), '/dashboard/my-leads')
   assert.equal(await discoverForm(page).count(), 0, 'no search form that would lead to an error')
   assert.equal(await page.getByRole('dialog').count(), 0, 'no pop-up')
@@ -246,7 +246,7 @@ await scenario('free member at 25 on a phone: readable, no horizontal scroll, la
   await page.goto(base + '/dashboard/scraper')
   await panelHeading(page).waitFor({timeout: 60000})
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-  for (const link of [page.getByRole('link', {name: 'Explore my upgrade options →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
+  for (const link of [page.getByRole('link', {name: 'Explore ALPA plans →'}), page.getByRole('link', {name: 'View my businesses →'})]) assert.ok((await link.boundingBox()).height >= 44)
   await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-upgrade-phone.png'})
 }, {profile: FREE, leadCount: 25})
 
@@ -262,7 +262,7 @@ await scenario('a free member who had a subscription before sees the same page w
   await panelHeading(page).waitFor({timeout: 60000})
   await page.getByText('Ready to find more?').waitFor()
   assert.equal(await page.getByText(/50% off|first month|not active yet/i).count(), 0)
-  await page.getByRole('link', {name: 'Explore my upgrade options →'}).waitFor()
+  await page.getByRole('link', {name: 'Explore ALPA plans →'}).waitFor()
 }, {profile: {...FREE, plan_status: 'canceled', subscription_status: 'canceled', canceled_at: '2026-06-01T00:00:00Z'}, leadCount: 25})
 
 await scenario('paid subscribers are never interrupted: their search form stays, whatever their library holds', 'desktop', async (page) => {

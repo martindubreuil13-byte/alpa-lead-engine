@@ -7,9 +7,9 @@ import { countOptions, describeAllowance } from '../lib/guest/snapshot.ts'
 const read = (file) => fs.readFileSync(file, 'utf8')
 
 test('what a visitor can still do comes from the server record: 25 businesses and 3 searches in total', () => {
-  assert.deepEqual(describeAllowance(null), { used: 0, attempts: 0, saved: 0, remaining: 25, exhausted: false })
+  assert.deepEqual(describeAllowance(null), { used: 0, attempts: 0, saved: 0, discovered: 0, remaining: 25, exhausted: false, lastBusiness: false })
   const some = describeAllowance({ used: 10, attempts: 1, leads: new Array(10).fill({}) })
-  assert.deepEqual(some, { used: 10, attempts: 1, saved: 10, remaining: 15, exhausted: false })
+  assert.deepEqual(some, { used: 10, attempts: 1, saved: 10, discovered: 10, remaining: 15, exhausted: false, lastBusiness: false })
   assert.equal(describeAllowance({ used: 25, attempts: 2, leads: [] }).exhausted, true)
   assert.equal(describeAllowance({ used: 9, attempts: 3, leads: [] }).exhausted, true, 'three searches is the limit even with businesses left')
 })

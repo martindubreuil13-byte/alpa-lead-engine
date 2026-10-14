@@ -64,12 +64,12 @@ export type ConversionCopy = {
 export function buildConversionCopy(input: { kind: ConversionKind; saved: number; eligible: boolean; offer?: OfferState }): ConversionCopy {
   const offer = input.offer ?? FIRST_MONTH_OFFER
   const active = offer.status === 'active'
-  const headline = input.kind === 'allowance' ? "You've discovered your first 25 businesses." : "You've used your free searches."
+  const headline = input.kind === 'allowance' ? "You've discovered your 25 free businesses." : "You've used your three free searches."
   const support =
     input.kind === 'allowance'
       ? 'Ready to find more?'
-      : `You discovered ${input.saved} ${input.saved === 1 ? 'business' : 'businesses'}. Ready to find more?`
-  const base = { headline, support, primaryCta: 'Explore my upgrade options →', secondaryCta: 'View my businesses →' }
+      : `You discovered ${input.saved} ${input.saved === 1 ? 'business' : 'businesses'} across them, before reaching your 25. Ready to find more?`
+  const base = { headline, support, primaryCta: 'Explore ALPA plans →', secondaryCta: 'View my businesses →' }
   if (!input.eligible) return { ...base, offerLine: null, offerBadge: null, terms: null, inactiveNotice: null, activeNotice: null }
   return {
     ...base,

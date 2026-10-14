@@ -24,10 +24,25 @@ export function describeAllowance(snapshot: Pick<GuestSnapshot, 'used' | 'attemp
   const attempts = Math.max(0, Number(snapshot?.attempts ?? 0))
   const saved = Array.isArray(snapshot?.leads) ? snapshot!.leads!.length : 0
   const remaining = Math.max(0, FREE_BUSINESSES - used)
-  return { used, attempts, saved, remaining, exhausted: remaining === 0 || attempts >= FREE_SEARCHES }
+  const exhausted = remaining === 0 || attempts >= FREE_SEARCHES
+  // `discovered` is what was actually delivered (the server reconciles `used` to the delivered count), never what was requested.
+  const discovered = used || saved
+  return { used, attempts, saved, discovered, remaining, exhausted, lastBusiness: !exhausted && remaining === 1 }
 }
 
-/** The result-count choices offered for the businesses still available: 10 and 25, or what is left. */
+/** The one-line status for a returning visitor who still has free businesses, from the server's record. */
+export function remainingNotice(allowance: { discovered: number; remaining: number }): string {
+  const { discovered, remaining } = allowance
+  const found = `${discovered} ${discovered === 1 ? 'business' : 'businesses'}`
+  return `You've discovered ${found}. You have ${remaining} free ${remaining === 1 ? 'business' : 'businesses'} remaining.`
+}
+
+/** The search button's label: the last free business is named as such. */
+export function searchButtonLabel(allowance: { lastBusiness: boolean }): string {
+  return allowance.lastBusiness ? 'Find my last business →' : 'Find businesses'
+}
+
+/** The result-count choices offered for the businesses still available: 10 and 25, or what is left (never a minimum of 10). */
 export function countOptions(remaining: number): string[] {
   const options: number[] = []
   if (remaining >= 10) options.push(10)
