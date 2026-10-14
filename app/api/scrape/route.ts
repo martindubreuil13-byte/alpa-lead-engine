@@ -1191,14 +1191,25 @@ export async function POST(req: Request) {
   }
 
   if (user?.id && !isGuestMode) {
-    const [subscription, { count }] = await Promise.all([
-      resolveUserSubscription(user.id, { email: user.email }),
-      supabase
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .or('email.not.is.null,phone.not.is.null'),
-    ])
+    // A search is a paid action: the plan is verified live, never taken from a stored copy. If Stripe cannot be reached the search
+    // does not start (nothing is used) and the person is told so, instead of getting a generic error or an unverified plan.
+    let verified: [Awaited<ReturnType<typeof resolveUserSubscription>>, { count: number | null }] | null = null
+    try {
+      verified = await Promise.all([
+        resolveUserSubscription(user.id, { email: user.email }),
+        supabase
+          .from('leads')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .or('email.not.is.null,phone.not.is.null'),
+      ])
+    } catch {
+      verified = null
+    }
+    if (!verified) {
+      return createSseResponse('❌ We could not verify your subscription right now, so no search was started and nothing was used. Please try again in a moment.', 503)
+    }
+    const [subscription, { count }] = verified
 
     authenticatedPlan = subscription.subscription_active ? subscription.plan : 'free'
     if (count === null && isPrivatePreview) {

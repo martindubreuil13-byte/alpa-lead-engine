@@ -43,7 +43,6 @@ export default function StartCheckoutButton({
   const [emailInput, setEmailInput] = useState(() =>
     String(email || getGuestCaptureEmail()).trim().toLowerCase()
   )
-  const [showEmailInput, setShowEmailInput] = useState(false)
   const isAuthenticated = Boolean(user?.id)
   const visitorType = isPaid(profile) ? 'paid' : isAuthenticated ? 'logged_in' : 'anonymous'
 
@@ -69,10 +68,12 @@ export default function StartCheckoutButton({
   async function handleCheckout() {
     if (loading || disabled) return
 
-    const normalizedEmail = String(email || emailInput || getGuestCaptureEmail()).trim().toLowerCase()
+    const normalizedEmail = String(user?.email || email || emailInput || getGuestCaptureEmail()).trim().toLowerCase()
 
-    if (!isAuthenticated && !normalizedEmail) {
-      setShowEmailInput(true)
+    // Checkout belongs to an account: a visitor creates one (or logs in) first, then returns to choose a plan.
+    if (!isAuthenticated) {
+      if (normalizedEmail) saveGuestCaptureEmail(normalizedEmail)
+      window.location.href = '/login?mode=signup'
       return
     }
 
@@ -105,14 +106,20 @@ export default function StartCheckoutButton({
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: normalizedEmail || null,
-          source,
-          plan,
-        }),
+        body: JSON.stringify({ source, plan }),
       })
 
       const data = await res.json().catch(() => null)
+
+      if (res.status === 401) {
+        window.location.href = '/login'
+        return
+      }
+
+      if (res.status === 409 && data?.code === 'already_subscribed') {
+        window.location.href = '/dashboard/billing'
+        return
+      }
 
       if (!res.ok || !data?.url) {
         throw new Error(data?.error || 'Unable to start checkout')
@@ -142,20 +149,6 @@ export default function StartCheckoutButton({
 
   return (
     <div className={['space-y-3', wrapperClassName].filter(Boolean).join(' ')}>
-      {showEmailInput && !isAuthenticated ? (
-        <div className="space-y-2">
-          <label className="text-sm text-gray-400">Email address</label>
-          <input
-            type="email"
-            placeholder="Enter your email to continue"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            autoComplete="email"
-            className="w-full rounded-lg border border-white/10 bg-[#020617] px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-      ) : null}
-
       <button
         type="button"
         onClick={() => void handleCheckout()}
@@ -166,9 +159,7 @@ export default function StartCheckoutButton({
           ? 'Redirecting...'
           : disabled
             ? disabledLabel
-            : !isAuthenticated && showEmailInput
-              ? 'Continue to Payment'
-              : label}
+            : label}
       </button>
     </div>
   )

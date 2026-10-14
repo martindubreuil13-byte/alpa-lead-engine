@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { createStripeCustomer, createStarterCheckoutSession, createProspectorCheckoutSession } from '@/lib/stripe'
+import { decideNewCheckout } from '@/lib/stripe/checkout-guard'
+import { getActiveSubscription } from '@/lib/stripe/subscription'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 const admin = createClient(
@@ -10,42 +12,13 @@ const admin = createClient(
 )
 
 type CheckoutRequestBody = {
-  email?: string | null
   source?: string | null
   plan?: string | null
 }
 
-function normalizeEmail(email: string | null | undefined) {
-  return String(email || '').trim().toLowerCase()
-}
-
-async function resolveCheckoutUserId(
-  authenticatedUserId: string | null | undefined,
-  email: string | null | undefined
-) {
-  if (authenticatedUserId) {
-    return authenticatedUserId
-  }
-
-  const normalizedEmail = normalizeEmail(email)
-  if (!normalizedEmail) {
-    return null
-  }
-
-  const { data, error } = await admin
-    .from('users')
-    .select('id')
-    .ilike('email', normalizedEmail)
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return data?.id ?? null
-}
-
+// Checkout is for a signed-in customer only. The account, the email and the Stripe customer all come from the session and
+// that customer's own profile, never from the request body, so a caller cannot start a checkout for someone else's account
+// or attach another account's Stripe customer to theirs.
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => null)) as CheckoutRequestBody | null
@@ -54,28 +27,34 @@ export async function POST(req: Request) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    const userEmail = body?.email || user?.email || null
 
-    if (!userEmail) {
-      return new Response(JSON.stringify({ error: 'Email required before checkout' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+    if (!user?.id || !user.email) {
+      return NextResponse.json(
+        { error: 'Log in or create an account to continue.', code: 'auth_required' },
+        { status: 401 }
+      )
     }
 
-    const userId = await resolveCheckoutUserId(user?.id, userEmail)
-    const { data: profile, error: profileLookupError } = userId
-      ? await admin
-          .from('profiles')
-          .select('stripe_customer_id')
-          .eq('id', userId)
-          .maybeSingle()
-      : { data: null, error: null }
+    const userId = user.id
+    const userEmail = user.email.trim().toLowerCase()
+
+    const { data: profile, error: profileLookupError } = await admin
+      .from('profiles')
+      .select('plan, plan_status, stripe_customer_id, stripe_subscription_id')
+      .eq('id', userId)
+      .maybeSingle()
 
     if (profileLookupError) {
       throw new Error(profileLookupError.message)
+    }
+
+    // One live subscription per account. Stripe's own view decides (the profile can lag a webhook), with the local record as
+    // a second check.
+    const { subscription: liveSubscription } = await getActiveSubscription(userId)
+    const decision = decideNewCheckout({ profile, liveSubscription })
+
+    if (!decision.ok) {
+      return NextResponse.json({ error: decision.message, code: decision.code }, { status: decision.status })
     }
 
     const customer = await createStripeCustomer({
@@ -85,7 +64,9 @@ export async function POST(req: Request) {
       source: body?.source || null,
     })
 
-    if (userId) {
+    // The customer is attached only to the profile that is checking out, and only when it has none or its own is replaced
+    // (deleted in Stripe). Another profile's customer id can never be written here: it is never read from the request.
+    if (profile?.stripe_customer_id !== customer.id) {
       const { error: profileError } = await admin
         .from('profiles')
         .upsert({ id: userId, stripe_customer_id: customer.id }, { onConflict: 'id' })
@@ -97,18 +78,10 @@ export async function POST(req: Request) {
 
     const requestedPlan = String(body?.plan || '').trim()
 
-    console.log('CHECKOUT SESSION PARAMS', {
-      hasCustomer: Boolean(customer?.id),
-      hasCustomerEmail: false,
-      userEmail,
-      userId,
-      plan: requestedPlan || 'starter',
-    })
-
     const checkoutParams = {
       origin,
       customerId: customer.id,
-      userId: userId ?? null,
+      userId,
       userEmail,
       source: body?.source || null,
     }
@@ -119,7 +92,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to start checkout'
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[checkout] unable to start checkout', error)
+    return NextResponse.json({ error: 'Unable to start checkout' }, { status: 500 })
   }
 }

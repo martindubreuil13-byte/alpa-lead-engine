@@ -251,14 +251,14 @@ await scenario('free member at 25 on a phone: readable, no horizontal scroll, la
   await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-upgrade-phone.png'})
 }, {profile: FREE, leadCount: 25})
 
-// These two render the dossier a free or lapsed member's request returns (the route adds the note; unit-tested separately). They use the
-// harness's admin profile on purpose: for any non-admin profile the server page resolves the plan through Stripe (getUserProfile ->
-// resolveUserSubscription), the harness refuses every Stripe request, and My Leads then answers 500 ("A server error occurred").
-// That is a limit of the offline harness, not of the dossier; see docs/phase8-research-readiness.md.
+// These two render the dossier a free or lapsed member's request returns (the route adds the note; unit-tested separately). They run with
+// the harness's FREE profile on purpose: the harness refuses every Stripe request, so they also prove that My Leads works for a
+// non-admin member while Stripe cannot be reached (the plan falls back to the stored one for display and grants nothing).
+const PAID = {plan: 'starter', plan_status: 'active', subscription_status: 'active', stripe_customer_id: 'cus_test', stripe_subscription_id: 'sub_test', subscription_tier: 'starter', current_period_end: '2027-01-01T00:00:00Z'}
 const FREE_NOTE = 'Automatic business profiles are included with paid plans. Your saved businesses, and any profile already written, stay available.'
 const savedLight = {version: 1, summary: 'Clinique Laval is a family dental clinic in Laval. According to its website, it offers teeth whitening and implants for both children and adults across the city.', tags: ['Teeth whitening', 'Implants'], generated_at: '2026-10-14T00:00:00Z', model: 'gpt-4o-mini'}
 
-await scenario('a dossier carrying the free-member note: a business without a profile says automatic profiles come with paid plans, and nothing is hidden', 'desktop', async (page) => {
+await scenario('free member while Stripe is unreachable: a business without a profile says automatic profiles come with paid plans, and nothing is hidden', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/my-leads')
   await rows(page).first().waitFor({timeout: 60000})
   await page.getByRole('button', {name: /Member Business 1/}).first().click()
@@ -266,7 +266,28 @@ await scenario('a dossier carrying the free-member note: a business without a pr
   await region.getByText(FREE_NOTE).waitFor()
   await region.getByText('Family dental care in Laval since 1998.').waitFor()
   assert.equal(await region.getByText(/available separately/i).count(), 0)
-}, {dossier: imported({researchNote: FREE_NOTE})})
+}, {dossier: imported({researchNote: FREE_NOTE}), profile: FREE})
+
+await scenario('paying member while Stripe is unreachable: My Leads still lists and opens every business (no 500)', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  assert.equal(await rows(page).count(), 3)
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  await page.getByRole('region', {name: /details/}).getByText('Residential plumbing repairs and installations.').waitFor()
+  assert.equal(await page.getByText(/server error occurred/i).count(), 0)
+}, {profile: PAID})
+
+// A free member who HAS a Stripe customer forces the plan lookup, which this harness refuses: the real outage path (connection failure,
+// then the stored plan), not just the skipped lookup.
+await scenario('member whose plan lookup hits an unreachable Stripe: My Leads still opens (stored plan shown, nothing granted)', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 90000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  await page.getByRole('region', {name: /details/}).getByText('Residential plumbing repairs and installations.').waitFor()
+  assert.equal(await page.getByText(/server error occurred/i).count(), 0)
+  const blocked = (await import('node:fs')).readFileSync(BLOCK_LOG, 'utf8')
+  assert.ok(blocked.trim().length > 0, 'the plan lookup really was attempted and refused')
+}, {profile: {...FREE, stripe_customer_id: 'cus_unreachable'}})
 
 await scenario('after a downgrade the saved profile stays: summary, tags and the website information behind a disclosure', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/my-leads')
@@ -279,7 +300,7 @@ await scenario('after a downgrade the saved profile stays: summary, tags and the
   await region.getByText('View original website information').click()
   await region.getByText('Family dental care in Laval since 1998.').waitFor()
   assert.equal(await region.getByText(FREE_NOTE).count(), 0, 'no "no profile" note next to a profile that exists')
-}, {dossier: imported({lightProfile: savedLight, researchNote: FREE_NOTE})})
+}, {dossier: imported({lightProfile: savedLight, researchNote: FREE_NOTE}), profile: FREE})
 
 await scenario('free member with room left (10 of 25) keeps discovering normally: the search form, no upgrade moment', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/scraper')

@@ -1,243 +1,89 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import Stripe from 'stripe'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
 
-import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
-import { STRIPE_API_VERSION } from '@/lib/stripe'
-import { syncSubscriptionToDatabase } from '@/lib/stripe/subscription'
-import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
+import { getCheckoutSession } from '@/lib/stripe'
+import {
+  checkSessionOwnership,
+  decideActivation,
+  sessionCustomerId,
+  sessionSubscriptionId,
+} from '@/lib/stripe/checkout-guard'
+import { hasActivePaidAccess } from '@/lib/auth/paid-access'
+import { createSupabaseAdminClient, stripe, syncSubscriptionToDatabase } from '@/lib/stripe/subscription'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
-})
-
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-type ActivateRequestBody = {
-  sessionId?: string
-  cleanWorkspace?: boolean
-  leads?: TrialLead[]
-}
-
-type LeadInsertPayload = {
-  user_id: string
-  company_name: string
-  email?: string
-  phone?: string
-  website: string | null
-  city: string | null
-  status: 'inbox'
-  source: 'serper' | 'google' | 'hybrid'
-  email_confidence: 'high' | 'medium' | 'low'
-  email_source: string
-  is_generic_email: boolean
-  cost_estimate: number
-}
-
-function buildLeadKey(
-  lead: Pick<TrialLead, 'company_name' | 'email' | 'phone' | 'website' | 'city'>
-) {
-  return [
-    lead.company_name.trim().toLowerCase(),
-    lead.email?.trim().toLowerCase() || '',
-    lead.phone?.trim().toLowerCase() || '',
-    (lead.website || '').trim().toLowerCase(),
-    (lead.city || '').trim().toLowerCase(),
-  ].join('::')
-}
-
-function buildLeadInsertPayload(lead: TrialLead, userId: string): LeadInsertPayload | null {
-  const email = lead.email?.trim() || null
-  const phone = lead.phone?.trim() || null
-
-  if (!userId || !lead.company_name || (!email && !phone)) {
-    return null
-  }
-
-  return {
-    user_id: userId,
-    company_name: lead.company_name,
-    ...(email ? { email } : {}),
-    ...(phone ? { phone } : {}),
-    website: lead.website || null,
-    city: lead.city || null,
-    status: 'inbox',
-    source: (lead.source as LeadInsertPayload['source']) || 'serper',
-    email_confidence: 'low',
-    email_source: lead.email_source || lead.website || 'post_checkout_import',
-    is_generic_email: lead.is_generic_email ?? false,
-    cost_estimate: lead.cost_estimate ?? 0,
-  }
-}
-
-function getCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined) {
-  if (!customer) {
-    return ''
-  }
-
-  return typeof customer === 'string' ? customer.trim() : customer.id.trim()
-}
-
-function getSubscriptionId(
-  subscription: string | Stripe.Subscription | null | undefined
-) {
-  if (!subscription) {
-    return ''
-  }
-
-  return typeof subscription === 'string' ? subscription.trim() : subscription.id.trim()
-}
-
-function isCheckoutUnlocked(session: Stripe.Checkout.Session) {
-  return (
-    session.mode === 'subscription' &&
-    session.status === 'complete' &&
-    session.payment_status !== 'unpaid'
-  )
-}
-
+// Finishes a checkout for the signed-in customer who started it. The only thing this does is sync that customer's own
+// subscription from Stripe into their profile (the same sync the webhook performs). It accepts nothing from the browser but
+// the session id: no leads are imported (new businesses are only ever saved through the credit-accounted discovery path)
+// and nothing is deleted.
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies()
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) => {
-                cookieStore.set(name, value, options)
-              })
-            } catch {}
-          },
-        },
-      }
-    )
-
+    const supabase = await createSupabaseServerClient()
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser()
 
     if (userError || !user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized', code: 'auth_required' }, { status: 401 })
     }
 
-    const body = (await req.json().catch(() => null)) as ActivateRequestBody | null
-    const sessionId = String(body?.sessionId || '').trim()
+    const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null
+    const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Missing checkout session id' }, { status: 400 })
     }
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['subscription'],
+    const session = await getCheckoutSession(sessionId).catch(() => null)
+    if (!session) {
+      return NextResponse.json({ error: 'Checkout session not found', code: 'session_not_found' }, { status: 404 })
+    }
+
+    const admin = createSupabaseAdminClient()
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('plan, plan_status, stripe_customer_id, stripe_subscription_id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    const customerId = sessionCustomerId(session)
+    const { data: holders } = customerId
+      ? await admin.from('profiles').select('id').eq('stripe_customer_id', customerId).neq('id', user.id).limit(1)
+      : { data: [] }
+
+    const ownership = checkSessionOwnership(session, {
+      userId: user.id,
+      profileCustomerId: profile?.stripe_customer_id ?? null,
+      otherProfileHoldsCustomer: Boolean(holders && holders.length > 0),
     })
 
-    if (!isCheckoutUnlocked(session)) {
-      return NextResponse.json({ error: 'Checkout is not complete' }, { status: 400 })
+    if (!ownership.ok) {
+      return NextResponse.json({ error: ownership.message, code: ownership.code }, { status: ownership.status })
     }
 
-    const customerId = getCustomerId(
-      session.customer as string | Stripe.Customer | Stripe.DeletedCustomer | null
-    )
-    const subscriptionId = getSubscriptionId(
-      session.subscription as string | Stripe.Subscription | null
-    )
-    const subscription = subscriptionId
-      ? await stripe.subscriptions.retrieve(subscriptionId)
-      : null
+    const subscriptionId = sessionSubscriptionId(session)
+    const subscription = subscriptionId ? await stripe.subscriptions.retrieve(subscriptionId) : null
 
-    if (body?.cleanWorkspace) {
-      const { error: leadsDeleteError } = await admin.from('leads').delete().eq('user_id', user.id)
+    const decision = decideActivation({
+      session,
+      subscription,
+      subscriptionUsable: subscription ? hasActivePaidAccess(subscription) : false,
+      profile,
+    })
 
-      if (leadsDeleteError) {
-        return NextResponse.json({ error: leadsDeleteError.message }, { status: 500 })
-      }
-
-      const { error: pipelineDeleteError } = await admin.from('pipeline').delete().eq('user_id', user.id)
-      console.log('Pipeline cleaned for user:', user.id)
-
-      if (
-        pipelineDeleteError &&
-        !/relation .*pipeline.* does not exist|Could not find the table/i.test(
-          pipelineDeleteError.message || ''
-        )
-      ) {
-        return NextResponse.json({ error: pipelineDeleteError.message }, { status: 500 })
-      }
+    if (!decision.ok || !subscription) {
+      const refusal = decision.ok ? null : decision
+      return NextResponse.json(
+        { error: refusal?.message ?? 'Unable to activate this checkout', code: refusal?.code ?? 'no_subscription' },
+        { status: refusal?.status ?? 409 }
+      )
     }
 
-    if (subscription) {
-      await syncSubscriptionToDatabase(subscription, { userId: user.id, customerId })
-    }
-
-    const leadsToImport = Array.isArray(body?.leads) ? body.leads.slice(0, FREE_TRIAL_LEAD_LIMIT) : []
-
-    if (leadsToImport.length > 0) {
-      const { data: existingLeads, error: existingError } = await admin
-        .from('leads')
-        .select('company_name, email, phone, website, city')
-        .eq('user_id', user.id)
-
-      if (existingError) {
-        return NextResponse.json({ error: existingError.message }, { status: 500 })
-      }
-
-      const existingKeys = new Set((existingLeads || []).map(buildLeadKey))
-      const rowsToInsert: LeadInsertPayload[] = []
-
-      for (const lead of leadsToImport) {
-        const leadKey = buildLeadKey(lead)
-        if (existingKeys.has(leadKey)) {
-          continue
-        }
-
-        const payload = buildLeadInsertPayload(lead, user.id)
-        if (!payload) {
-          continue
-        }
-
-        existingKeys.add(leadKey)
-        rowsToInsert.push(payload)
-      }
-
-      if (rowsToInsert.length > 0) {
-        const { data: insertedLeads, error: insertError } = await admin
-          .from('leads')
-          .insert(rowsToInsert)
-          .select('id')
-
-        if (insertError) {
-          return NextResponse.json({ error: insertError.message }, { status: 500 })
-        }
-
-        // Enqueue each newly created lead for Commercial Intelligence enrichment
-        if (insertedLeads && insertedLeads.length > 0) {
-          for (const lead of insertedLeads) {
-            await enqueueLeadEnrichment(lead.id, admin).catch((err) => {
-              console.error(`[CI-QUEUE] Failed to enqueue lead ${lead.id}:`, err)
-              // Don't fail the entire activation if enqueueing fails
-              // The repair utility can fix this later if needed
-            })
-          }
-        }
-      }
-    }
+    await syncSubscriptionToDatabase(subscription, { userId: user.id, customerId })
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to activate account'
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[post-checkout.activate] unable to activate', error)
+    return NextResponse.json({ error: 'Unable to activate account' }, { status: 500 })
   }
 }

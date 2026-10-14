@@ -1,5 +1,7 @@
 import Stripe from 'stripe'
 
+import { customerBelongsToUser } from '@/lib/stripe/checkout-guard'
+
 export const STRIPE_API_VERSION = '2026-02-25.clover'
 
 // Maps known Stripe price IDs to internal plan keys.
@@ -61,6 +63,12 @@ async function createSubscriptionCheckoutSession({
   const normalizedSource = String(source || '').trim()
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
 
+  // One open session per user, plan and source within a short window: a double click or a retry gets the same session back
+  // instead of a second one that could end in two subscriptions. (Stripe rejects a reused key only if the parameters differ.)
+  const idempotencyKey = normalizedUserId
+    ? `checkout:${normalizedUserId}:${priceId}:${normalizedSource || 'none'}:${Math.floor(Date.now() / 600_000)}`
+    : undefined
+
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -74,7 +82,7 @@ async function createSubscriptionCheckoutSession({
       email: normalizedEmail,
       ...(normalizedSource ? { source: normalizedSource } : {}),
     },
-  })
+  }, idempotencyKey ? { idempotencyKey } : undefined)
 
   if (!session.url) {
     throw new Error('Stripe checkout did not return a redirect URL')
@@ -113,6 +121,11 @@ export async function createStripeCustomer({
     const existingCustomer = await stripe.customers.retrieve(normalizedCustomerId)
 
     if (!existingCustomer.deleted) {
+      // Never adopt or rewrite a Stripe customer that was created for a different account.
+      if (!customerBelongsToUser(existingCustomer.metadata?.user_id, normalizedUserId ?? '')) {
+        throw new Error('This billing profile belongs to a different account')
+      }
+
       if (
         (normalizedUserId && existingCustomer.metadata?.user_id !== normalizedUserId) ||
         (normalizedSource && existingCustomer.metadata?.source !== normalizedSource)

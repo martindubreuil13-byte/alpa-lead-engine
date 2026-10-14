@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { UserProfile } from '@/lib/supabase/types'
-import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { readStoredSubscription, resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { resolveSubscriptionForNavigation } from '@/lib/auth/subscription-display'
 
 export async function getUserProfile(): Promise<UserProfile | null> {
   const supabase = await createSupabaseServerClient()
@@ -41,7 +42,13 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     }
   }
 
-  const subscription = await resolveUserSubscription(user.id, { email: user.email })
+  // Ordinary navigation: ask Stripe only briefly (and not at all for a free member never linked to Stripe); if it does not answer,
+  // show the stored plan and grant nothing from it (see lib/auth/subscription-display.ts).
+  const subscription = await resolveSubscriptionForNavigation({
+    resolveLive: () => resolveUserSubscription(user.id, { email: user.email, navigation: true }),
+    readStored: () => readStoredSubscription(user.id),
+    onFallback: (reason) => console.warn('[subscription.display] using stored plan, not verified', { reason }),
+  })
 
   const plan = subscription.plan
 
@@ -58,6 +65,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     current_period_end: subscription.current_period_end,
     subscription_tier: subscription.subscription_tier,
     subscription_active: subscription.subscription_active,
+    plan_verified: subscription.verified,
     created_at: profile?.created_at ?? user.created_at ?? new Date().toISOString(),
   }
 }
