@@ -92,7 +92,11 @@ test('the application only INSERTS into the queue directly, so revoking UPDATE a
     }
   }
   for (const dir of ['app', 'lib', 'components']) walk(path.join(ROOT, dir))
-  assert.deepEqual(offenders, [])
+  // The customer's one retry re-queues a failed job through the service-role admin client (never the customer's session), which keeps
+  // UPDATE; the migration revokes UPDATE and DELETE only from `authenticated`. It is listed so any other writer is still caught.
+  assert.deepEqual(offenders.filter((file) => file !== 'lib/commercial-intelligence/retry-run-item.ts'), [])
+  const retry = fs.readFileSync(path.join(ROOT, 'lib/commercial-intelligence/retry-run-item.ts'), 'utf8')
+  assert.match(retry, /export async function requeueFailedItem\(admin: Client/)
 
   const manager = read(path.join(ROOT, 'lib/commercial-intelligence/queue-manager.ts'))
   assert.match(manager, /\.from\('commercial_intelligence_queue'\)\s*\.insert\(payload\)/)

@@ -66,6 +66,8 @@ const REASON_TEXT: Record<string, string> = {
   research_failed: 'The website could not be researched.',
   run_limit: "Not researched: this search's research limit was reached.",
   no_website: 'This business has no website to read.',
+  expired: 'This search is too old to be researched. Run a new search to research it.',
+  unreadable: "ALPA can't read this website (it is blocked, missing or too large).",
 }
 const STATE_TEXT: Record<string, string> = {
   queued: 'Queued for research. The profile will appear here when it is generated.',
@@ -127,7 +129,8 @@ export function memberDossierModel(lead: LeadDossier): DossierModel {
   const card = intelligence.card
   const profile = intelligence.profile
   const reason = intelligence.reason ? REASON_TEXT[intelligence.reason] : null
-  const stateText = `${STATE_TEXT[intelligence.state] ?? 'No business profile is available.'}${reason ? ` ${reason}` : ''}`
+  const baseText = intelligence.state === 'not_started' && lead.researchNote ? lead.researchNote : (STATE_TEXT[intelligence.state] ?? 'No business profile is available.')
+  const stateText = `${baseText}${reason ? ` ${reason}` : ''}`
   const site = siteBlock(lead.website, lead.website?.inspection?.partial === true)
   return {
     name: lead.company_name,

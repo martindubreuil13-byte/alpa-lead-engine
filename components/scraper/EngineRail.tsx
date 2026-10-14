@@ -15,6 +15,8 @@ type EngineRailProps = {
   noNewBusinesses?: boolean
   /** Free trial: a short profile is written when a business is opened, so the third stage is ready rather than unavailable. */
   profilesOnDemand?: boolean
+  /** A member's plan-aware wording for the third stage when no research stage is followed (see lib/intelligence/availability). */
+  availability?: { value: string; sub: string } | null
 }
 
 type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
@@ -94,7 +96,7 @@ function RailItem({
 // The slim stage map beneath the focal area. It is deliberately quiet: small type, hairlines, no
 // large numbers. The active stage is marked by a gold hairline; completed stages stay as small
 // facts; Business Profiles are stated honestly as a separate step, never as part of this search.
-export default function EngineRail({ view, intelligence, intelligenceMs, noNewBusinesses, profilesOnDemand }: EngineRailProps) {
+export default function EngineRail({ view, intelligence, intelligenceMs, noNewBusinesses, profilesOnDemand, availability }: EngineRailProps) {
   const { discover, enrich } = view
 
   // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
@@ -166,6 +168,8 @@ export default function EngineRail({ view, intelligence, intelligenceMs, noNewBu
           value="Ready to explore"
           sub="Open a business for its profile"
         />
+      ) : availability ? (
+        <RailItem name="Business Profiles" shortName="Profiles" tone="separate" value={availability.value} sub={availability.sub} />
       ) : (
         // A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words.
         <RailItem

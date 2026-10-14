@@ -40,7 +40,7 @@ export async function POST(request: Request, context: { params: Promise<{ runId:
     return NextResponse.json({ ok: false, error: decision.reason, message: RETRY_REFUSAL_TEXT[decision.reason] }, { status: decision.reason === 'unavailable' ? 503 : 409 })
   }
 
-  const requeued = await requeueFailedItem(admin, { runId, leadId, userId: profile.id, queueId: decision.queueId, retryCount: decision.retryCount })
+  const requeued = await requeueFailedItem(admin, { runId, leadId, userId: profile.id, queueId: decision.queueId, retryCount: decision.retryCount, grant: decision.grant })
   if (!requeued) return NextResponse.json({ ok: false, error: 'already_requested', message: RETRY_REFUSAL_TEXT.already_requested }, { status: 409 })
 
   const origin = new URL(request.url).origin

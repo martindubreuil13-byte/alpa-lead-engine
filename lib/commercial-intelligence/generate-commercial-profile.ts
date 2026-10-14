@@ -2,6 +2,7 @@ import { openai } from '@/lib/ai/openai'
 
 import {
   OPENAI_PROFILE_REQUEST_OPTIONS,
+  estimateProfileCost,
   generateProfileFromEvidence,
   type ProfileCompletion,
 } from './commercial-profile-core'
@@ -100,6 +101,4 @@ function failure(
   }
 }
 
-function estimateTokenCost(inputTokens: number, outputTokens: number) {
-  return inputTokens * 0.00000015 + outputTokens * 0.0000006
-}
+const estimateTokenCost = estimateProfileCost

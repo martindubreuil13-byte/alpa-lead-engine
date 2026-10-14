@@ -213,6 +213,8 @@ export type LeadDossier = {
   website: StoredWebsiteFacts | null
   /** The short profile written during the free trial (Phase 7); null when none was kept. Paid Business Intelligence below always takes precedence. */
   lightProfile: LightProfile | null
+  /** Plan-aware wording for a business that has no profile, set by the route for a free member; absent otherwise. */
+  researchNote?: string | null
   contact: {
     name: string | null
     email: string | null

@@ -30,6 +30,7 @@ import { getDiscoverCapacity, saveDiscoverResults, type DiscoverCapacity } from 
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
 import { authorizeResearchRun, isRunAuthorizationEnabled } from '@/lib/commercial-intelligence/run-authorization'
 import { kickResearch } from '@/lib/commercial-intelligence/kick-research'
+import { isEntitledToAutomaticResearch } from '@/lib/commercial-intelligence/research-entitlement'
 import { findExistingOwnerLeadId, isPrivatePreviewWorkerRequest } from '@/lib/commercial-intelligence/private-preview'
 
 export const runtime = 'nodejs'
@@ -1379,7 +1380,8 @@ export async function POST(req: Request) {
         // B2 Phase 1: authorize research for exactly the businesses this run saved. It happens AFTER the results were
         // sent, so it can never delay them; it never throws; and with CI_RUN_AUTHORIZATION_ENABLED off (the default)
         // nothing here runs and Discover behaves exactly as before.
-        if (isRunAuthorizationEnabled() && !isGuestMode && config.accounting && config.userId && finalResult.addedCount > 0) {
+        // Automatic research is a paid-plan feature: a free or lapsed member's run is saved but never authorized.
+        if (isRunAuthorizationEnabled() && !isGuestMode && isEntitledToAutomaticResearch(authenticatedPlan) && config.accounting && config.userId && finalResult.addedCount > 0) {
           const authorization = await authorizeResearchRun(createAdminClient(), {
             runId: config.accounting.runId,
             userId: config.userId,

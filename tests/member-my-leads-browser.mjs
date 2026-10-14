@@ -55,6 +55,7 @@ const dossier = (id, over = {}) => ({ok: true, lead: {
 
 const results = []
 async function scenario(name, device, fn, extra = {}) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return
   PROFILE = {...BASE_PROFILE, ...(extra.profile ?? {})}
   state.leadCount = extra.leadCount ?? 0
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
@@ -210,6 +211,32 @@ await scenario('when the business also has an AI profile, both are shown and lab
   await region.getByText('Residential plumbing repairs and installations.').waitFor()
   await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-ai-and-website.png'})
 }, {dossier: (id) => dossier(id, {website: stored})})
+
+const FREE_NOTE = 'Automatic business profiles are included with paid plans. Your saved businesses, and any profile already written, stay available.'
+const savedLight = {version: 1, summary: 'Clinique Laval is a family dental clinic in Laval. According to its website, it offers teeth whitening and implants for both children and adults across the city.', tags: ['Teeth whitening', 'Implants'], generated_at: '2026-10-14T00:00:00Z', model: 'gpt-4o-mini'}
+
+await scenario('free member\'s dossier (the route adds the note): a business without a profile says automatic profiles come with paid plans, and nothing is hidden', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  const region = page.getByRole('region', {name: /details/})
+  await region.getByText(FREE_NOTE).waitFor()
+  await region.getByText('Family dental care in Laval since 1998.').waitFor()
+  assert.equal(await region.getByText(/available separately/i).count(), 0)
+}, {dossier: imported({researchNote: FREE_NOTE})})
+
+await scenario('after a downgrade the saved profile stays: summary, tags and the website information behind a disclosure', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  const region = page.getByRole('region', {name: /details/})
+  await region.getByText(/is a family dental clinic in Laval/).waitFor()
+  await region.getByRole('list', {name: 'Services'}).getByText('Teeth whitening').waitFor()
+  assert.equal(await region.getByText('Family dental care in Laval since 1998.').isVisible(), false, 'collapsed behind the disclosure')
+  await region.getByText('View original website information').click()
+  await region.getByText('Family dental care in Laval since 1998.').waitFor()
+  assert.equal(await region.getByText(FREE_NOTE).count(), 0, 'no "no profile" note next to a profile that exists')
+}, {dossier: imported({lightProfile: savedLight, researchNote: FREE_NOTE})})
 
 await scenario('members on a phone see the imported facts inline as well', 'phone', async (page) => {
   await page.goto(base + '/dashboard/my-leads')

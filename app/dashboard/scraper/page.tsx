@@ -40,6 +40,7 @@ import {
   writeStoredUsage,
 } from '@/lib/usage/usage'
 import { buildLeadCsv } from '@/lib/leads/csv'
+import { audienceFor, describeResearchAvailability } from '@/lib/intelligence/availability'
 import { withIntelligence } from '@/lib/intelligence/row-intelligence'
 import { describeProfileNote } from '@/lib/intelligence/run-progress'
 import { computeRunElapsed } from '@/lib/intelligence/run-clock'
@@ -449,6 +450,12 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
     : null
   // Business Intelligence (B2 Phase 1): the server's real state for this run, refreshed while anything is unresolved.
   const research = useResearchProgress({ runId: researchRunId, enabled: isAuthenticated && !privatePreview })
+  // What the third stage says when no research run is being followed: plan-aware, and never "available separately" for a plan that includes it.
+  const researchAvailability = describeResearchAvailability({
+    audience: audienceFor({ isGuest, paidAccess: isAdmin(profile) || isPaid(profile) || isAdminPlan(plan) || isPaidPlan(plan) }),
+    searchSettled: completionResult !== null,
+    authorized: Boolean(researchRunId),
+  })
   // The run stopwatch needs a tick of its own once the search has ended, for as long as Business Intelligence is live.
   const researchLive = Boolean(research?.stage?.live)
   useEffect(() => {
@@ -1326,6 +1333,7 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
             footnote="Times are measured in your browser."
             rootRef={engineRef}
             intelligence={research?.stage ?? null}
+            availability={researchAvailability.rail}
             runElapsed={runElapsed}
             outcome={searchOutcome}
           />

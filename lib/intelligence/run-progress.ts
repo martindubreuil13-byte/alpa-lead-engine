@@ -1,3 +1,5 @@
+import { isRecoverableFailure } from './retry-eligibility.ts'
+
 // What the customer is told about Business Intelligence for one Discover run.
 //
 // Everything here is a pure function of rows the server has confirmed (the database's own progress function plus the
@@ -209,15 +211,19 @@ export function describeProfileNote(stage: IntelligenceStage | null | undefined)
 // Customer-safe reasons (the stored error text is internal and is never shown as is)
 // ---------------------------------------------------------------------------------------------
 
-export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website' | null
+export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website' | 'expired' | 'unreadable' | null
 
 export function toProfileReason(state: ProfileState, lastError: string | null | undefined, initialState?: string | null): ProfileReason {
   if (state === 'cancelled') return 'cancelled'
+  // A run that expired before a business was researched is closed by reconciliation: it is neither a failure nor a cancellation.
+  if (lastError && /^run expired/i.test(lastError)) return 'expired'
   // The database reports both as unavailable; the run's own record says which it was.
   if (state === 'unavailable' && initialState === 'unavailable_no_website') return 'no_website'
   if (state === 'unavailable' && (initialState === 'skipped_limit' || initialState === 'skipped_existing')) return 'run_limit'
   if (state !== 'failed' && state !== 'partial') return null
   if (lastError && /budget_exhausted/i.test(lastError)) return 'budget'
+  // A website that is blocked, missing, too large or unreadable will not change by trying again; say so instead of 'failed'.
+  if (lastError && !isRecoverableFailure(lastError)) return 'unreadable'
   return 'research_failed'
 }
 
@@ -326,7 +332,10 @@ export function deriveLeadProfileState(
   switch (job.status) {
     case 'processing': return 'researching'
     case 'pending': return (job.retry_count ?? 0) > 0 ? 'retry_pending' : 'queued'
-    case 'failed': return /^cancelled/i.test(job.last_error ?? '') ? 'cancelled' : 'failed'
+    case 'failed':
+      if (/^cancelled/i.test(job.last_error ?? '')) return 'cancelled'
+      // Closed because its run expired before it started: not a failure of the business or the website.
+      return /^run expired/i.test(job.last_error ?? '') ? 'unavailable' : 'failed'
     default: return 'not_started'
   }
 }
