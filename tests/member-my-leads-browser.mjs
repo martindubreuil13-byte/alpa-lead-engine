@@ -61,7 +61,7 @@ async function scenario(name, device, fn, extra = {}) {
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone' ? {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 3} : {viewport: {width: 1280, height: 900}})
   const session = {access_token: 'aaa.bbb.ccc', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, refresh_token: 'r', user: USER}
-  await context.addCookies([{name: 'sb-localhost-auth-token', value: 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64url'), url: base}])
+  if (!extra.anonymous) await context.addCookies([{name: 'sb-localhost-auth-token', value: 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64url'), url: base}])
   const requests = []
   stubLog.length = 0
   await context.route('**/*', async (route) => {
@@ -288,6 +288,38 @@ await scenario('member whose plan lookup hits an unreachable Stripe: My Leads st
   const blocked = (await import('node:fs')).readFileSync(BLOCK_LOG, 'utf8')
   assert.ok(blocked.trim().length > 0, 'the plan lookup really was attempted and refused')
 }, {profile: {...FREE, stripe_customer_id: 'cus_unreachable'}})
+
+// ---- the account-first checkout journey, in a real browser, signed out
+await scenario('signed out: choosing a plan carries the plan to sign-up, and the choice is kept for the sign-in that follows', 'desktop', async (page) => {
+  await page.goto(base + '/plans')
+  await page.getByRole('button', {name: /Start Prospecting|Start Building/}).first().click()
+  await page.waitForURL(/\/login\?mode=signup&plan=(prospector|starter)&source=/, {timeout: 60000})
+  const plan = new URL(page.url()).searchParams.get('plan')
+  assert.ok(['prospector', 'starter'].includes(plan))
+  const kept = await page.evaluate(() => window.localStorage.getItem('alpa_pending_checkout'))
+  assert.ok(kept && JSON.parse(kept).plan === plan, 'the plan is also kept in the browser')
+  // a later visit to plain /login (after confirming the email) still remembers the plan: the sign-in will continue to checkout
+  await page.goto(base + '/login')
+  assert.equal(JSON.parse(await page.evaluate(() => window.localStorage.getItem('alpa_pending_checkout'))).plan, plan)
+}, {anonymous: true})
+
+await scenario('signed in with a plan chosen earlier: the hand-over page asks the server once and shows a calm message if checkout cannot start', 'desktop', async (page, requests) => {
+  let posts = 0
+  await page.route('**/api/checkout', async (route) => { posts += 1; return route.fulfill({status: 500, json: {error: 'Unable to start checkout'}}) })
+  await page.goto(base + '/checkout/start?plan=prospector&source=plans_featured')
+  await page.getByText('We could not start checkout').waitFor({timeout: 60000})
+  await page.getByText('Unable to start checkout', {exact: true}).waitFor()
+  await page.getByRole('link', {name: 'Back to plans'}).waitFor()
+  await new Promise((r) => setTimeout(r, 1500))
+  assert.equal(posts, 1, 'one request, no retry loop')
+}, {})
+
+await scenario('signed in and already subscribed: the hand-over page sends the customer to billing instead of a second checkout', 'desktop', async (page) => {
+  await page.route('**/api/checkout', (route) => route.fulfill({status: 409, json: {error: 'You already have a subscription.', code: 'already_subscribed'}}))
+  await page.route('**/dashboard/billing', (route) => route.fulfill({contentType: 'text/html', body: '<h1>billing-page</h1>'}))
+  await page.goto(base + '/checkout/start?plan=starter')
+  await page.waitForURL('**/dashboard/billing', {timeout: 60000})
+}, {})
 
 await scenario('after a downgrade the saved profile stays: summary, tags and the website information behind a disclosure', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/my-leads')

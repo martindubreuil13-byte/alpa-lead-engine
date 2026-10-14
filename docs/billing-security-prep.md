@@ -50,3 +50,21 @@ by checkout. Covered by `guest-flow-integration`, `guest-signup-continuity` and 
 - Stripe test-mode walkthrough of the five checkout scenarios (owner, foreign session, stale session, second checkout, existing account with leads) has not been run; it needs Stripe test mode and a test account.
 - The Stripe SDK's own retries (it retried twice in the outage harness) continue in the background after the page has already answered.
 - Deploying this branch changes the sign-up-to-pay funnel (account first); confirm that is wanted.
+
+## 5. Account-first journey (final validation)
+
+Approved journey: choose plan, create or open an account, guest businesses come across, straight on to the selected Stripe checkout,
+pay, return to ALPA, activate, paid features.
+
+Gaps found by tracing the real code, and fixed (only what the journey needs):
+
+| Gap | Fix |
+|---|---|
+| The plan was dropped: a signed-out click on a plan went to `/login?mode=signup` with nothing else | The plan and source travel in the address and in the browser for a day (`lib/checkout/pending-plan.ts`) |
+| After sign-up or sign-in the visitor always landed on the dashboard, never on checkout | Every way of finishing sign-up or sign-in (including the confirm-your-email round trip) now continues to `/checkout/start`, after the guest businesses have been claimed |
+| No step existed between "account ready" and Stripe | `app/checkout/start/page.tsx` asks the server once for the checkout address (the server verifies the account); 401 goes back to sign-in, "already subscribed" goes to billing, any error shows a calm message and one link back to plans |
+| Coming back from payment while signed out sent the customer to a plain login, losing the payment | The login link carries the payment page (`?next=/post-checkout?session_id=...`), limited to exactly that path shape |
+
+Verification: `tests/checkout-funnel.test.mjs` (5), `tests/billing-journey.test.mjs` (9, the real routes against an offline model of Stripe and the
+database; mutation-checked: breaking the ownership check or the duplicate-subscription check makes tests 3 and 5 fail), and 4 new member browser scenarios.
+**Not Stripe test mode**: no test-mode credentials, products or isolated database exist in this environment (see the release report).

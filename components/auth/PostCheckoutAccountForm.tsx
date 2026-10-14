@@ -9,6 +9,7 @@ import { trackEvent as trackGaEvent } from '@/lib/analytics/ga'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { trackEvent } from '@/lib/track'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
+import { loginForPaymentHref } from '@/lib/checkout/pending-plan'
 
 export default function PostCheckoutAccountForm() {
   const router = useRouter()
@@ -141,7 +142,7 @@ export default function PostCheckoutAccountForm() {
       ) : needsLogin ? (
         <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-200">
           Log in to the account you paid from to finish unlocking your plan.{' '}
-          <Link href="/login" className="font-medium text-cyan-200 transition hover:text-white">
+          <Link href={loginForPaymentHref(`/post-checkout?session_id=${sessionId}`)} className="font-medium text-cyan-200 transition hover:text-white">
             Log in
           </Link>
         </div>

@@ -8,6 +8,7 @@ import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
+import { parseCheckoutSource, savePendingCheckout, signupHref } from '@/lib/checkout/pending-plan'
 
 type CheckoutPlan = 'starter' | 'prospector'
 
@@ -73,7 +74,9 @@ export default function StartCheckoutButton({
     // Checkout belongs to an account: a visitor creates one (or logs in) first, then returns to choose a plan.
     if (!isAuthenticated) {
       if (normalizedEmail) saveGuestCaptureEmail(normalizedEmail)
-      window.location.href = '/login?mode=signup'
+      // The chosen plan travels with the visitor (in the address and in the browser) so signing up or in continues to checkout.
+      try { savePendingCheckout(window.localStorage, { plan, source: parseCheckoutSource(source) }) } catch { /* the address carries it */ }
+      window.location.href = signupHref(plan, source)
       return
     }
 
@@ -112,7 +115,7 @@ export default function StartCheckoutButton({
       const data = await res.json().catch(() => null)
 
       if (res.status === 401) {
-        window.location.href = '/login'
+        window.location.href = signupHref(plan, source)
         return
       }
 
