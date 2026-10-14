@@ -58,6 +58,40 @@ export default function DossierView({
 }) {
   const { what, contact } = model
   const { ai, site } = what
+  const collapseSite = Boolean(ai?.collapseSite && site)
+  const siteBody = site ? (
+    <>
+      {ai ? <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#5b6372]">From their website</p> : null}
+      {site.text ? (
+        <p className={cn('max-w-prose leading-7 text-[#243049]', ai ? 'text-sm' : 'text-[0.95rem]')}>{site.text}</p>
+      ) : site.titleLine ? (
+        <p className="max-w-prose text-sm leading-6 text-[#243049]">Their website is titled “{site.titleLine}”.</p>
+      ) : null}
+      {site.text && !ai ? <p className={`text-xs ${MUTED}`}>From their website</p> : null}
+      {site.topics.length ? (
+        <div className="space-y-1.5">
+          <p className={`text-xs ${MUTED}`}>{site.topicsLabel}</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {site.topics.map((topic) => (
+              <li key={topic} className="rounded-full border border-[#d9d3c4] px-2.5 py-0.5 text-xs text-[#3b4455]">{topic}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {site.sources.length ? (
+        <p className={`text-xs ${MUTED}`}>
+          Source:{' '}
+          {site.sources.map((source, index) => (
+            <span key={source.url}>
+              {index > 0 ? ' · ' : ''}
+              <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-[#0b1a33] md:min-h-[32px]">{source.label}</a>
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {site.caveat ? <p className={`text-xs ${MUTED}`}>{site.caveat}</p> : null}
+    </>
+  ) : null
   return (
     <div className="space-y-7">
       <div className={cn('grid gap-x-10 gap-y-7', layout === 'inline' && 'md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)_minmax(0,1fr)]')}>
@@ -92,37 +126,23 @@ export default function DossierView({
             </p>
           ) : null}
           {site ? (
-            <div className={cn('space-y-1.5', ai && 'border-t border-[#d9d3c4]/70 pt-3')}>
-              {ai ? <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#5b6372]">From their website</p> : null}
-              {site.text ? (
-                <p className={cn('max-w-prose leading-7 text-[#243049]', ai ? 'text-sm' : 'text-[0.95rem]')}>{site.text}</p>
-              ) : site.titleLine ? (
-                <p className="max-w-prose text-sm leading-6 text-[#243049]">Their website is titled “{site.titleLine}”.</p>
-              ) : null}
-              {site.text && !ai ? <p className={`text-xs ${MUTED}`}>From their website</p> : null}
-              {site.topics.length ? (
-                <div className="space-y-1.5">
-                  <p className={`text-xs ${MUTED}`}>{site.topicsLabel}</p>
-                  <ul className="flex flex-wrap gap-1.5">
-                    {site.topics.map((topic) => (
-                      <li key={topic} className="rounded-full border border-[#d9d3c4] px-2.5 py-0.5 text-xs text-[#3b4455]">{topic}</li>
-                    ))}
-                  </ul>
+            collapseSite ? (
+              // A free-trial profile usually restates the website's description, so the website's own words wait behind a quiet
+              // disclosure (native details: keyboard, focus and screen-reader state come with it). Nothing is fetched or generated here.
+              <details className="group border-t border-[#d9d3c4]/70 pt-1">
+                <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center rounded text-xs text-[#5b6372] underline-offset-4 outline-none hover:text-[#0b1a33] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7a5f27] md:min-h-[32px] [&::-webkit-details-marker]:hidden">
+                  <span className="group-open:hidden">View original website information</span>
+                  <span className="hidden group-open:inline">Hide original website information</span>
+                </summary>
+                <div className="space-y-1.5 pt-2">
+                  {siteBody}
                 </div>
-              ) : null}
-              {site.sources.length ? (
-                <p className={`text-xs ${MUTED}`}>
-                  Source:{' '}
-                  {site.sources.map((source, index) => (
-                    <span key={source.url}>
-                      {index > 0 ? ' · ' : ''}
-                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-[#0b1a33] md:min-h-[32px]">{source.label}</a>
-                    </span>
-                  ))}
-                </p>
-              ) : null}
-              {site.caveat ? <p className={`text-xs ${MUTED}`}>{site.caveat}</p> : null}
+              </details>
+            ) : (
+            <div className={cn('space-y-1.5', ai && 'border-t border-[#d9d3c4]/70 pt-3')}>
+              {siteBody}
             </div>
+            )
           ) : null}
           {!ai && what.aiNote ? <p className={`text-xs ${MUTED}`}>{what.aiNote}</p> : null}
           {!ai && !site ? <p className={`text-sm ${MUTED}`}>{what.empty}</p> : null}

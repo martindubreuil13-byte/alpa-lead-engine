@@ -837,6 +837,102 @@ await scenario('while a search runs, the third stage reads "Ready to explore", n
   },
 })
 
+// ---- Phase 7.1: the website's own words wait behind a disclosure once a profile exists
+const WEBSITE_WORDS = 'Family dental care in Laval: teeth whitening'
+const DISCLOSURE = 'View original website information'
+
+await scenario('phone: with a profile, the website information is collapsed and opens and closes without asking the AI again', {
+  session: () => after([richLead]),
+  profile: profileReply(100),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText(/is a family dental clinic in Laval/).waitFor()
+    await sheet.getByText('Written by AI from their website. Not independently verified.').waitFor()
+    const control = sheet.getByText(DISCLOSURE)
+    await control.waitFor()
+    assert.equal(await sheet.getByText(WEBSITE_WORDS).isVisible(), false, 'collapsed by default')
+    assert.equal(await sheet.getByText('Emergency dentistry', {exact: true}).isVisible(), false)
+    const box = await sheet.locator('summary').boundingBox()
+    assert.ok(box.height >= 40, `the control is ${Math.round(box.height)}px tall`)
+    await page.screenshot({path: `${shots}/results-phone-profile-collapsed.png`})
+    await control.click()
+    await sheet.getByText(WEBSITE_WORDS).waitFor()
+    await sheet.getByText('Emergency dentistry', {exact: true}).waitFor()
+    await sheet.getByText(/These are statements from the business website/).waitFor()
+    assert.ok((await sheet.locator('a[href="https://b1.ca/"]').count()) >= 1, 'source website')
+    await sheet.getByText('Hide original website information').waitFor()
+    assert.ok(await noHorizontalScroll(page))
+    await page.screenshot({path: `${shots}/results-phone-profile-expanded.png`})
+    await sheet.getByText('Hide original website information').click()
+    await sheet.getByText(WEBSITE_WORDS).waitFor({state: 'hidden'})
+    // keyboard: focus the control and use Enter, then Space
+    await sheet.locator('summary').focus()
+    await page.keyboard.press('Enter'); await sheet.getByText(WEBSITE_WORDS).waitFor()
+    await page.keyboard.press('Space'); await sheet.getByText(WEBSITE_WORDS).waitFor({state: 'hidden'})
+    assert.equal(state.profileCalls, 1, 'expanding and collapsing never asks the AI again')
+  },
+})
+
+await scenario('a failed profile or too little website text keeps the website information visible, with no disclosure', {
+  session: () => after([richLead]),
+  profile: (route) => route.fulfill({status: 502, json: {code: 'failed'}}),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText(/short summary couldn't be written just now/).waitFor()
+    assert.equal(await sheet.getByText(WEBSITE_WORDS).isVisible(), true)
+    assert.equal(await sheet.getByText(DISCLOSURE).count(), 0)
+    assert.equal(state.profileCalls, 1)
+  },
+})
+
+await scenario('insufficient evidence: the website words stay visible and nothing is asked of the AI', {
+  session: () => after([mk(1)]),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText('Family dental care, number 1, in Laval.').waitFor()
+    assert.equal(await sheet.getByText(DISCLOSURE).count(), 0)
+    assert.equal(state.profileCalls ?? 0, 0)
+  },
+})
+
+await scenario('a saved profile shows collapsed immediately after a refresh, with no new request', {
+  session: () => after([{...richLead, light_profile: saved}]),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.reload()
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText(/is a family dental clinic in Laval/).waitFor()
+    assert.equal(await sheet.getByText(WEBSITE_WORDS).isVisible(), false)
+    await sheet.getByText(DISCLOSURE).click(); await sheet.getByText(WEBSITE_WORDS).waitFor()
+    assert.equal(state.profileCalls ?? 0, 0)
+  },
+})
+
+await scenario('desktop: the three columns stay, the profile leads, and the website information collapses and expands', {
+  device: 'desktop',
+  session: () => after([{...richLead, light_profile: saved}]),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    for (const h of ['Who they are', 'What they do', 'How to reach them']) await page.getByRole('heading', {name: h}).waitFor()
+    await page.getByText(/is a family dental clinic in Laval/).waitFor()
+    assert.equal(await page.locator('details').getByText(WEBSITE_WORDS).isVisible(), false)
+    await page.getByText(DISCLOSURE).click()
+    await page.locator('details').getByText(WEBSITE_WORDS).waitFor()
+    await page.screenshot({path: `${shots}/results-desktop-profile-expanded.png`})
+    await page.getByText('Hide original website information').click()
+    await page.locator('details').getByText(WEBSITE_WORDS).waitFor({state: 'hidden'})
+    assert.equal(state.profileCalls ?? 0, 0)
+  },
+})
+
 const failed = results.filter((r) => !r.ok)
 console.log(`\n${results.length - failed.length}/${results.length} scenarios passed`)
 if (failed.length) process.exit(1)

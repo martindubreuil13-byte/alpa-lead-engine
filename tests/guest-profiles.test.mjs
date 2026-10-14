@@ -242,3 +242,13 @@ test('paid Business Intelligence, the research queue and billing are untouched b
   assert.doesNotMatch(route, /commercial-intelligence|enrich|kickResearch|stripe|subscription|checkout/i)
   assert.doesNotMatch(read('lib/guest/light-profile.ts').replace(/^\s*\/\/.*$/gm, ''), /fetch\(|commercial-intelligence|safeFetch/)
 })
+
+test('Phase 7.1: with a free-trial profile the website information collapses; otherwise nothing changes', () => {
+  const view = read('components/my-leads/DossierView.tsx')
+  assert.match(view, /<details className="group/); assert.match(view, /View original website information/); assert.match(view, /Hide original website information/)
+  assert.match(view, /collapseSite = Boolean\(ai\?\.collapseSite && site\)/)
+  assert.doesNotMatch(view.slice(view.indexOf('<details')), /fetch\(|useState|onClick/, 'a native disclosure: no script, no requests')
+  const guest = guestDossierModel({...lead('b1'), light_profile: lib.parseLightProfile(GOOD, lib.profileEvidence(FACTS).text, 'Clinique Laval')})
+  assert.equal(guest.what.ai.collapseSite, true); assert.ok(guest.what.site, 'the website words are still in the model')
+  assert.equal(guestDossierModel(lead('b1')).what.ai, null, 'no profile: the website information stays the visible description')
+})

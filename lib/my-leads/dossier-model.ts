@@ -37,10 +37,12 @@ export type DossierAi = {
   serves: string | null
   /** Short service names from a free-trial profile, shown as tags under the paragraph. */
   tags?: string[]
+  /** The website's own words wait behind a disclosure because this summary already covers them (free-trial profiles only). */
+  collapseSite?: boolean
 }
 
 const aiFromLightProfile = (profile: LightProfile | null): DossierAi | null =>
-  profile ? { text: profile.summary, offers: [], serves: null, tags: profile.tags } : null
+  profile ? { text: profile.summary, offers: [], serves: null, tags: profile.tags, collapseSite: true } : null
 
 export type DossierModel = {
   name: string
