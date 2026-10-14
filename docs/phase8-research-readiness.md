@@ -61,3 +61,8 @@ correctly, fails and retries honestly, survives a downgrade, and is closed to ev
 **Expected cost:** about $0.005-0.01 in AI spend. **Risk:** low and bounded: one allow-listed account, 10 businesses, run cap $0.05, global stop $10, and a one-command disable (runbook step 1).
 
 **Stop conditions:** any charge over $0.01 for the run, any profile for a non-allow-listed account, any lead removed, or a retry offered twice. Disable research (step 1) and report.
+
+## Notes from the pre-deployment gate
+
+- **Offline member harness:** for any non-admin profile the server page resolves the plan through Stripe (`getUserProfile` -> `resolveUserSubscription`). `tests/member-my-leads-browser.mjs` refuses every Stripe request, so My Leads answers 500 for a free or paid profile there (evidence: `StripeConnectionError ... ECONNREFUSED 127.0.0.1:1` in the dev log). The harness therefore uses its admin profile for My Leads scenarios; the free-plan scraper-page scenarios do not hit this because that page resolves the plan on the client.
+- **Production consequence worth knowing:** the same dependency means a Stripe outage can make My Leads and other server-rendered dashboard pages fail for non-admin members. Not changed here (Stripe-adjacent); recommended for a separate review with a database-backed fallback.
