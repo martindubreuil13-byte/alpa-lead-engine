@@ -38,6 +38,8 @@ export async function loadGuestSession(id: string) {
  const { data,error } = await guestDb().from('guest_trials').select('leads,used,attempts,created_at,active_until').eq('id',id).single()
  if(error || !data || Date.parse(data.created_at) < Date.now()-GUEST_MAX_AGE*1000) throw new Error('This trial has expired. Please start again.')
  const { active_until, ...trial } = data
+ // A profile claim is server bookkeeping (it names a private run id); it is never sent to the browser.
+ if (Array.isArray(trial.leads)) trial.leads = trial.leads.map((lead: Record<string, unknown>) => { if (lead && typeof lead === 'object' && 'profile_claim' in lead) { const { profile_claim, ...rest } = lead; return rest } return lead })
  // Whether a search is running now, so a phone that lost its connection can wait for the real outcome. The run id stays private.
  return { ...trial, searching: Boolean(active_until && Date.parse(active_until) > Date.now()) }
 }

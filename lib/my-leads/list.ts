@@ -9,6 +9,7 @@
 // dossier is a separate request made when one business is opened.
 
 import { parseStoredWebsiteFacts, type StoredWebsiteFacts } from '../leads/stored-website-facts.ts'
+import { readStoredLightProfile, type LightProfile } from '../guest/light-profile.ts'
 import { buildProfileCard, deriveLeadProfileState, LEAD_PROFILE_LABEL, toProfileReason, type LeadProfileState, type ProfileCard, type ProfileReason } from '../intelligence/run-progress.ts'
 
 type Client = any
@@ -194,6 +195,7 @@ export async function fetchLeadPage(client: Client, userId: string, params: List
 // ------------------------------------------------------------------------------------------------------------------ dossier
 const DOSSIER_COLUMNS =
   'id, company_name, industry, city, email, phone, website, contact_name, notes, status, pipeline_stage, closed_at, created_at, last_activity_at, source, source_url, email_source, email_confidence, is_generic_email, ci_completed_at, commercial_profile, website_snapshot, business_signals, website_facts'
+const DOSSIER_COLUMNS_WITH_PROFILE = `${DOSSIER_COLUMNS}, light_profile`
 
 export type LeadDossier = {
   id: string
@@ -209,6 +211,8 @@ export type LeadDossier = {
   source: string | null
   /** What the business's own website says, kept from the free trial; apart from the AI profile below. Null when none was kept. */
   website: StoredWebsiteFacts | null
+  /** The short profile written during the free trial (Phase 7); null when none was kept. Paid Business Intelligence below always takes precedence. */
+  lightProfile: LightProfile | null
   contact: {
     name: string | null
     email: string | null
@@ -236,7 +240,11 @@ const list = (value: unknown, max: number): string[] => (Array.isArray(value) ? 
 
 /** One business, in full, only for its owner. Returns null for a missing id and for someone else's id alike. */
 export async function fetchLeadDossier(client: Client, userId: string, id: string): Promise<LeadDossier | null> {
-  const { data: row, error } = await client.from('leads').select(DOSSIER_COLUMNS).eq('id', id).eq('user_id', userId).maybeSingle()
+  let { data: row, error } = await client.from('leads').select(DOSSIER_COLUMNS_WITH_PROFILE).eq('id', id).eq('user_id', userId).maybeSingle()
+  // The profile column is added by an additive migration; until it exists the dossier simply has no free-trial profile.
+  if (error && (error.code === '42703' || /light_profile/.test(error.message || ''))) {
+    ;({ data: row, error } = await client.from('leads').select(DOSSIER_COLUMNS).eq('id', id).eq('user_id', userId).maybeSingle())
+  }
   if (error) throw new Error('Lead could not be read')
   if (!row) return null
 
@@ -257,6 +265,7 @@ export async function fetchLeadDossier(client: Client, userId: string, id: strin
     last_activity_at: row.last_activity_at ?? row.created_at ?? null,
     source: row.source ?? null,
     website: parseStoredWebsiteFacts(row.website_facts),
+    lightProfile: readStoredLightProfile((row as { light_profile?: unknown }).light_profile),
     contact: {
       name: text(row.contact_name),
       email: row.email ?? null,

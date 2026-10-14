@@ -45,12 +45,15 @@ export default function DossierView({
   model,
   onCopy,
   layout = 'inline',
+  profileState = null,
   children,
 }: {
   model: DossierModel
   onCopy: (text: string, label: string) => void
   /** "sheet" is the phone presentation: the three sections stack, and the business name is the sheet's own title. */
   layout?: 'inline' | 'sheet'
+  /** A free-trial profile being written, or one that could not be: shown as one quiet line; the website's own words stay visible. */
+  profileState?: 'loading' | 'failed' | null
   children?: React.ReactNode
 }) {
   const { what, contact } = model
@@ -75,7 +78,18 @@ export default function DossierView({
               <p className={`text-xs ${MUTED}`}>Written by AI from their website. Not independently verified.</p>
               {ai.offers.length ? <p className="text-sm text-[#243049]"><span className={MUTED}>Offers </span>{ai.offers.join(' · ')}</p> : null}
               {ai.serves ? <p className="text-sm text-[#243049]"><span className={MUTED}>Serves </span>{ai.serves}</p> : null}
+              {ai.tags?.length ? (
+                <ul aria-label="Services" className="flex flex-wrap gap-1.5 pt-0.5">
+                  {ai.tags.map((tag) => (
+                    <li key={tag} className="rounded-full border border-[#d9d3c4] px-2.5 py-0.5 text-xs text-[#3b4455]">{tag}</li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
+          ) : profileState ? (
+            <p role="status" aria-live="polite" className={`text-xs ${MUTED}`}>
+              {profileState === 'loading' ? 'Writing a short summary…' : "A short summary couldn't be written just now. Open this business again to retry."}
+            </p>
           ) : null}
           {site ? (
             <div className={cn('space-y-1.5', ai && 'border-t border-[#d9d3c4]/70 pt-3')}>

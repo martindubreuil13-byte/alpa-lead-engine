@@ -13,6 +13,8 @@ type EngineRailProps = {
   intelligenceMs?: number | null
   /** Every business found was already in My Leads, so there is nothing new to research. */
   noNewBusinesses?: boolean
+  /** Free trial: a short profile is written when a business is opened, so the third stage is ready rather than unavailable. */
+  profilesOnDemand?: boolean
 }
 
 type RailTone = 'active' | 'complete' | 'upcoming' | 'separate'
@@ -92,7 +94,7 @@ function RailItem({
 // The slim stage map beneath the focal area. It is deliberately quiet: small type, hairlines, no
 // large numbers. The active stage is marked by a gold hairline; completed stages stay as small
 // facts; Business Profiles are stated honestly as a separate step, never as part of this search.
-export default function EngineRail({ view, intelligence, intelligenceMs, noNewBusinesses }: EngineRailProps) {
+export default function EngineRail({ view, intelligence, intelligenceMs, noNewBusinesses, profilesOnDemand }: EngineRailProps) {
   const { discover, enrich } = view
 
   // Progress toward the requested amount; extra candidates evaluated along the way are activity, not progress.
@@ -154,6 +156,15 @@ export default function EngineRail({ view, intelligence, intelligenceMs, noNewBu
           tone="complete"
           value="No new businesses to research."
           origin="origin-right"
+        />
+      ) : profilesOnDemand ? (
+        // Free trial: a short profile is written when a business is opened, so this is ready to be explored, not unavailable.
+        <RailItem
+          name="Business Profiles"
+          shortName="Profiles"
+          tone="separate"
+          value="Ready to explore"
+          sub="Open a business for its profile"
         />
       ) : (
         // A separate capability, not a step this search is waiting on: no number, a dashed rule, and plain words.

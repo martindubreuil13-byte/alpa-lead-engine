@@ -23,7 +23,7 @@ const results = []
 const fresh = () => ({leads: [], used: 0, attempts: 0, searching: false})
 const after = (leads) => ({leads, used: leads.length, attempts: 1, searching: false})
 
-async function scenario(name, {device = 'phone', hostile = false, session = () => fresh(), scrape, delayMs = 0, feedback = {}, fn}) {
+async function scenario(name, {device = 'phone', hostile = false, session = () => fresh(), scrape, delayMs = 0, feedback = {}, profile, fn}) {
   if (process.env.ONLY && !name.includes(process.env.ONLY)) return
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone'
@@ -57,6 +57,11 @@ async function scenario(name, {device = 'phone', hostile = false, session = () =
       if (fb.fail) return route.fulfill({status: fb.status, json: {error: fb.status === 410 ? 'This trial has expired.' : 'Your feedback could not be saved right now.'}})
       fb.stored = {answer: body.answer, hasComment: Boolean(body.comment) || Boolean(fb.stored?.hasComment)}
       return route.fulfill({json: {ok: true, feedback: fb.stored}})
+    }
+    if (url.pathname === '/api/guest/profile') {
+      state.profileCalls = (state.profileCalls ?? 0) + 1
+      state.profileBody = route.request().postDataJSON()
+      return (profile ?? ((r) => r.fulfill({status: 503, json: {code: 'unavailable'}})))(route, state)
     }
     if (url.pathname === '/api/guest/export') return route.fulfill({contentType: 'text/csv', headers: {'Content-Disposition': 'attachment; filename="alpa-businesses.csv"'}, body: 'a,b\n1,2\n'})
     if (url.pathname === '/api/track') { try { telemetry.push(route.request().postDataJSON()) } catch {} return route.fulfill({json: {}}) }
@@ -743,6 +748,92 @@ await scenario('the allowance-exhausted upgrade moment stays separate: no questi
     await page.goto(base + '/trial')
     await upgradeHeading(page).waitFor()
     assert.equal(await question(page).count(), 0)
+  },
+})
+
+// ---- Phase 7: a short profile when a business is opened
+const richFacts = {title: 'Clinique Laval | Family dental care', description: 'Family dental care in Laval: teeth whitening, dental implants, orthodontics and emergency dentistry for children and adults.', headings: ['Teeth whitening', 'Dental implants', 'Orthodontics', 'Emergency dentistry'], source_urls: ['https://b1.ca/']}
+const richLead = {...mk(1), website_intelligence: richFacts}
+const saved = {version: 1, summary: 'Clinique Laval is a family dental clinic in Laval. According to its website, it offers teeth whitening, dental implants, orthodontics and emergency dentistry for both children and adults.', tags: ['Teeth whitening', 'Dental implants', 'Orthodontics'], generated_at: '2026-10-14T00:00:00Z', model: 'gpt-4o-mini'}
+const profileReply = (delay) => async (route) => { await new Promise((r) => setTimeout(r, delay)); return route.fulfill({json: {profile: saved, cached: false}}) }
+
+await scenario('phone: opening a business shows a quiet loading line, then a short profile with service tags, inside the sheet', {
+  session: () => after([richLead]),
+  profile: profileReply(900),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText('Writing a short summary…').waitFor()
+    assert.equal(await sheet.getByText('Family dental care in Laval: teeth whitening').count(), 1, "the website's own words stay visible while it loads")
+    await sheet.getByText(/is a family dental clinic in Laval/).waitFor()
+    await sheet.getByText('Written by AI from their website. Not independently verified.').waitFor()
+    for (const tag of ['Teeth whitening', 'Dental implants', 'Orthodontics']) await sheet.getByRole('list', {name: 'Services'}).getByText(tag).waitFor()
+    assert.equal(await sheet.getByText('Writing a short summary…').count(), 0)
+    for (const h of ['Who they are', 'What they do', 'How to reach them']) await sheet.getByRole('heading', {name: h}).waitFor()
+    assert.equal(state.profileCalls, 1); assert.equal(state.profileBody.leadId, 'b-1')
+    assert.ok(await noHorizontalScroll(page))
+    await page.screenshot({path: `${shots}/results-phone-profile.png`})
+    await page.getByRole('button', {name: /close/i}).first().click().catch(() => {})
+  },
+})
+
+await scenario('phone: a failed profile says so quietly, keeps the website words, and the next open tries again', {
+  session: () => after([richLead]),
+  profile: (route) => route.fulfill({status: 502, json: {code: 'failed'}}),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    const sheet = page.getByRole('dialog')
+    await sheet.getByText(/short summary couldn't be written just now/).waitFor()
+    assert.equal(await sheet.getByRole('alert').count(), 0, 'not an alarm')
+    await sheet.getByText('Family dental care in Laval: teeth whitening').waitFor()
+    assert.equal(state.profileCalls, 1)
+  },
+})
+
+await scenario('a business with too little website text asks for no profile and shows no loading line', {
+  session: () => after([mk(1)]),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    await page.getByRole('dialog').getByText('Family dental care, number 1, in Laval.').waitFor()
+    assert.equal(await page.getByText('Writing a short summary…').count(), 0)
+    assert.equal(state.profileCalls ?? 0, 0)
+  },
+})
+
+await scenario('a saved profile is shown at once after a refresh, without asking again', {
+  session: () => after([{...richLead, light_profile: saved}]),
+  fn: async (page, {state}) => {
+    await page.goto(base + '/trial/results')
+    await page.reload()
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    await page.getByRole('dialog').getByText(/is a family dental clinic in Laval/).waitFor()
+    assert.equal(state.profileCalls ?? 0, 0)
+  },
+})
+
+await scenario('desktop: the profile appears inside the open row, keeping Who / What / How', {
+  device: 'desktop',
+  session: () => after([richLead]),
+  profile: profileReply(100),
+  fn: async (page) => {
+    await page.goto(base + '/trial/results')
+    await page.getByRole('button', {name: /Fixture Business 1/}).first().click()
+    await page.getByText(/is a family dental clinic in Laval/).waitFor()
+    await page.getByRole('list', {name: 'Services'}).getByText('Dental implants').waitFor()
+    await page.screenshot({path: `${shots}/results-desktop-profile.png`})
+  },
+})
+
+await scenario('while a search runs, the third stage reads "Ready to explore", not "Available separately"', {
+  scrape: (route) => new Promise(() => {}),
+  fn: async (page) => {
+    await page.goto(base + '/trial')
+    await search(page)
+    await page.getByText('Ready to explore').first().waitFor()
+    assert.equal(await page.getByText('Available separately').count(), 0)
   },
 })
 

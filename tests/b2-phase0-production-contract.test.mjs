@@ -32,7 +32,7 @@ test('every RPC the application calls exists in production, with exactly the par
       seen.add(name)
       if (contract.outOfScope.includes(name)) continue
       // production today, or the Phase 1 proposal (the application calls those only behind switches that are OFF)
-      const known = contract.functions[name] ?? contract.proposedPhase1[name]
+      const known = contract.functions[name] ?? contract.proposedPhase1[name] ?? contract.proposedGuestProfiles?.[name]
       assert.ok(known, `${file} calls ${name}, which is in neither the production contract nor the Phase 1 proposal`)
       if (argument?.startsWith('{')) {
         const keys = [...argument.matchAll(/\b(p_[a-z_]+)\b\s*[:,}]/g)].map((entry) => entry[1])

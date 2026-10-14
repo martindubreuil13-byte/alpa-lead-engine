@@ -7,6 +7,8 @@ export const GUEST_CAPTURE_EMAIL_STORAGE_KEY = 'alpa_guest_capture_email'
 export const GUEST_LEADS_UPDATED_EVENT = 'alpa:guest-leads-updated'
 
 export type TrialLead = {
+  /** A short AI profile generated when the visitor opened this business (Phase 7); absent until then. */
+  light_profile?: import('./guest/light-profile').LightProfile | null
   website_intelligence?: import('./guest/website-facts').WebsiteFacts | null
   id: string
   company_name: string

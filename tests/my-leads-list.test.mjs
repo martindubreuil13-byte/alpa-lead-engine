@@ -186,7 +186,7 @@ test('another customer is never visible: not in any page, filter, count or summa
 
 test('every read names the owner, and the customer endpoints use the customer session only (no service role)', () => {
   const list = readFileSync('lib/my-leads/list.ts', 'utf8')
-  assert.equal((list.match(/\.eq\('user_id', userId\)/g) ?? []).length, 5) // jobs, counts, page, dossier, export
+  assert.equal((list.match(/\.eq\('user_id', userId\)/g) ?? []).length, 6) // jobs, counts, page, dossier (twice: with and without the optional profile column), export
   assert.match(list, /\.select\(EXPORT_COLUMNS\)\.eq\('user_id', userId\)\.in\('id'/) // the export names the owner too
   assert.match(list, /\.eq\('id', id\)\.eq\('user_id', userId\)/)
   for (const file of ['lib/my-leads/list.ts', 'lib/my-leads/params.ts', 'app/api/my-leads/route.ts', 'app/api/my-leads/[id]/route.ts', 'app/api/my-leads/export/route.ts']) {

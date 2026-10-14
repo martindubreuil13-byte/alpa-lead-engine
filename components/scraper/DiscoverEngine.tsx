@@ -27,6 +27,8 @@ type DiscoverEngineProps = {
   onStop?: () => void
   /** Small print shown inside the expanded activity history. */
   footnote?: string
+  /** Free trial: profiles are written when a business is opened (see EngineRail). */
+  profilesOnDemand?: boolean
   /** The root element, so the page can scroll to it and tell whether focus is inside it. */
   rootRef?: MutableRefObject<HTMLElement | null>
   /** What the finished search did, from the save receipt's counts. Absent for guests and while searching. */
@@ -106,6 +108,7 @@ export default function DiscoverEngine({
   settledNote,
   onStop,
   footnote,
+  profilesOnDemand,
   rootRef,
   intelligence,
   runElapsed,
@@ -316,7 +319,7 @@ export default function DiscoverEngine({
       </div>
 
       {/* In search, the stage above is the only focus; the rail is a quiet footnote to it. */}
-      <EngineRail view={view} intelligence={intelligence} intelligenceMs={runElapsed?.intelligenceMs ?? null} noNewBusinesses={allDuplicates} />
+      <EngineRail view={view} intelligence={intelligence} intelligenceMs={runElapsed?.intelligenceMs ?? null} noNewBusinesses={allDuplicates} profilesOnDemand={profilesOnDemand} />
 
       {settled ? null : (
         <div className="mt-8 space-y-4">

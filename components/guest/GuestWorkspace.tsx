@@ -13,6 +13,7 @@ import LeadRow from '@/components/my-leads/LeadRow'
 import MetricStrip, { type Metric } from '@/components/my-leads/MetricStrip'
 import { saveGuestLeads } from '@/lib/guest-session'
 import { filterAndSortGuest, GUEST_SORT_KEYS, guestWebsiteState, hasGuestFilters, summarizeGuest, toGuestListItem, describeGuestRange } from '@/lib/guest/workspace'
+import { useLightProfiles } from './useLightProfiles'
 import { guestDossierModel } from '@/lib/my-leads/dossier-model'
 import { DEFAULT_FILTERS, type FilterState } from '@/lib/my-leads/ui-state'
 import type { ContactKey } from '@/lib/my-leads/params'
@@ -34,6 +35,7 @@ export default function GuestWorkspace() {
   const [downloaded, setDownloaded] = useState(false)
   const [opened, setOpened] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const profiles = useLightProfiles(setLeads)
   const phone = useMediaQuery('(max-width: 767px)')
 
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function GuestWorkspace() {
   function open(lead: TrialLead) {
     setOpened(true)
     void trackEvent('trial_business_opened', { metadata: { has_description: Boolean(lead.website_intelligence?.description) } })
+    void profiles.request(lead)
     if (phone) setSheetId(lead.id)
     else setExpandedId((current) => (current === lead.id ? null : lead.id))
   }
@@ -184,7 +187,7 @@ export default function GuestWorkspace() {
                 expanded={!phone && expandedId === lead.id}
                 onToggleExpand={() => open(lead)}
               >
-                <DossierView model={guestDossierModel(lead)} onCopy={copy} />
+                <DossierView model={guestDossierModel(lead)} onCopy={copy} profileState={profiles.states[lead.id] ?? null} />
               </LeadRow>
             ))}
           </ul>
@@ -203,7 +206,7 @@ export default function GuestWorkspace() {
       ) : null}
 
       <BottomSheet open={Boolean(sheetLead)} title={sheetLead?.company_name ?? ''} onClose={() => setSheetId(null)}>
-        {sheetLead ? <DossierView model={guestDossierModel(sheetLead)} onCopy={copy} layout="sheet" /> : null}
+        {sheetLead ? <DossierView model={guestDossierModel(sheetLead)} onCopy={copy} layout="sheet" profileState={profiles.states[sheetLead.id] ?? null} /> : null}
       </BottomSheet>
 
       {toast ? (

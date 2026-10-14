@@ -125,7 +125,7 @@ export default function TrialExperience() {
             The connection was interrupted. Your search keeps running on ALPA&apos;s servers, and we are reconnecting to it.
           </p>
         ) : null}
-        <DiscoverEngine view={view} activity={buildActivityItems(search.logs)} footnote="Times are measured in your browser." />
+        <DiscoverEngine view={view} activity={buildActivityItems(search.logs)} footnote="Times are measured in your browser." profilesOnDemand />
         {search.status === 'finished' ? (
           <Link href={RESULTS_HREF} className="btn-primary-gold btn-quiet w-full uppercase tracking-[0.14em] sm:w-auto sm:self-start">
             View my businesses →

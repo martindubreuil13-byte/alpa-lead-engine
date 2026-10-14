@@ -6,6 +6,7 @@ import { isFree } from '@/lib/auth/access'
 import { guestDb, guestSession, loadGuestSession } from '@/lib/guest/server'
 import { sameOrigin } from '@/lib/guest/security'
 import { buildStoredWebsiteFacts, type StoredWebsiteFacts } from '@/lib/leads/stored-website-facts'
+import { readStoredLightProfile, type LightProfile } from '@/lib/guest/light-profile'
 import { FREE_TRIAL_LEAD_LIMIT, type TrialLead } from '@/lib/trial'
 import type { UserProfile } from '@/lib/supabase/types'
 
@@ -24,6 +25,7 @@ type GuestLeadInsertPayload = {
   cost_estimate: number
   industry: string | null
   website_facts?: StoredWebsiteFacts
+  light_profile?: LightProfile
 }
 
 type GuestClaimResponse = {
@@ -41,7 +43,7 @@ type ExistingLead = { id: string; company_name: string; email: string | null; ph
 
 // A column the database does not have yet (the facts column is added by an additive migration) must never break signup.
 const isMissingColumn = (error: { code?: string; message?: string } | null | undefined) =>
-  Boolean(error && (error.code === '42703' || error.code === 'PGRST204' || /website_facts/.test(error.message || '')))
+  Boolean(error && (error.code === '42703' || error.code === 'PGRST204' || /website_facts|light_profile/.test(error.message || '')))
 
 function buildLeadKey(lead: Pick<TrialLead, 'company_name' | 'email' | 'phone' | 'website' | 'city'>) {
   const email = lead.email?.trim().toLowerCase() || ''
@@ -79,6 +81,8 @@ function buildGuestLeadInsertPayload(lead: TrialLead, userId: string, facts: Sto
     is_generic_email: lead.is_generic_email ?? false,
     cost_estimate: lead.cost_estimate ?? 0,
     ...(facts ? { website_facts: facts } : {}),
+    // The short profile written during the trial travels with the business (read back through the same validator as any stored value).
+    ...(readStoredLightProfile(lead.light_profile) ? { light_profile: readStoredLightProfile(lead.light_profile)! } : {}),
   }
 }
 
@@ -215,8 +219,12 @@ export async function POST(req: Request) {
   if (newRows.length > 0) {
     let result = await supabase.from('leads').insert(newRows).select('id')
     if (result.error && isMissingColumn(result.error)) {
-      // The facts column is not there yet: import the businesses exactly as before; a later sign-in adds the facts.
-      result = await supabase.from('leads').insert(newRows.map(({ website_facts: _facts, ...row }) => row)).select('id')
+      // A newer column is not there yet: first import without the profile (keeping the website facts), then, if the facts column is
+      // missing too, exactly as before. Signing up never fails for a missing column; a later sign-in can add what was left out.
+      result = await supabase.from('leads').insert(newRows.map(({ light_profile: _profile, ...row }) => row)).select('id')
+      if (result.error && isMissingColumn(result.error)) {
+        result = await supabase.from('leads').insert(newRows.map(({ website_facts: _facts, light_profile: _profile, ...row }) => row)).select('id')
+      }
     }
     if (result.error) {
       console.error('DB ERROR:', JSON.stringify(result.error, null, 2))

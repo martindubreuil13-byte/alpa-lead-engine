@@ -6,6 +6,7 @@
 
 import type { LeadDossier } from './list.ts'
 import type { TrialLead } from '../trial.ts'
+import { readStoredLightProfile, type LightProfile } from '../guest/light-profile.ts'
 
 export type DossierContact = {
   name: string | null
@@ -34,7 +35,12 @@ export type DossierAi = {
   text: string
   offers: string[]
   serves: string | null
+  /** Short service names from a free-trial profile, shown as tags under the paragraph. */
+  tags?: string[]
 }
+
+const aiFromLightProfile = (profile: LightProfile | null): DossierAi | null =>
+  profile ? { text: profile.summary, offers: [], serves: null, tags: profile.tags } : null
 
 export type DossierModel = {
   name: string
@@ -128,7 +134,8 @@ export function memberDossierModel(lead: LeadDossier): DossierModel {
       hostOf(contact.website) ?? '',
     ].filter(Boolean),
     what: {
-      ai: card ? { text: card.summary, offers: profile?.core_services ?? [], serves: profile?.target_customer ?? null } : null,
+      // The paid Business Intelligence summary always wins; a profile written during the free trial is shown only until one exists.
+      ai: card ? { text: card.summary, offers: profile?.core_services ?? [], serves: profile?.target_customer ?? null } : aiFromLightProfile(readStoredLightProfile(lead.lightProfile)),
       site,
       aiNote: !card && site ? stateText : null,
       empty: stateText,
@@ -169,7 +176,7 @@ export function guestDossierModel(lead: TrialLead): DossierModel {
   return {
     name: lead.company_name,
     who: [[lead.industry, lead.city].filter(Boolean).join(' · ') || 'Industry and location were not provided', hostOf(lead.website) ?? ''].filter(Boolean),
-    what: { ai: null, site: siteBlock(facts, lead.email_inspection?.partial === true), aiNote: null, empty },
+    what: { ai: aiFromLightProfile(readStoredLightProfile(lead.light_profile)), site: siteBlock(facts, lead.email_inspection?.partial === true), aiNote: null, empty },
     contact: {
       name: null,
       email,

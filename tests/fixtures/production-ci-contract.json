@@ -279,5 +279,43 @@
     "get_ci_statistics",
     "get_ci_run_progress"
   ],
-  "_guest_source": "Read-only production catalog query 2026-10-12 after applying 20261012_guest_trial.sql"
+  "_guest_source": "Read-only production catalog query 2026-10-12 after applying 20261012_guest_trial.sql",
+  "proposedGuestProfiles": {
+    "_source": "supabase/proposed/20261018_guest_light_profiles.sql (NOT applied). The route answers \"unavailable\" until it is, and only runs when GUEST_PROFILES_ENABLED=true.",
+    "begin_guest_profile": {
+      "params": [
+        "p_id",
+        "p_lead",
+        "p_run",
+        "p_max",
+        "p_max_attempts",
+        "p_daily_max"
+      ],
+      "returns": [
+        "text"
+      ]
+    },
+    "finish_guest_profile": {
+      "params": [
+        "p_id",
+        "p_lead",
+        "p_run",
+        "p_profile",
+        "p_max"
+      ],
+      "returns": [
+        "boolean"
+      ]
+    },
+    "release_guest_profile": {
+      "params": [
+        "p_id",
+        "p_lead",
+        "p_run"
+      ],
+      "returns": [
+        "boolean"
+      ]
+    }
+  }
 }

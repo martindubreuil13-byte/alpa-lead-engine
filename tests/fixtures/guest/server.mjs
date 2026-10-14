@@ -1,10 +1,34 @@
-export const state = {leads:[],used:0,email:null,marketing_opt_in:false,searchCalls:0,existingLeads:[],profile:null,otherTrials:[],updates:[],factsColumn:true,feedbackRows:[],feedbackError:false}
-export async function guestSession() {return '4f928ea6-1c42-4a98-ae76-999adc264612'}
+export const state = {leads:[],used:0,email:null,marketing_opt_in:false,searchCalls:0,existingLeads:[],profile:null,otherTrials:[],updates:[],factsColumn:true,feedbackRows:[],feedbackError:false,noCookie:false,profileAttempts:0,dailyUsed:0,profileCalls:[],lightProfileColumn:true,unknownTrial:false}
+export async function guestSession() {return state.noCookie?null:'4f928ea6-1c42-4a98-ae76-999adc264612'}
 export async function loadGuestSession() {if(state.expired)throw new Error('expired');return state}
 export function guestDb() {return {
  rpc:async(name,args)=>{
   if(name==='reserve_guest_trial') {const n=Math.min(args.p_count,25-state.used);state.used+=n;state.reserved=n;return {data:n}}
   if(name==='finish_guest_trial') {state.used-=args.p_reserved-args.p_leads.length;state.leads.push(...args.p_leads);return {data:true}}
+  // The Phase 7 profile functions, with the same rules as supabase/proposed/20261018_guest_light_profiles.sql.
+  if(name==='begin_guest_profile') {
+   state.profileCalls.push(name)
+   const lead=state.leads.find(l=>l.id===args.p_lead)
+   if(!lead) return {data:'not_found'}
+   if(lead.light_profile&&typeof lead.light_profile==='object') return {data:'cached'}
+   if(lead.profile_claim&&Date.parse(lead.profile_claim.until)>Date.now()) return {data:'busy'}
+   const made=state.leads.filter(l=>l.light_profile&&typeof l.light_profile==='object').length
+   if(made>=args.p_max||state.profileAttempts>=args.p_max_attempts) return {data:'limit'}
+   if(state.dailyUsed>=args.p_daily_max) return {data:'budget'}
+   state.dailyUsed++;state.profileAttempts++
+   lead.profile_claim={run:args.p_run,until:new Date(Date.now()+45000).toISOString()}
+   return {data:'claimed'}
+  }
+  if(name==='finish_guest_profile') {
+   const lead=state.leads.find(l=>l.id===args.p_lead)
+   if(!lead||lead.profile_claim?.run!==args.p_run||JSON.stringify(args.p_profile).length>4000) return {data:false}
+   delete lead.profile_claim;lead.light_profile=args.p_profile;return {data:true}
+  }
+  if(name==='release_guest_profile') {
+   const lead=state.leads.find(l=>l.id===args.p_lead)
+   if(!lead||lead.profile_claim?.run!==args.p_run) return {data:false}
+   delete lead.profile_claim;return {data:true}
+  }
   throw new Error(`Unexpected RPC ${name}`)
  },
  from:(table)=>table==='activity_logs'?activityLogs():({
@@ -40,6 +64,7 @@ export function createServerClient(){return {
    select:(columns='')=>({eq:()=>chain(columns.includes('website_facts')&&!state.factsColumn?null:state.existingLeads,columns.includes('website_facts')&&!state.factsColumn?missingColumn:null)}),
    insert:rows=>({select:async()=>{
     if(!state.factsColumn&&rows.some(r=>'website_facts' in r))return {data:null,error:missingColumn}
+    if(!state.lightProfileColumn&&rows.some(r=>'light_profile' in r))return {data:null,error:{code:'42703',message:'column leads.light_profile does not exist'}}
     state.claimed=rows;return {data:rows.map((_,i)=>({id:`saved-${i}`})),error:null}
    }}),
    update:values=>{const q={eq:()=>q,is:()=>q,select:async()=>{state.updates.push(values);return {data:[{id:'x'}],error:null}}};return q},
