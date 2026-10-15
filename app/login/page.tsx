@@ -4,6 +4,8 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { AuthShell } from '@/components/auth/AuthShell'
+import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
@@ -45,6 +47,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignup, setIsSignup] = useState(false)
+  const [isForgot, setIsForgot] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -247,6 +250,14 @@ export default function LoginPage() {
     setInfoMessage('')
   }
 
+  if (isForgot) {
+    return (
+      <AuthShell title="Reset your password">
+        <ForgotPasswordForm initialEmail={email} onBack={() => setIsForgot(false)} />
+      </AuthShell>
+    )
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050816] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.12),_transparent_26%),linear-gradient(180deg,_#030712_0%,_#08111f_45%,_#0b1220_100%)]" />
@@ -303,10 +314,11 @@ export default function LoginPage() {
                       type="button"
                       onClick={() => {
                         setErrorMessage('')
-                        setInfoMessage('Password reset is not available yet. Please contact support if you need help accessing your account.')
+                        setInfoMessage('')
+                        setIsForgot(true)
                       }}
                       disabled={isLoading}
-                      className="text-sm font-medium text-slate-400 transition hover:text-white"
+                      className="inline-flex min-h-11 items-center text-sm font-medium text-slate-400 transition hover:text-white"
                     >
                       Forgot password?
                     </button>
