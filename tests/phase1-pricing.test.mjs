@@ -137,3 +137,14 @@ test('canceling a plan with our pending downgrade releases the schedule before c
   await billing.cancelSubscription('sub','schedule')
   assert.deepEqual(actions,[['release','schedule'],['cancel','sub',{cancel_at_period_end:true}]])
 })
+
+test('an interrupted schedule creation is recovered only through its exact idempotent request',async()=>{
+  reset('new500');sub.schedule='sched'
+  liveStripe.subscriptionSchedules.retrieve=async(id)=>({id,metadata:{}})
+  assert.equal((await post('starter')).status,200)
+  const creation=operations.find(([name])=>name==='schedule')
+  assert.deepEqual(creation[1],{from_subscription:'sub'},'Stripe refuses metadata with from_subscription')
+  const update=operations.find(([name])=>name==='phases')[2]
+  assert.equal(update.metadata.alpa_plan_change,'true')
+  assert.equal(update.metadata.user_id,'owner')
+})

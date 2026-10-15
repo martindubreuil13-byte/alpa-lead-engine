@@ -74,3 +74,9 @@ test('events ALPA does not handle are acknowledged and ignored', async () => {
   assert.equal(await send(event('customer.created', {id: 'cus_1'})), 200)
   assert.equal(hook.syncs.length, 0); assert.equal(hook.customerSyncs.length, 0)
 })
+
+test('modern invoice parent subscription references reach renewal sync', async () => {
+  assert.equal(await send(event('invoice.paid', {id:'in_modern',customer:'cus_1',parent:{type:'subscription_details',subscription_details:{subscription:'sub_1'}}})),200)
+  assert.equal(hook.syncs[0].id,'sub_1')
+  assert.equal(hook.customerSyncs.length,0)
+})

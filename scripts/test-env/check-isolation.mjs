@@ -16,6 +16,11 @@ check('STRIPE_STARTER_PRICE_ID is set', /^price_/.test(env.STRIPE_STARTER_PRICE_
 check('STRIPE_PROSPECTOR_PRICE_ID is set', /^price_/.test(env.STRIPE_PROSPECTOR_PRICE_ID || ''), 'a TEST-mode price')
 check('the two prices differ', env.STRIPE_STARTER_PRICE_ID && env.STRIPE_STARTER_PRICE_ID !== env.STRIPE_PROSPECTOR_PRICE_ID, 'plans are told apart by price id')
 
+if (env.ALPA_TEST_INTRO_OFFER_ENABLED === 'true') {
+  check('new ALPA test prices are configured and distinct', /^price_/.test(env.STRIPE_ALPA_STARTER_PRICE_ID || '') && /^price_/.test(env.STRIPE_ALPA_PRO_PRICE_ID || '') && env.STRIPE_ALPA_STARTER_PRICE_ID !== env.STRIPE_ALPA_PRO_PRICE_ID, 'separate Starter and Pro test prices')
+  check('restricted test promotion is configured', /^promo_/.test(env.STRIPE_FIRST_MONTH_PROMOTION_CODE_ID || ''), 'a verified TEST promotion')
+}
+
 let ref = ''
 try { ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL || '').hostname.split('.')[0] } catch { /* checked below */ }
 check('NEXT_PUBLIC_SUPABASE_URL is a Supabase project', /^[a-z0-9]{20}$/.test(ref), 'https://<project-ref>.supabase.co')

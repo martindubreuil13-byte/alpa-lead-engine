@@ -33,16 +33,25 @@ export async function POST(req: Request) {
     const item = subscription.items.data[0]
     const scheduleId = typeof subscription.schedule === 'string' ? subscription.schedule : subscription.schedule?.id
     const existingSchedule = scheduleId ? await stripe.subscriptionSchedules.retrieve(scheduleId) : null
-    if (existingSchedule && (existingSchedule.metadata?.alpa_plan_change !== 'true' ||
-        existingSchedule.metadata?.user_id !== user.id || existingSchedule.metadata?.target !== target)) {
-      return NextResponse.json({ error: 'Resolve the pending subscription change before changing plans.' }, { status: 409 })
-    }
-    // Stable keys make retries safe. Never create a second subscription or touch saved businesses/usage.
+    // Stable keys also identify a schedule created just before an interrupted metadata update.
     const key = `alpa-plan:${subscription.id}:${item.price.id}:${price}:${item.current_period_end}`
+    const ownsSchedule = existingSchedule?.metadata?.alpa_plan_change === 'true' && existingSchedule.metadata.user_id === user.id
+    let preparedSchedule = existingSchedule
+    if (existingSchedule && !ownsSchedule) {
+      if (!change.downgrade || Object.keys(existingSchedule.metadata ?? {}).length) {
+        return NextResponse.json({ error: 'Resolve the pending subscription change before changing plans.' }, { status: 409 })
+      }
+      // Only an idempotent replay can return our prior schedule while one is already attached.
+      // A pre-existing external schedule is refused by Stripe, and is never adopted.
+      const recovered = await stripe.subscriptionSchedules.create({ from_subscription: subscription.id }, { idempotencyKey: `${key}:schedule:v2` })
+      if (recovered.id !== existingSchedule.id) throw new Error('Schedule ownership could not be confirmed')
+      preparedSchedule = recovered
+    }
     if (change.downgrade) {
       if (!item.current_period_start || !item.current_period_end) throw new Error('Billing period unavailable')
-      const schedule = existingSchedule ?? await stripe.subscriptionSchedules.create({ from_subscription: subscription.id, metadata: { alpa_plan_change: 'true', user_id: user.id, target } }, { idempotencyKey: `${key}:schedule` })
+      const schedule = preparedSchedule ?? await stripe.subscriptionSchedules.create({ from_subscription: subscription.id }, { idempotencyKey: `${key}:schedule:v2` })
       await stripe.subscriptionSchedules.update(schedule.id, {
+        metadata: { alpa_plan_change: 'true', user_id: user.id, target },
         end_behavior: 'release',
         proration_behavior: 'none',
         phases: [
@@ -54,6 +63,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ scheduled: true, effective_at: item.current_period_end,
         message: 'Starter is scheduled for your next billing date. Pro access continues until then. Your saved businesses and usage history are retained.' })
     }
+    if (preparedSchedule && ownsSchedule) await stripe.subscriptionSchedules.release(preparedSchedule.id)
     const updated = await stripe.subscriptions.update(subscription.id, {
       items: [{ id: item.id, price, quantity: 1 }],
       proration_behavior: 'always_invoice', payment_behavior: 'pending_if_incomplete', billing_cycle_anchor: 'unchanged',

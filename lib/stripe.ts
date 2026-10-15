@@ -36,6 +36,27 @@ export async function getConfiguredPrice(plan: 'starter' | 'pro') {
   return priceId
 }
 
+// TEST-only until a separate production activation review. Never apply a raw coupon: the promotion code
+// enforces first-transaction restrictions in Stripe in addition to ALPA's stored account history.
+export async function getTestIntroduction(customerId: string, eligible: boolean) {
+  if (process.env.ALPA_TEST_INTRO_OFFER_ENABLED !== 'true') return null
+  if (!process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) throw new Error('Test offer cannot run with a live key')
+  if (!eligible) return null
+  const history = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 1 })
+  if (history.data.length) return null
+  const promotionId = process.env.STRIPE_FIRST_MONTH_PROMOTION_CODE_ID
+  if (!promotionId) throw new Error('Test introductory promotion is not configured')
+  const code = await stripe.promotionCodes.retrieve(promotionId)
+  const modern = code as typeof code & { promotion?: { type?: string; coupon?: string | Stripe.Coupon } }
+  const reference = modern.promotion?.coupon ?? code.coupon
+  const coupon = typeof reference === 'string' ? await stripe.coupons.retrieve(reference) : reference
+  if (code.livemode || !code.active || !code.restrictions.first_time_transaction || !coupon ||
+      coupon.livemode || !coupon.valid || coupon.percent_off !== 50 || coupon.duration !== 'once') {
+    throw new Error('Invalid first-month test promotion')
+  }
+  return code.id
+}
+
 type CheckoutSessionParams = {
   origin: string
   customerId: string
@@ -43,6 +64,7 @@ type CheckoutSessionParams = {
   userId?: string | null
   userEmail?: string | null
   source?: string | null
+  introEligible?: boolean
 }
 
 async function createSubscriptionCheckoutSession({
@@ -52,6 +74,7 @@ async function createSubscriptionCheckoutSession({
   userId,
   userEmail,
   source,
+  introEligible = false,
 }: CheckoutSessionParams) {
   const normalizedUserId = userId?.trim() ?? null
   const normalizedEmail = String(userEmail || '').trim().toLowerCase()
@@ -64,13 +87,14 @@ async function createSubscriptionCheckoutSession({
     ? `checkout:${normalizedUserId}:${priceId}:${normalizedSource || 'none'}:${Math.floor(Date.now() / 600_000)}`
     : undefined
 
+  const introduction = await getTestIntroduction(customerId, introEligible)
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${baseUrl}/post-checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/plans`,
-    allow_promotion_codes: true,
+    ...(introduction ? { discounts: [{ promotion_code: introduction }] } : { allow_promotion_codes: true }),
     ...(normalizedSource ? { client_reference_id: normalizedSource } : {}),
     metadata: {
       user_id: normalizedUserId ?? '',
@@ -106,6 +130,7 @@ export async function createStripeCustomer({
   email?: string | null
   userId?: string | null
   source?: string | null
+  introEligible?: boolean
 }) {
   const normalizedCustomerId = String(customerId || '').trim()
   const normalizedEmail = String(email || '').trim().toLowerCase()

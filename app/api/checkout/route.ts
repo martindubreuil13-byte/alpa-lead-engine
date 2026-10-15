@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { createStripeCustomer, createStarterCheckoutSession, createProCheckoutSession } from '@/lib/stripe'
+import { describeOfferEligibility } from '@/lib/billing/first-month-offer'
 import { parseCheckoutPlan } from '@/lib/checkout/pending-plan'
 import { decideNewCheckout } from '@/lib/stripe/checkout-guard'
 import { getActiveSubscription } from '@/lib/stripe/subscription'
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
 
     const { data: profile, error: profileLookupError } = await admin
       .from('profiles')
-      .select('plan, plan_status, stripe_customer_id, stripe_subscription_id')
+      .select('plan, plan_status, subscription_status, canceled_at, stripe_customer_id, stripe_subscription_id')
       .eq('id', userId)
       .maybeSingle()
 
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
       userId,
       userEmail,
       source: body?.source || null,
+      introEligible: describeOfferEligibility(profile).eligible,
     }
 
     const session = requestedPlan === 'pro'
