@@ -4,7 +4,9 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
+import { pendingFromUserMetadata } from '@/lib/auth/email-confirmation'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
+import { supabase } from '@/lib/supabase'
 import {
   clearPendingCheckout,
   loginHref,
@@ -24,8 +26,10 @@ function Continue() {
   useEffect(() => {
     if (loading || startedRef.current) return
     const stored = (() => { try { return readPendingCheckout(window.localStorage) } catch { return null } })()
-    const plan = parseCheckoutPlan(params.get('plan')) ?? stored?.plan ?? null
-    const source = parseCheckoutSource(params.get('source') ?? stored?.source)
+    // The plan chosen in the address, then in this browser, then the one saved with the account (chosen before sign-up on another device).
+    const saved = pendingFromUserMetadata(user?.user_metadata)
+    const plan = parseCheckoutPlan(params.get('plan')) ?? stored?.plan ?? saved?.plan ?? null
+    const source = parseCheckoutSource(params.get('source') ?? stored?.source ?? saved?.source)
     if (!plan) {
       setMessage('Choose a plan to continue.')
       return
@@ -43,6 +47,8 @@ function Continue() {
         if (res.status === 409 && data?.code === 'already_subscribed') return void (window.location.href = '/dashboard/billing')
         if (!res.ok || !data?.url) throw new Error(data?.error || 'Unable to start checkout')
         try { clearPendingCheckout(window.localStorage) } catch { /* nothing to clear */ }
+        // The choice has been acted on: take it off the account so a later sign-in does not send the customer back to checkout.
+        if (saved) await Promise.race([supabase.auth.updateUser({ data: { pending_plan: null, pending_source: null } }).catch(() => null), new Promise((resolve) => setTimeout(resolve, 1500))])
         window.location.href = data.url
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Unable to start checkout')

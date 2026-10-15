@@ -24,12 +24,17 @@ const isLocal = (origin: string) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
  * site. Supabase enforces its own redirect allow-list on top of this; the exact address must be listed there.
  */
 export function resetRedirectUrl(input: { origin?: string | null; appUrl?: string | null; production: boolean }): string {
+  return appRedirectUrl(RESET_PATH, input)
+}
+
+/** The same allow-list for any page an email link returns to (password reset, email confirmation). The path is always one of ours. */
+export function appRedirectUrl(path: string, input: { origin?: string | null; appUrl?: string | null; production: boolean }): string {
   const allowed = new Set<string>([CANONICAL_ORIGIN])
   const configured = originOf(input.appUrl)
   if (configured && (configured.startsWith('https://') || (!input.production && isLocal(configured)))) allowed.add(configured)
   const origin = originOf(input.origin)
   const chosen = origin && (allowed.has(origin) || (!input.production && isLocal(origin))) ? origin : configured && allowed.has(configured) ? configured : CANONICAL_ORIGIN
-  return `${chosen}${RESET_PATH}`
+  return `${chosen}${path}`
 }
 
 // ---- asking for a link -------------------------------------------------------------------------------------------------------------
@@ -102,8 +107,19 @@ export type RecoveryLink =
 
 const TOKEN = /^[A-Za-z0-9._~-]{8,2048}$/
 
-/** Reads what Supabase put on the address when it sent the visitor back. Never trusts it: unknown or malformed values are "invalid". */
-export function parseRecoveryLink(input: { search: string; hash: string }): RecoveryLink {
+export type AuthLink =
+  | { kind: 'code'; code: string }
+  | { kind: 'token_hash'; tokenHash: string; otpType: string }
+  | { kind: 'implicit' }
+  | { kind: 'error'; reason: 'expired' | 'invalid' }
+  | { kind: 'none' }
+
+/**
+ * Reads what Supabase put on the address when it sent the visitor back, for the kinds of email link in `allowedTypes`
+ * ('recovery' for a password reset, 'signup'/'email' for a confirmation). Never trusts it: unknown or malformed values, and a link of
+ * a different kind, are "invalid".
+ */
+export function parseAuthLink(input: { search: string; hash: string }, allowedTypes: string[]): AuthLink {
   const query = new URLSearchParams(input.search.replace(/^\?/, ''))
   const fragment = new URLSearchParams(input.hash.replace(/^#/, ''))
   const get = (name: string) => query.get(name) ?? fragment.get(name)
@@ -115,11 +131,20 @@ export function parseRecoveryLink(input: { search: string; hash: string }): Reco
     return { kind: 'error', reason: code === 'otp_expired' || /expired|already|used/i.test(text) ? 'expired' : 'invalid' }
   }
   const tokenHash = query.get('token_hash')
-  if (tokenHash) return query.get('type') === 'recovery' && TOKEN.test(tokenHash) ? { kind: 'token_hash', tokenHash } : { kind: 'error', reason: 'invalid' }
+  if (tokenHash) {
+    const type = query.get('type') ?? ''
+    return allowedTypes.includes(type) && TOKEN.test(tokenHash) ? { kind: 'token_hash', tokenHash, otpType: type } : { kind: 'error', reason: 'invalid' }
+  }
   const code = query.get('code')
   if (code) return TOKEN.test(code) ? { kind: 'code', code } : { kind: 'error', reason: 'invalid' }
-  if (fragment.get('access_token')) return fragment.get('type') === 'recovery' ? { kind: 'implicit' } : { kind: 'error', reason: 'invalid' }
+  if (fragment.get('access_token')) return allowedTypes.includes(fragment.get('type') ?? '') ? { kind: 'implicit' } : { kind: 'error', reason: 'invalid' }
   return { kind: 'none' }
+}
+
+/** Reads a password-reset link. */
+export function parseRecoveryLink(input: { search: string; hash: string }): RecoveryLink {
+  const link = parseAuthLink(input, ['recovery'])
+  return link.kind === 'token_hash' ? { kind: 'token_hash', tokenHash: link.tokenHash } : link
 }
 
 export type RecoveryOutcome = 'ready' | 'expired' | 'invalid' | 'other_browser' | 'none'
@@ -129,7 +154,7 @@ type RecoveryClient = {
   auth: {
     getSession: () => Promise<{ data: { session: SessionLike } }>
     exchangeCodeForSession: (code: string) => Promise<{ error: AuthErrorLike }>
-    verifyOtp: (params: { type: 'recovery'; token_hash: string }) => Promise<{ error: AuthErrorLike }>
+    verifyOtp: (params: { type: 'recovery' | 'signup' | 'email'; token_hash: string }) => Promise<{ error: AuthErrorLike }>
   }
 }
 
@@ -143,12 +168,21 @@ function reasonFromError(error: AuthErrorLike): RecoveryOutcome {
 }
 
 /**
- * Turns the link into a temporary session. A session that was already there before the page opened never counts: only a session this
+ * Turns the link into a session. A session that was already there before the page opened never counts: only a session this
  * link produced makes the page "ready". An expired, used or foreign link is explained, never silently accepted.
  */
-export async function establishRecoverySession(
+export function establishRecoverySession(
   client: RecoveryClient,
   link: RecoveryLink,
+  options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number } = {}
+): Promise<RecoveryOutcome> {
+  return establishSessionFromLink(client, link.kind === 'token_hash' ? { ...link, otpType: 'recovery' } : link, options)
+}
+
+/** The same, for any email link (reset or confirmation): a token-hash link names its own kind. */
+export async function establishSessionFromLink(
+  client: RecoveryClient,
+  link: AuthLink,
   options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number } = {}
 ): Promise<RecoveryOutcome> {
   const { timeoutMs = 6000, pollMs = 200, manualAfterMs = 1500 } = options
@@ -162,7 +196,7 @@ export async function establishRecoverySession(
   }
 
   if (link.kind === 'token_hash') {
-    const { error } = await client.auth.verifyOtp({ type: 'recovery', token_hash: link.tokenHash })
+    const { error } = await client.auth.verifyOtp({ type: link.otpType as 'recovery' | 'signup' | 'email', token_hash: link.tokenHash })
     if (error) return reasonFromError(error)
     return (await fresh()) ? 'ready' : 'invalid'
   }

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { AuthShell } from '@/components/auth/AuthShell'
+import { confirmRedirectUrl, pendingFromUserMetadata, signupOptions } from '@/lib/auth/email-confirmation'
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
@@ -74,6 +75,15 @@ export default function LoginPage() {
       try { savePendingCheckout(window.localStorage, chosen) } catch { /* the address still carries it */ }
     }
   }, [])
+
+  // Someone who is already signed in is taken on (to checkout if a plan is waiting, otherwise their workspace), not left on this page.
+  useEffect(() => {
+    let cancelled = false
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled && data.session?.user) router.replace('/auth/continue')
+    })
+    return () => { cancelled = true }
+  }, [router])
 
   useEffect(() => {
     void trackEvent(isSignup ? 'signup_page_view' : 'login_page_view')
@@ -160,7 +170,16 @@ export default function LoginPage() {
     try {
       if (isSignup) {
         void trackEvent('signup_started', { email })
-        const { data, error } = await supabase.auth.signUp({ email, password })
+        // The plan chosen before the account existed is saved with the account, so confirming the email on another device keeps it.
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: signupOptions({
+            plan: pending?.plan,
+            source: pending?.source,
+            emailRedirectTo: confirmRedirectUrl({ origin: window.location.origin, appUrl: process.env.NEXT_PUBLIC_APP_URL, production: process.env.NODE_ENV === 'production' }),
+          }),
+        })
         if (error) throw error
 
         if (data.session) {
@@ -173,14 +192,14 @@ export default function LoginPage() {
             console.warn('Guest claim skipped:', err)
           })
           clearGuestTrialMode()
-          router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
+          router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(data.user?.user_metadata), fallback: '/dashboard/scraper' }))
           return
         }
 
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
         if (signInError) {
           if (needsEmailConfirmation(signInError)) {
-            setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
+            setInfoMessage('Account created. Check your email and open the confirmation link to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
             setIsSignup(false)
             return
           }
@@ -201,7 +220,7 @@ export default function LoginPage() {
           console.warn('Guest claim skipped:', err)
         })
         clearGuestTrialMode()
-        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
+        router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(data.user?.user_metadata), fallback: '/dashboard/scraper' }))
         return
       }
 
@@ -224,15 +243,16 @@ export default function LoginPage() {
           : null
         const resolvedPlan = String(subscriptionPayload?.subscription?.plan ?? '')
         const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(resolvedPlan)
-        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: hasPaidPlan ? '/dashboard' : '/dashboard/scraper' }))
+        // A plan saved with the account (chosen before sign-up, possibly on another device) continues to checkout.
+        router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(signInData.user?.user_metadata), fallback: hasPaidPlan ? '/dashboard' : '/dashboard/scraper' }))
       } else {
-        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
+        router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(signInData?.user?.user_metadata), fallback: '/dashboard/scraper' }))
       }
     } catch (err) {
       console.error('Login failed:', err)
 
       if (isSignup && needsEmailConfirmation(err)) {
-        setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
+        setInfoMessage('Account created. Check your email and open the confirmation link to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
         setIsSignup(false)
         return
       }
