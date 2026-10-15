@@ -1,12 +1,37 @@
 -- PREPARED ONLY: production subscriber audit and historical-deletion review required before applying.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '5min';
+-- Required baseline: applied atomic discovery, including service-only capacity/save RPCs and receipts.
+DO $$ BEGIN
+  IF to_regprocedure('public.save_discover_results(uuid,uuid,integer,boolean,jsonb)') IS NULL OR
+     to_regprocedure('public.get_discover_capacity(uuid,integer,boolean)') IS NULL THEN
+    RAISE EXCEPTION 'Applied atomic discovery baseline required';
+  END IF;
+END $$;
+-- Drain existing writers and keep the snapshot stable until the recording trigger is installed.
+-- Follow discovery's write order (leads, then receipts); timeout/abort rather than wait indefinitely.
+LOCK TABLE public.leads, public.discover_save_receipts IN SHARE ROW EXCLUSIVE MODE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM public.discover_save_receipts
+    WHERE jsonb_typeof(result->'outcomes') IS DISTINCT FROM 'array') THEN
+    RAISE EXCEPTION 'Malformed discovery receipt outcomes: reconcile before migration';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.discover_save_receipts r
+    CROSS JOIN LATERAL jsonb_array_elements(r.result->'outcomes') o(item)
+    WHERE o.item->>'status'='saved' AND
+      coalesce(o.item->>'id','') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+    RAISE EXCEPTION 'Saved receipt missing a valid business ID: reconcile before migration';
+  END IF;
+END $$;
 -- Add versioned Starter without reinterpreting legacy Starter or rewriting subscriber records.
 ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_plan_check;
 ALTER TABLE public.users ADD CONSTRAINT users_plan_check CHECK (plan IN ('free','starter','prospector','pro','starter_100','admin')) NOT VALID;
 ALTER TABLE public.users VALIDATE CONSTRAINT users_plan_check;
 
 -- A durable record survives business deletion, payment, cancellation and re-subscription.
--- Existing deleted businesses cannot be reconstructed by this backfill: release review must resolve that history.
+-- Retained leads plus explicit saved receipt IDs are proven lower bounds, not complete lifetime history.
+-- Unrecorded historical deletions remain unresolved; never derive invented IDs from aggregate counters.
 CREATE TABLE public.business_allowance_ledger (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   lead_id uuid NOT NULL,
@@ -19,7 +44,11 @@ GRANT SELECT ON public.business_allowance_ledger TO authenticated;
 GRANT ALL ON public.business_allowance_ledger TO service_role;
 CREATE POLICY allowance_owner_read ON public.business_allowance_ledger FOR SELECT TO authenticated USING (user_id = auth.uid());
 INSERT INTO public.business_allowance_ledger(user_id, lead_id)
-SELECT user_id, id FROM public.leads WHERE user_id IS NOT NULL AND (email IS NOT NULL OR phone IS NOT NULL);
+SELECT user_id, id FROM public.leads WHERE user_id IS NOT NULL AND (email IS NOT NULL OR phone IS NOT NULL)
+UNION
+SELECT r.user_id, (o.item->>'id')::uuid FROM public.discover_save_receipts r
+CROSS JOIN LATERAL jsonb_array_elements(r.result->'outcomes') o(item)
+WHERE o.item->>'status'='saved';
 
 CREATE FUNCTION public.record_business_allowance() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$

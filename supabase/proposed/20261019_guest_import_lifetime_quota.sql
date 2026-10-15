@@ -1,8 +1,15 @@
 -- PREPARED ONLY. Requires the proposed 20261015_phase1_pricing.sql lifetime ledger.
 -- No deployment/application authorized. No existing lead, profile, trial or usage row is rewritten by setup.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '5min';
+-- Stable legacy ownership/lead matching; never miss a claim committed during the backfill.
+LOCK TABLE public.leads, public.guest_trials IN SHARE ROW EXCLUSIVE MODE;
 DO $$ BEGIN
-  IF to_regclass('public.business_allowance_ledger') IS NULL THEN
+  IF to_regclass('public.business_allowance_ledger') IS NULL OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgrelid='public.leads'::regclass
+      AND tgname='record_business_allowance' AND NOT tgisinternal AND tgenabled='O'
+      AND tgfoid=to_regprocedure('public.record_business_allowance()')) THEN
     RAISE EXCEPTION 'Lifetime allowance ledger must be installed first';
   END IF;
 END $$;
