@@ -20,14 +20,17 @@ export async function resolve(specifier,context,next) {
 `), pathToFileURL(ROOT + '/'))
 
 const { world, reset } = await import('./fixtures/costs/recon-world.mjs')
-const { parseReconciliationInput, parsePurchaseInput, buildReconciliationView } = await import('../lib/costs/reconcile.ts')
+const { parseReconciliationInput, parsePurchaseInput, parsePurchaseEditInput, buildReconciliationView } = await import('../lib/costs/reconcile.ts')
 const reconciliationRoute = await import('../app/api/admin/costs/reconciliation/route.ts')
 const purchasesRoute = await import('../app/api/admin/costs/purchases/route.ts')
+const purchaseRoute = await import('../app/api/admin/costs/purchases/[id]/route.ts')
 
 const TODAY = '2026-11-05'
 const month = '2026-10'
 const put = (body, init = {}) => reconciliationRoute.PUT(new Request('https://alpa.example/api/admin/costs/reconciliation', { method: 'PUT', headers: { 'content-type': 'application/json', host: 'alpa.example', ...init.headers }, body: JSON.stringify({ tz: 'UTC', ...body }) }))
 const post = (body, init = {}) => purchasesRoute.POST(new Request('https://alpa.example/api/admin/costs/purchases', { method: 'POST', headers: { 'content-type': 'application/json', ...init.headers }, body: JSON.stringify({ tz: 'UTC', ...body }) }))
+const patch = (id, body, init = {}) => purchaseRoute.PATCH(new Request(`https://alpa.example/api/admin/costs/purchases/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', host: 'alpa.example', ...init.headers }, body: JSON.stringify({ tz: 'UTC', ...body }) }), { params: Promise.resolve({ id: String(id) }) })
+const KEY = (n) => `request-key-${n}`
 const get = (m = month) => reconciliationRoute.GET(new Request(`https://alpa.example/api/admin/costs/reconciliation?month=${m}&tz=UTC`))
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date())
 const lastMonth = () => { const [y, m] = today().split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}` }
@@ -59,12 +62,12 @@ test('input: an empty amount keeps the month pending, notes are cleaned and boun
 })
 
 test('input: a prepaid purchase', () => {
-  const ok = parsePurchaseInput({ provider: 'serper', purchasedOn: '2026-10-01', amountPaid: '50', credits: '50,000', note: 'first pack' }, TODAY)
-  assert.deepEqual(ok.value, { provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, currency: 'USD', exchangeRateToUsd: 1, credits: 50000, note: 'first pack' })
-  const cad = parsePurchaseInput({ provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 68.5, currency: 'CAD', exchangeRate: 0.73 }, TODAY)
+  const ok = parsePurchaseInput({ requestKey: KEY(1), provider: 'serper', purchasedOn: '2026-10-01', amountPaid: '50', credits: '50,000', note: 'first pack' }, TODAY)
+  assert.deepEqual(ok.value, { requestKey: KEY(1), provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, currency: 'USD', exchangeRateToUsd: 1, credits: 50000, note: 'first pack' })
+  const cad = parsePurchaseInput({ requestKey: KEY(2), provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 68.5, currency: 'CAD', exchangeRate: 0.73 }, TODAY)
   assert.deepEqual([cad.value.amountPaid, cad.value.currency, cad.value.exchangeRateToUsd], [68.5, 'CAD', 0.73])
-  for (const bad of [{ amountPaid: 0 }, { amountPaid: '' }, { purchasedOn: '2027-01-01' }, { purchasedOn: 'x' }, { currency: 'EUR' }, { credits: -1 }, { provider: 'nope' }]) {
-    assert.equal(parsePurchaseInput({ provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, ...bad }, TODAY).ok, false, JSON.stringify(bad))
+  for (const bad of [{ amountPaid: 0 }, { amountPaid: '' }, { purchasedOn: '2027-01-01' }, { purchasedOn: 'x' }, { currency: 'EUR' }, { credits: -1 }, { provider: 'nope' }, { requestKey: '' }, { requestKey: 'short' }, { requestKey: 'has spaces in it!!' }]) {
+    assert.equal(parsePurchaseInput({ requestKey: KEY(3), provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, ...bad }, TODAY).ok, false, JSON.stringify(bad))
   }
 })
 
@@ -108,7 +111,8 @@ test('routes: only an administrator may read or write, and a refused caller chan
     const status = who === 'anonymous' ? 401 : 403
     assert.equal((await get()).status, status, `${who} GET`)
     assert.equal((await put({ month, provider: 'serper', billedAmount: 1, reconciledOn: today() })).status, status, `${who} PUT`)
-    assert.equal((await post({ provider: 'serper', purchasedOn: today(), amountPaid: 50 })).status, status, `${who} POST`)
+    assert.equal((await post({ requestKey: KEY(12), provider: 'serper', purchasedOn: today(), amountPaid: 50 })).status, status, `${who} POST`)
+    assert.equal((await patch(1, { requestKey: KEY(13), expectedVersion: 1, provider: 'serper', purchasedOn: today(), amountPaid: 50 })).status, status, `${who} PATCH`)
     assert.deepEqual(world.writes, [], `${who} wrote nothing`)
   }
 })
@@ -161,15 +165,16 @@ test('routes: invalid input and cross-site requests are refused before anything 
 test('routes: a prepaid purchase is recorded separately and changes no estimate and no reconciliation', async () => {
   reset()
   const before = JSON.stringify(world.estimates)
-  const response = await post({ provider: 'serper', purchasedOn: today(), amountPaid: 50, credits: 50000, note: 'pack' })
+  const response = await post({ requestKey: KEY(10), provider: 'serper', purchasedOn: today(), amountPaid: 50, credits: 50000, note: 'pack' })
   assert.equal(response.status, 200)
   assert.deepEqual(world.writes.map((w) => w.table), ['api_prepaid_purchases'])
+  assert.deepEqual(world.writes[0].options, { onConflict: 'request_key', ignoreDuplicates: true })
   assert.equal(world.writes[0].row.created_by, '11111111-1111-4111-8111-111111111111')
   assert.equal(world.reconciliations.size, 0); assert.equal(JSON.stringify(world.estimates), before)
   const view = (await (await get(lastMonth())).json()).view
   assert.equal(view.purchasedUsd, 50)
   assert.ok(Math.abs(view.summary.estimatedUsd - 12.76) < 1e-9, 'a $50 purchase is not added to the month\'s estimated usage')
-  assert.equal((await post({ provider: 'serper', purchasedOn: today(), amountPaid: 68, currency: 'CAD' })).status, 400, 'a foreign purchase needs its rate')
+  assert.equal((await post({ requestKey: KEY(11), provider: 'serper', purchasedOn: today(), amountPaid: 68, currency: 'CAD' })).status, 400, 'a foreign purchase needs its rate')
 })
 
 test('routes: before the migration the answer is "not enabled", never an invented figure', async () => {
@@ -177,4 +182,95 @@ test('routes: before the migration the answer is "not enabled", never an invente
   assert.deepEqual(await (await get()).json(), { state: 'not_enabled' })
   const saved = await (await put({ month: lastMonth(), provider: 'serper', billedAmount: 1, reconciledOn: today() })).json()
   assert.equal(saved.state, 'not_enabled'); assert.deepEqual(world.writes, [], 'nothing was written')
+})
+
+test('purchases: a double submission stores one purchase', async () => {
+  reset()
+  await post({ requestKey: KEY(20), provider: 'serper', purchasedOn: today(), amountPaid: 50, credits: 50000 })
+  await post({ requestKey: KEY(20), provider: 'serper', purchasedOn: today(), amountPaid: 50, credits: 50000 })
+  assert.equal(world.purchases.length, 1)
+  await post({ requestKey: KEY(21), provider: 'serper', purchasedOn: today(), amountPaid: 25 })
+  assert.equal(world.purchases.length, 2, 'a different submission is a different purchase')
+  assert.equal((await post({ provider: 'serper', purchasedOn: today(), amountPaid: 50 })).status, 400, 'a request without a key is refused')
+})
+
+const seedPurchase = async () => { reset(); await post({ requestKey: KEY(30), provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, credits: 50000, note: 'first pack' }); world.writes.length = 0 }
+const edit = (over = {}) => patch(1, { requestKey: KEY(40), expectedVersion: 1, provider: 'serper', purchasedOn: '2026-10-02', amountPaid: 55, credits: 55000, note: 'corrected', ...over })
+
+test('edit input: the same checks as a new purchase, plus the version the form was built on', () => {
+  const ok = parsePurchaseEditInput({ requestKey: KEY(1), expectedVersion: 3, provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50 }, TODAY)
+  assert.equal(ok.value.expectedVersion, 3)
+  for (const bad of [{ expectedVersion: 0 }, { expectedVersion: 'x' }, { expectedVersion: 1.5 }, { expectedVersion: undefined }, { currency: 'CAD' }, { amountPaid: 0 }]) {
+    assert.equal(parsePurchaseEditInput({ requestKey: KEY(1), expectedVersion: 1, provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 50, ...bad }, TODAY).ok, false, JSON.stringify(bad))
+  }
+})
+
+test('edit route: an administrator corrects a purchase; the original is kept with who and when; only the audited function is called', async () => {
+  await seedPurchase()
+  const response = await edit()
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.deepEqual([body.status, body.version], ['updated', 2])
+  assert.deepEqual(world.writes.map((w) => w.table), ['rpc:admin_edit_prepaid_purchase'], 'no usage record, reconciliation or direct table write')
+  const call = world.editCalls[0]
+  assert.deepEqual([call.p_id, call.p_expected_version, call.p_amount_paid, call.p_currency, call.p_rate, call.p_credits, call.p_note], [1, 1, 55, 'USD', 1, 55000, 'corrected'])
+  assert.equal(call.p_admin, '11111111-1111-4111-8111-111111111111'); assert.equal(call.p_admin_label, 'owner@example.com')
+  const p = body.view.purchases[0]
+  assert.equal(p.version, 2); assert.equal(p.amountUsd, 55)
+  assert.equal(p.history.length, 1); assert.deepEqual([p.history[0].replacedVersion, p.history[0].paid, p.history[0].credits, p.history[0].note, p.history[0].changedBy], [1, '$50.00', 50000, 'first pack', 'owner@example.com'], 'the original is preserved')
+  assert.ok(p.history[0].changedAt)
+})
+
+test('edit route: a repeated submission applies once, a stale form is refused, and a refused edit changes nothing', async () => {
+  await seedPurchase()
+  assert.equal((await edit()).status, 200)
+  const again = await edit()
+  assert.equal(again.status, 200); assert.equal((await again.json()).status, 'duplicate')
+  assert.equal(world.purchases[0].history.length, 1, 'the second identical submission added no history')
+  const stale = await edit({ requestKey: KEY(41), amountPaid: 99 })
+  assert.equal(stale.status, 409); assert.equal((await stale.json()).status, 'stale')
+  assert.equal(world.purchases[0].amount_paid, 55, 'the stale form changed nothing')
+  assert.equal((await edit({ requestKey: KEY(42), expectedVersion: 2, amountPaid: 56 })).status, 200)
+  assert.equal(world.purchases[0].history.length, 2)
+  assert.equal((await patch(99, { requestKey: KEY(43), expectedVersion: 1, provider: 'serper', purchasedOn: '2026-10-01', amountPaid: 1 })).status, 404)
+})
+
+test('edit route: invalid input and cross-site requests are refused before the database is called', async () => {
+  await seedPurchase()
+  const calls = () => world.editCalls.length
+  assert.equal((await edit({ requestKey: '' })).status, 400)
+  assert.equal((await edit({ expectedVersion: undefined })).status, 400)
+  assert.equal((await edit({ currency: 'CAD' })).status, 400, 'a foreign amount without its rate')
+  assert.equal((await edit({ amountPaid: -5 })).status, 400)
+  assert.equal((await edit({ purchasedOn: '2099-01-01' })).status, 400)
+  assert.equal((await patch('abc', { requestKey: KEY(50) })).status, 404)
+  assert.equal((await purchaseRoute.PATCH(new Request('https://alpa.example/api/admin/costs/purchases/1', { method: 'PATCH', headers: { 'content-type': 'text/plain', host: 'alpa.example' }, body: '{}' }), { params: Promise.resolve({ id: '1' }) })).status, 415)
+  assert.equal((await patch(1, { requestKey: KEY(51), expectedVersion: 1, provider: 'serper', purchasedOn: '2026-10-02', amountPaid: 55 }, { headers: { origin: 'https://evil.example' } })).status, 415)
+  assert.equal(calls(), 0)
+})
+
+test('a purchase cannot be deleted: there is no delete route, and the delete handler refuses', async () => {
+  await seedPurchase()
+  const response = await purchaseRoute.DELETE()
+  assert.equal(response.status, 405); assert.match((await response.json()).error, /cannot be deleted/i)
+  assert.equal(world.purchases.length, 1); assert.deepEqual(world.writes, [])
+  assert.equal(typeof purchasesRoute.DELETE, 'undefined', 'the collection route has no delete either')
+})
+
+test('editing a purchase never touches consumption, estimates or reconciliations', async () => {
+  await seedPurchase()
+  await put({ month: lastMonth(), provider: 'serper', billedAmount: 0.4, reconciledOn: today() })
+  world.writes.length = 0
+  const estimates = JSON.stringify(world.estimates); const recon = JSON.stringify([...world.reconciliations.entries()])
+  await edit({ amountPaid: 5000, credits: 1 })
+  assert.deepEqual(world.writes.map((w) => w.table), ['rpc:admin_edit_prepaid_purchase'])
+  assert.equal(JSON.stringify(world.estimates), estimates); assert.equal(JSON.stringify([...world.reconciliations.entries()]), recon)
+  const view = (await (await get(lastMonth())).json()).view
+  assert.ok(Math.abs(view.summary.estimatedUsd - 12.76) < 1e-9, 'the month estimate is unchanged by a $5,000 purchase edit')
+})
+
+test('before the migration an edit answers "not enabled"', async () => {
+  await seedPurchase(); world.rpcError = { code: 'PGRST202', message: 'Could not find the function' }
+  const response = await edit()
+  assert.equal(response.status, 409); assert.equal((await response.json()).state, 'not_enabled')
 })

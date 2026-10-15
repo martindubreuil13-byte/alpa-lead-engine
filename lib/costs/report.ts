@@ -1,3 +1,4 @@
+import { classifyTrackingHealth, type RawTrackingHealth, type TrackingHealth } from './health.ts'
 import { PRICING_AS_OF, type Provider } from './pricing.ts'
 
 // Turns the database's aggregated answer into what the dashboard shows. Pure: no database, no provider call. Everything here is an
@@ -88,6 +89,7 @@ export type SpendNow = { total: number; byProvider: Record<Provider, number> }
 export type LimitStatus = { scope: string; provider: string; limitUsd: number; spentUsd: number | null; percent: number | null; alertAtPercent: number; state: 'ok' | 'approaching' | 'over' | 'not_measured'; enforced: boolean }
 
 export type CostReport = {
+  health: TrackingHealth
   pricingAsOf: string
   basis: 'estimate'
   trackingSince: string | null
@@ -119,7 +121,7 @@ function spendNow(rows: { provider: Provider; cost: number }[] | undefined): Spe
   return { total: byProvider.serper + byProvider.google_places + byProvider.openai, byProvider }
 }
 
-export function buildCostReport(raw: RawOverview, history: RawHistory | null, limits: LimitRow[], range: DateRange): CostReport {
+export function buildCostReport(raw: RawOverview, history: RawHistory | null, limits: LimitRow[], range: DateRange, health: RawTrackingHealth | null = null): CostReport {
   const ops = (raw.by_operation ?? []).map((row) => ({ ...row, requests: n(row.requests), failed: n(row.failed), credits: n(row.credits), input_tokens: n(row.input_tokens), output_tokens: n(row.output_tokens), cost: n(row.cost), unpriced: n(row.unpriced) }))
   const purposes = raw.by_purpose ?? []
   const delivered = n(raw.runs?.delivered)
@@ -187,6 +189,7 @@ export function buildCostReport(raw: RawOverview, history: RawHistory | null, li
   const histTotal = earlier.reduce((t, row) => t + row.cost, 0)
 
   return {
+    health: classifyTrackingHealth(health),
     pricingAsOf: PRICING_AS_OF,
     basis: 'estimate',
     trackingSince,

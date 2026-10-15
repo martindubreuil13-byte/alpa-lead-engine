@@ -30,7 +30,21 @@ Everything is labelled **estimated**. Not stored: keys, query text, bodies, busi
 - Shown per provider: estimated cost, actual billed cost, difference (actual − estimated) and status. If usage is recorded after a month was reconciled, the page flags that the estimate moved.
 - Reconciliation writes only its own table; request-level usage is never modified.
 - **Serper is prepaid.** Credit purchases are recorded in a separate table and list, with their own credits and amount (also with currency and rate). They are never added to an estimate or reconciliation. For Serper, enter the value of credits consumed that month, not the purchase price.
-- Writes require an administrator, JSON from this site, and pass server-side validation; the browser cannot set `billed_usd`, `updated_by` or the status.
+- Writes (including purchase edits) require an administrator, JSON from this site, and pass server-side validation; the browser cannot set `billed_usd`, `updated_by` or the status.
+
+## Prepaid purchases: corrections and audit trail
+- A purchase can be corrected (date, amount, currency and rate, credits, note) but never deleted. The database refuses `DELETE`/`TRUNCATE` (trigger, and the service role is not granted them); there is no delete route (the handler answers 405).
+- Edits go through `admin_edit_prepaid_purchase`, one transaction that locks the row, keeps the values being replaced in the append-only `api_prepaid_purchase_history` (with who, their email, and when), then updates and bumps `version`. A direct update outside the function is refused by a trigger, so the audit trail cannot be skipped.
+- Double submissions: every form opening carries a request key. A new purchase with a key already stored is ignored; an edit whose key was already applied returns "duplicate" and changes nothing. An edit built on an older version is refused (409) and the page reloads.
+- The function reads and writes only the purchase and its history. Usage events, estimates and reconciliations cannot change (proved in the SQL tests by comparing them byte for byte before and after).
+
+## Tracking health
+The panel at the top of the page says Healthy, Degraded or Unknown, from facts the database reports (`admin_tracking_health`) and a pure verdict (`lib/costs/health.ts`):
+- **Unknown**: tracking is not switched on; the check could not be read; nothing has been recorded yet; or there was no member discovery run to compare with. No failure records on their own never make it healthy, because a broken tracker also has none.
+- **Degraded**: usage-write failures were recorded in the last 7 days, or more than 5% of recent member discovery runs (saved results, older than 15 minutes, after tracking began) have no cost record.
+- **Healthy** only with positive evidence: events recorded, activity that was expected, and that activity recorded.
+- Failed writes are counted in memory and written to `api_tracking_failures` as one batch (count, first/last time, `write_failed`/`timeout`/`mixed`, a short error code; never a message) as soon as the database accepts a write again. Reporting is fire-and-forget and bounded; it can never interrupt a search or AI research.
+- **Cannot be seen**: a failure while the database is unreachable is held in memory until it is back (lost if that instance is stopped first); a function killed mid-request leaves no trace; the cross-check covers member discovery only, not guest searches or AI profile calls. The panel always says so.
 
 ## Not done on purpose
 No Google Cloud billing sync or provider billing APIs; no enforcement (`api_cost_limits` alerts only, `enforce` is ignored); no gross contribution (no reliable revenue figure is connected).
@@ -39,7 +53,7 @@ No Google Cloud billing sync or provider billing APIs; no enforcement (`api_cost
 Nothing is reconstructed. The only earlier evidence is settled research charges (`ci_research_charges`, token-based estimates), shown for days before tracking begins and labelled as such.
 
 ## Migration (proposed, not applied)
-`supabase/proposed/20261017_api_cost_intelligence.sql` (+ `_rollback.sql`): five tables (usage events, runs, limits, reconciliations, prepaid purchases) and three read functions, all service-role only, RLS on, additive. Verified in PGlite (`tests/cost-intelligence-sql.test.mjs`). Until applied, recording is dropped quietly and both dashboard sections say they are not switched on.
+`supabase/proposed/20261017_api_cost_intelligence.sql` (+ `_rollback.sql`): seven tables (usage events, runs, limits, reconciliations, prepaid purchases, purchase history, tracking failures) and five functions (three read, one audited edit, one health), plus two guard triggers; it needs `discover_save_receipts` (already in production), all service-role only, RLS on, additive. Verified in PGlite (`tests/cost-intelligence-sql.test.mjs`). Until applied, recording is dropped quietly and both dashboard sections say they are not switched on.
 
 ## Before production
 1. Review and apply the migration (owner approval). 2. Deploy. 3. Confirm rows appear after one discovery and that Serper responses include `credits` (the page shows which basis was used; if not, configured credits apply). 4. Enter the October Serper purchase (50,000 credits, $50) in Prepaid credit purchases. 5. Reconcile the first full month.

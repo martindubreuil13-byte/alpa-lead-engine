@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isValidTimeZone } from '@/lib/costs/report'
-import { buildReconciliationView, type PurchaseInput, type RawReconciliation, type ReconciliationInput, type ReconciliationView } from '@/lib/costs/reconcile'
+import { buildReconciliationView, type PurchaseEditInput, type PurchaseInput, type RawReconciliation, type ReconciliationInput, type ReconciliationView } from '@/lib/costs/reconcile'
 
 export type ReconciliationResult =
   | { state: 'ready'; view: ReconciliationView }
@@ -52,12 +52,39 @@ export async function saveReconciliation(input: ReconciliationInput, adminId: st
   return loadReconciliation(input.billingMonth, tz)
 }
 
+/** Adds a purchase. The same request key stored twice is one purchase: a double submission does nothing the second time. */
 export async function addPrepaidPurchase(input: PurchaseInput, adminId: string): Promise<{ ok: boolean; notEnabled?: boolean }> {
   const admin = createAdminClient() as any
-  const { error } = await admin.from('api_prepaid_purchases').insert({
-    provider: input.provider, purchased_on: input.purchasedOn, amount_paid: input.amountPaid, currency: input.currency,
+  const { error } = await admin.from('api_prepaid_purchases').upsert({
+    request_key: input.requestKey, provider: input.provider, purchased_on: input.purchasedOn, amount_paid: input.amountPaid, currency: input.currency,
     exchange_rate_to_usd: input.exchangeRateToUsd, credits: input.credits, note: input.note, created_by: adminId,
-  })
+  }, { onConflict: 'request_key', ignoreDuplicates: true })
   if (error) return isMissingObject(error) ? { ok: false, notEnabled: true } : { ok: false }
   return { ok: true }
+}
+
+export type EditOutcome =
+  | { status: 'updated' | 'duplicate' | 'unchanged'; version: number }
+  | { status: 'stale'; version: number }
+  | { status: 'not_found' }
+  | { status: 'not_enabled' }
+  | { status: 'error' }
+
+/**
+ * Corrects a purchase through the audited database function: the previous values are kept in the history first, in the same transaction.
+ * That function reads and writes only the purchase and its history, so no usage record, estimate or reconciliation can change.
+ */
+export async function editPrepaidPurchase(id: number, input: PurchaseEditInput, admin: { id: string; label: string | null }): Promise<EditOutcome> {
+  const client = createAdminClient() as any
+  const { data, error } = await client.rpc('admin_edit_prepaid_purchase', {
+    p_id: id, p_expected_version: input.expectedVersion, p_purchased_on: input.purchasedOn, p_amount_paid: input.amountPaid, p_currency: input.currency,
+    p_rate: input.exchangeRateToUsd, p_credits: input.credits, p_note: input.note, p_admin: admin.id, p_admin_label: admin.label, p_request_key: input.requestKey,
+  })
+  if (error) return isMissingObject(error) ? { status: 'not_enabled' } : { status: 'error' }
+  const status = (data as { status?: string })?.status
+  const version = Number((data as { version?: number })?.version)
+  if (status === 'updated' || status === 'duplicate' || status === 'unchanged') return { status, version }
+  if (status === 'stale') return { status, version }
+  if (status === 'not_found') return { status: 'not_found' }
+  return { status: 'error' }
 }

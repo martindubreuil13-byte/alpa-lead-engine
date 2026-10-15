@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import CostReconciliation from '@/components/admin/CostReconciliation'
+import { classifyTrackingHealth, type TrackingHealth } from '@/lib/costs/health'
 import type { CostReport, LimitStatus, SeriesPoint, SpendNow } from '@/lib/costs/report'
 
 type Preset = 'today' | '7d' | '30d' | 'custom'
@@ -87,7 +88,7 @@ export default function CostDashboard() {
       </header>
 
       {failed ? <Notice tone="warn">{failed}</Notice> : null}
-      {payload?.state === 'not_enabled' ? <NotEnabled /> : null}
+      {payload?.state === 'not_enabled' ? <><HealthPanel health={classifyTrackingHealth(null, 'not_enabled')} /><NotEnabled /></> : null}
       {payload?.state === 'error' ? <Notice tone="warn">{payload.message}</Notice> : null}
       {payload?.state === 'ready' ? <Report report={payload.report} dim={loading} updatedAt={updatedAt} /> : null}
       <CostReconciliation />
@@ -139,6 +140,36 @@ function NotEnabled() {
   )
 }
 
+const HEALTH_STYLE = {
+  healthy: { label: 'Healthy', border: 'rgba(52,211,153,.35)', bg: 'rgba(52,211,153,.06)', color: '#a7f3d0' },
+  degraded: { label: 'Degraded', border: 'rgba(251,191,36,.45)', bg: 'rgba(251,191,36,.08)', color: '#fde68a' },
+  unknown: { label: 'Unknown', border: 'rgba(148,163,184,.35)', bg: 'rgba(148,163,184,.06)', color: '#cbd5e1' },
+} as const
+
+function when(iso: string | null) {
+  return iso ? new Date(iso).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'none recorded'
+}
+
+function HealthPanel({ health }: { health: TrackingHealth }) {
+  const style = HEALTH_STYLE[health.state]
+  return (
+    <section aria-label="Tracking health" data-testid="health" data-state={health.state} role={health.state === 'degraded' ? 'alert' : 'region'} className="rounded-2xl border p-4" style={{ borderColor: style.border, background: style.bg }}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span data-testid="health-badge" className="rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ background: style.border, color: style.color }}>{style.label}</span>
+        <h2 className="text-sm font-semibold" style={{ color: style.color }}>{health.headline}</h2>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-slate-300">{health.detail}</p>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+        <div><dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Recorded, last 24 h</dt><dd className="mt-1 tabular-nums">{int(health.events24h)} requests</dd></div>
+        <div><dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Discovery runs checked</dt><dd className="mt-1 tabular-nums">{health.expectedRuns === 0 ? 'none to check' : `${int(health.coveredRuns)} of ${int(health.expectedRuns)} recorded`}</dd></div>
+        <div><dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Known failed recordings</dt><dd className="mt-1 tabular-nums" data-testid="failure-count">{int(health.failures7d)} in 7 days · {int(health.failures30d)} in 30 days</dd></div>
+        <div><dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most recent failure</dt><dd className="mt-1" data-testid="last-failure">{when(health.lastFailureAt)}</dd></div>
+      </dl>
+      <p className="mt-3 text-xs leading-5 text-slate-400">{health.caveat}</p>
+    </section>
+  )
+}
+
 function NowStrip({ now }: { now: CostReport['now'] }) {
   const chips = (spend: SpendNow) => (['serper', 'google_places', 'openai'] as const).map((k) => (
     <span key={k} className="flex items-center gap-1.5 text-xs text-slate-300"><span className="inline-block size-2 rounded-full" style={{ background: COLORS[k] }} />{NAMES[k]} <span className="tabular-nums text-slate-100">{usd(spend.byProvider[k])}</span></span>
@@ -185,6 +216,7 @@ function Report({ report, dim, updatedAt }: { report: CostReport; dim: boolean; 
   const empty = report.table.length === 0
   return (
     <div className={`space-y-6 transition-opacity ${dim ? 'opacity-60' : ''}`}>
+      <HealthPanel health={report.health} />
       <NowStrip now={report.now} />
       <div className="text-xs text-slate-400" data-testid="updated-at">{updatedAt ? `Updated ${updatedAt.toLocaleTimeString('en-CA')} · refreshes every 60 seconds from ALPA's own records` : 'Loading…'}</div>
 

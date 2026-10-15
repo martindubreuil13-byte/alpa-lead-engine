@@ -7,7 +7,7 @@ import http from 'node:http'
 import {spawn} from 'node:child_process'
 import {chromium} from 'playwright'
 import {buildCostReport} from '../lib/costs/report.ts'
-import {buildReconciliationView, parsePurchaseInput, parseReconciliationInput} from '../lib/costs/reconcile.ts'
+import {buildReconciliationView, parsePurchaseEditInput, parsePurchaseInput, parseReconciliationInput} from '../lib/costs/reconcile.ts'
 
 const SUPA = 'http://localhost:3399'
 const base = 'http://localhost:3304'
@@ -59,16 +59,21 @@ const rawFor = (days, todayCost = 0.1) => ({
 })
 const week = [4, 5, 6, 7, 8, 9, 10].map(day)
 const LIMITS = [{scope: 'monthly', provider: 'google_places', limit_usd: 12, alert_at_percent: 80, enforce: false}, {scope: 'monthly', provider: 'serper', limit_usd: 50, alert_at_percent: 80, enforce: false}]
-const readyBody = (days = week, todayCost = 0.1) => ({state: 'ready', report: buildCostReport(rawFor(days, todayCost), {daily: [{day: '2026-09-28', settled: 5, cost: 0.0021}], first_settled_at: '2026-09-28T00:00:00Z'}, LIMITS, {days: days.length}), range: {from: '2026-10-04T00:00:00Z', to: '2026-10-11T00:00:00Z', days: days.length}})
+const HEALTHY = {first_event_at: '2026-10-02T10:00:00Z', last_event_at: '2026-10-16T10:00:00Z', events_24h: 212, expected_runs: 12, covered_runs: 12, failures_7d: 0, failures_30d: 0, last_failure_at: null}
+const readyBody = (days = week, todayCost = 0.1, health = HEALTHY) => ({state: 'ready', report: buildCostReport(rawFor(days, todayCost), {daily: [{day: '2026-09-28', settled: 5, cost: 0.0021}], first_settled_at: '2026-09-28T00:00:00Z'}, LIMITS, {days: days.length}, health), range: {from: '2026-10-04T00:00:00Z', to: '2026-10-11T00:00:00Z', days: days.length}})
 
 // A fake of the reconciliation routes: the real validation and view builder, an in-memory store.
 function reconciliationApi() {
-  const saved = new Map(); const purchases = []; const calls = {put: 0, post: 0, get: 0}
+  const saved = new Map(); const purchases = []; const calls = {put: 0, post: 0, get: 0, patch: 0}; let nextId = 1
   const estimated = [{provider: 'serper', requests: 120, credits: 360, cost: 0.36, unpriced: 0}, {provider: 'google_places', requests: 470, credits: 0, cost: 10.6, unpriced: 0}, {provider: 'openai', requests: 95, credits: 0, cost: 0.0456, unpriced: 3}]
-  const view = (month) => ({state: 'ready', view: buildReconciliationView({month: `${month.slice(0, 7)}-01`, estimated, reconciliations: [...saved.values()].filter((r) => r.billing_month === `${month.slice(0, 7)}-01`), purchases: purchases.map((p, i) => ({id: i + 1, ...p}))})})
+  const strip = ({request_key, ...p}) => ({...p, history: (p.history ?? []).map(({request_key: k, ...h}) => h)})
+  const view = (month) => ({state: 'ready', view: buildReconciliationView({month: `${month.slice(0, 7)}-01`, estimated, reconciliations: [...saved.values()].filter((r) => r.billing_month === `${month.slice(0, 7)}-01`), purchases: purchases.map(strip)})})
   const today = new Intl.DateTimeFormat('en-CA').format(new Date())
+  const usd = (p) => Math.round(p.amount_paid * p.exchange_rate_to_usd * 1e4) / 1e4
   return {
     calls, saved, purchases,
+    /** Another administrator edits the purchase in a second tab. */
+    otherAdminEdits: (id) => { const p = purchases.find((x) => x.id === id); p.history.push({request_key: `other-${p.version}`, replaced_version: p.version, purchased_on: p.purchased_on, amount_paid: p.amount_paid, currency: p.currency, exchange_rate_to_usd: p.exchange_rate_to_usd, amount_usd: usd(p), credits: p.credits, note: p.note, changed_by_label: 'second-admin@example.com', changed_at: new Date().toISOString()}); p.version += 1; p.amount_paid += 1; p.amount_usd = usd(p) },
     handle: async (route, url) => {
       const method = route.request().method()
       if (url.pathname.endsWith('/reconciliation') && method === 'GET') { calls.get += 1; return route.fulfill({json: view(url.searchParams.get('month') || '2026-10')}) }
@@ -86,8 +91,28 @@ function reconciliationApi() {
         const parsed = parsePurchaseInput(route.request().postDataJSON(), today)
         if (!parsed.ok) return route.fulfill({status: 400, json: {error: parsed.error}})
         const v = parsed.value
-        purchases.unshift({provider: v.provider, purchased_on: v.purchasedOn, amount_paid: v.amountPaid, currency: v.currency, exchange_rate_to_usd: v.exchangeRateToUsd, amount_usd: Math.round(v.amountPaid * v.exchangeRateToUsd * 1e4) / 1e4, credits: v.credits, note: v.note})
+        if (!purchases.some((p) => p.request_key === v.requestKey)) {
+          const p = {id: nextId++, request_key: v.requestKey, provider: v.provider, purchased_on: v.purchasedOn, amount_paid: v.amountPaid, currency: v.currency, exchange_rate_to_usd: v.exchangeRateToUsd, credits: v.credits, note: v.note, version: 1, updated_at: null, history: []}
+          p.amount_usd = usd(p); purchases.unshift(p)
+        }
         return route.fulfill({json: {ok: true}})
+      }
+      const edit = url.pathname.match(/\/purchases\/(\d+)$/)
+      if (edit && method === 'PATCH') {
+        calls.patch += 1
+        const body = route.request().postDataJSON()
+        const parsed = parsePurchaseEditInput(body, today)
+        if (!parsed.ok) return route.fulfill({status: 400, json: {error: parsed.error}})
+        const p = purchases.find((x) => x.id === Number(edit[1]))
+        if (!p) return route.fulfill({status: 404, json: {error: 'Unknown purchase.'}})
+        const v = parsed.value
+        if (p.history.some((h) => h.request_key === v.requestKey)) return route.fulfill({json: {status: 'duplicate', version: p.version, ...view('2026-10')}})
+        if (p.version !== v.expectedVersion) return route.fulfill({status: 409, json: {status: 'stale', error: 'This purchase was changed since you opened it. Reload and try again.'}})
+        p.history.push({request_key: v.requestKey, replaced_version: p.version, purchased_on: p.purchased_on, amount_paid: p.amount_paid, currency: p.currency, exchange_rate_to_usd: p.exchange_rate_to_usd, amount_usd: usd(p), credits: p.credits, note: p.note, changed_by_label: 'owner@example.com', changed_at: new Date().toISOString()})
+        Object.assign(p, {purchased_on: v.purchasedOn, amount_paid: v.amountPaid, currency: v.currency, exchange_rate_to_usd: v.exchangeRateToUsd, credits: v.credits, note: v.note, version: p.version + 1, updated_at: new Date().toISOString()})
+        p.amount_usd = usd(p)
+        await new Promise((resolve) => setTimeout(resolve, 150)) // slow enough for a double click to land twice
+        return route.fulfill({json: {status: 'updated', version: p.version, ...view('2026-10')}})
       }
       return route.fulfill({status: 404, json: {}})
     },
@@ -240,20 +265,90 @@ for (const device of ['desktop', 'phone']) {
   })
 }
 
-await scenario('prepaid purchases are listed separately and change no estimate or reconciliation', async () => {
-  const {browser, page, recon} = await open('desktop', (route) => route.fulfill({json: readyBody()}))
-  await goto(page)
-  await page.getByTestId('recon-rows').waitFor({timeout: 30000})
-  const estimatedBefore = await page.getByText(/providers reconciled · estimated/).innerText()
-  await page.getByRole('button', {name: 'Add purchase'}).click()
-  await page.locator('#p-amount').fill('50'); await page.locator('#p-credits').fill('50000')
-  await page.getByRole('button', {name: 'Save purchase'}).click()
-  await page.getByTestId('purchases').waitFor({timeout: 10000})
-  assert.ok(await page.getByTestId('purchases').getByText('50,000 credits', {exact: false}).isVisible())
-  assert.equal(await page.getByText(/providers reconciled · estimated/).innerText(), estimatedBefore, 'the estimate did not change')
-  assert.equal(recon.saved.size, 0); assert.equal(recon.purchases.length, 1)
-  await browser.close()
-})
+for (const device of ['desktop', 'phone']) {
+  await scenario(`${device}: prepaid purchases - add, correct with an audit trail, double submit applies once, a stale form is refused, nothing can be deleted`, async () => {
+    const {browser, page, recon} = await open(device, (route) => route.fulfill({json: readyBody()}))
+    await goto(page)
+    await page.getByTestId('recon-rows').waitFor({timeout: 30000})
+    const estimatedBefore = await page.getByText(/providers reconciled · estimated/).innerText()
+    // add (a double click stores one purchase)
+    await page.getByRole('button', {name: 'Add purchase'}).click()
+    await page.locator('#p-amount').fill('50'); await page.locator('#p-credits').fill('50000'); await page.locator('#p-note').fill('first pack')
+    await page.getByRole('button', {name: 'Save purchase'}).dblclick()
+    await page.getByTestId('purchase-1').waitFor({timeout: 10000})
+    assert.equal(recon.purchases.length, 1, 'a double click stored one purchase')
+    assert.equal(await page.getByRole('button', {name: /delete|remove/i}).count(), 0, 'no way to delete a purchase')
+    // correct it: a double click on Save applies one edit
+    await page.getByTestId('purchase-1').getByRole('button', {name: 'Edit'}).click()
+    await page.locator('#e1-amount').fill('55'); await page.locator('#e1-credits').fill('55000'); await page.locator('#e1-note').fill('corrected after invoice')
+    await page.getByRole('button', {name: 'Save correction'}).dblclick()
+    await page.getByText('Edited 1 time', {exact: false}).waitFor({timeout: 10000})
+    assert.equal(recon.purchases[0].version, 2); assert.equal(recon.purchases[0].history.length, 1, 'one edit, one history entry, despite two clicks')
+    assert.ok(await page.getByTestId('purchase-1').getByText('$55.00', {exact: false}).first().isVisible())
+    await page.getByRole('button', {name: 'Show history'}).click()
+    const history = page.getByTestId('history-1')
+    assert.ok(await history.getByText('Original', {exact: false}).isVisible()); assert.ok(await history.getByText('$50.00', {exact: false}).isVisible())
+    assert.ok(await history.getByText('first pack', {exact: false}).isVisible(), 'the original note is kept')
+    assert.ok(await history.getByText('by owner@example.com', {exact: false}).isVisible(), 'who made the change is shown')
+    // stale: another administrator edited it after this page loaded
+    await page.getByTestId('purchase-1').getByRole('button', {name: 'Edit'}).click()
+    recon.otherAdminEdits(1)
+    await page.locator('#e1-amount').fill('60')
+    await page.getByRole('button', {name: 'Save correction'}).click()
+    await page.getByRole('alert').filter({hasText: 'changed since you opened it'}).waitFor({timeout: 10000})
+    assert.equal(recon.purchases[0].amount_paid, 56, 'the stale save changed nothing')
+    assert.equal(recon.purchases[0].history.length, 2, 'only the other administrator\'s edit was added')
+    // consumption is untouched by all of this
+    assert.equal(await page.getByText(/providers reconciled · estimated/).innerText(), estimatedBefore, 'the month estimate did not change')
+    assert.equal(recon.saved.size, 0)
+    assert.equal(await overflow(page), 0, 'no horizontal page scroll')
+    await page.screenshot({path: `${shots}/costs-purchases-${device}.png`, fullPage: true})
+    await browser.close()
+  })
+}
+
+const FAILED = {...HEALTHY, failures_7d: 5, failures_30d: 8, last_failure_at: '2026-10-15T14:30:00Z'}
+for (const device of ['desktop', 'phone']) {
+  await scenario(`${device}: tracking health - healthy, degraded with the failure count and time, unknown, not enabled; the caveat is always shown`, async () => {
+    let body = readyBody(week, 0.1, HEALTHY)
+    const {browser, page} = await open(device, (route) => route.fulfill({json: body}), 'admin', {clock: true})
+    await goto(page)
+    const health = page.getByTestId('health')
+    await health.waitFor({timeout: 30000})
+    assert.equal(await health.getAttribute('data-state'), 'healthy')
+    assert.equal(await page.getByTestId('health-badge').innerText(), 'Healthy')
+    assert.ok(await health.getByText('12 of 12 recorded').isVisible())
+    assert.equal(await page.getByTestId('failure-count').innerText(), '0 in 7 days · 0 in 30 days')
+    assert.equal(await page.getByTestId('last-failure').innerText(), 'none recorded')
+    assert.ok(await health.getByText('Unexpected serverless termination', {exact: false}).isVisible(), 'the caveat about undetected gaps is shown even when healthy')
+    // degraded, picked up by the 60-second refresh
+    body = readyBody(week, 0.1, FAILED)
+    await page.clock.fastForward(61_000)
+    await page.waitForFunction(() => document.querySelector('[data-testid="health"]')?.getAttribute('data-state') === 'degraded', null, {timeout: 10000})
+    assert.equal(await page.getByTestId('health-badge').innerText(), 'Degraded')
+    assert.ok(await health.getByText('5 usage recordings failed in the last 7 days', {exact: false}).isVisible())
+    assert.equal(await page.getByTestId('failure-count').innerText(), '5 in 7 days · 8 in 30 days')
+    assert.match(await page.getByTestId('last-failure').innerText(), /2026/, 'the most recent failure time is shown')
+    assert.equal(await health.getAttribute('role'), 'alert', 'a degraded state is announced as a warning')
+    assert.ok(await health.getByText('not interrupted', {exact: false}).isVisible())
+    assert.ok(await health.getByText('Unexpected serverless termination', {exact: false}).isVisible())
+    assert.equal(await overflow(page), 0)
+    await page.screenshot({path: `${shots}/costs-health-degraded-${device}.png`, fullPage: false})
+    // unknown: no failures, but nothing independent to compare with
+    body = readyBody(week, 0.1, {...HEALTHY, expected_runs: 0, covered_runs: 0, events_24h: 0})
+    await page.clock.fastForward(61_000)
+    await page.waitForFunction(() => document.querySelector('[data-testid="health"]')?.getAttribute('data-state') === 'unknown', null, {timeout: 10000})
+    assert.equal(await page.getByTestId('health-badge').innerText(), 'Unknown')
+    assert.ok(await health.getByText('proves nothing', {exact: false}).isVisible(), 'no failures is not presented as healthy')
+    assert.equal(await health.getByText('Healthy').count(), 0)
+    // missing runs
+    body = readyBody(week, 0.1, {...HEALTHY, expected_runs: 10, covered_runs: 6})
+    await page.clock.fastForward(61_000)
+    await page.waitForFunction(() => document.querySelector('[data-testid="health"]')?.getAttribute('data-state') === 'degraded', null, {timeout: 10000})
+    assert.ok(await health.getByText('4 of 10 recent discovery runs were not recorded', {exact: false}).isVisible())
+    await browser.close()
+  })
+}
 
 await scenario('before the migration: honest "not switched on" messages for both sections, never zeros', async () => {
   const recon = reconciliationApi(); recon.handle = async (route) => route.fulfill({json: {state: 'not_enabled'}})
@@ -261,6 +356,8 @@ await scenario('before the migration: honest "not switched on" messages for both
   await goto(page)
   await page.getByText('Request-level tracking is not switched on yet.').waitFor({timeout: 30000})
   await page.getByText('Not switched on yet.', {exact: true}).waitFor({timeout: 30000})
+  assert.equal(await page.getByTestId('health').getAttribute('data-state'), 'unknown', 'with tracking off the health is unknown, never healthy')
+  assert.equal(await page.getByTestId('health-badge').innerText(), 'Unknown')
   assert.equal(await page.getByText('Est. API spending').count(), 0)
   await browser.close()
 })
@@ -287,13 +384,14 @@ await scenario('only an administrator is served: every cost endpoint refuses a m
     const response = await asMember.page.request[method](`${base}${path}`)
     assert.equal(response.status(), 403, path); assert.doesNotMatch(await response.text(), /spend|cost|serper|billed/i)
   }
-  for (const [method, path] of [['put', '/api/admin/costs/reconciliation'], ['post', '/api/admin/costs/purchases']]) {
+  for (const [method, path] of [['put', '/api/admin/costs/reconciliation'], ['post', '/api/admin/costs/purchases'], ['patch', '/api/admin/costs/purchases/1']]) {
     const response = await asMember.page.request[method](`${base}${path}`, {data: {provider: 'serper'}})
     assert.equal(response.status(), 403, `${method} ${path}`)
   }
   await asMember.browser.close()
   for (const path of ['/api/admin/costs?range=7d', '/api/admin/costs/reconciliation?month=2026-10']) assert.equal((await fetch(`${base}${path}`)).status, 401, path)
   assert.equal((await fetch(`${base}/api/admin/costs/purchases`, {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'})).status, 401)
+  assert.equal((await fetch(`${base}/api/admin/costs/purchases/1`, {method: 'PATCH', headers: {'content-type': 'application/json'}, body: '{}'})).status, 401)
   const asAdmin = await open('desktop', (route) => route.continue(), 'admin')
   assert.equal((await asAdmin.page.request.get(`${base}/api/admin/costs?range=bogus`)).status(), 400, 'past the guard, a bad range is a 400')
   await asAdmin.browser.close()

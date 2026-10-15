@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { ReconciliationRow, ReconciliationView } from '@/lib/costs/reconcile'
+import type { PurchaseView, ReconciliationRow, ReconciliationView } from '@/lib/costs/reconcile'
 import { PROVIDER_LABEL, RECONCILE_PROVIDERS } from '@/lib/costs/reconcile'
 
 const GOLD = '#c9a24b'
@@ -41,15 +41,19 @@ export default function CostReconciliation() {
   }, [month])
   useEffect(() => { setPayload(null); setEditing(null); setMessage(null); void load() }, [load])
 
-  async function send(url: string, method: 'PUT' | 'POST', body: Record<string, unknown>) {
+  async function send(url: string, method: 'PUT' | 'POST' | 'PATCH', body: Record<string, unknown>) {
     setMessage(null)
     try {
       const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, tz: tzNow() }) })
       const result = await response.json()
-      if (!response.ok) { setMessage({ tone: 'bad', text: result.error || result.message || 'It could not be saved.' }); return false }
-      if (result.state === 'ready') setPayload(result)
+      if (!response.ok) {
+        setMessage({ tone: 'bad', text: result.error || result.message || 'It could not be saved.' })
+        if (response.status === 409 && result.status === 'stale') await load() // show what the purchase looks like now
+        return false
+      }
+      if (result.state === 'ready' && method !== 'PATCH') setPayload(result)
       else await load()
-      setMessage({ tone: 'ok', text: 'Saved.' })
+      setMessage({ tone: 'ok', text: result.status === 'unchanged' ? 'Nothing was changed.' : 'Saved.' })
       return true
     } catch {
       setMessage({ tone: 'bad', text: 'It could not be saved.' })
@@ -88,7 +92,7 @@ export default function CostReconciliation() {
             ))}
           </ul>
           <p className="mt-3 text-xs text-slate-400">{payload.view.summary.reconciled} of {payload.view.summary.total} providers reconciled · estimated {usd(payload.view.summary.estimatedUsd)}{payload.view.summary.billedUsd !== null ? ` · billed ${usd(payload.view.summary.billedUsd)}` : ''}.</p>
-          <Purchases view={payload.view} onAdd={(body) => send('/api/admin/costs/purchases', 'POST', body)} />
+          <Purchases view={payload.view} onAdd={(body) => send('/api/admin/costs/purchases', 'POST', body)} onEdit={(id, body) => send(`/api/admin/costs/purchases/${id}`, 'PATCH', body)} />
         </>
       ) : null}
     </section>
@@ -148,51 +152,120 @@ function ProviderForm({ row, month, onSave }: { row: ReconciliationRow; month: s
   )
 }
 
-function Purchases({ view, onAdd }: { view: ReconciliationView; onAdd: (body: Record<string, unknown>) => Promise<boolean> }) {
+const newKey = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2)}`)
+
+function Purchases({ view, onAdd, onEdit }: { view: ReconciliationView; onAdd: (body: Record<string, unknown>) => Promise<boolean>; onEdit: (id: number, body: Record<string, unknown>) => Promise<boolean> }) {
   const [open, setOpen] = useState(false)
-  const [provider, setProvider] = useState('serper')
-  const [date, setDate] = useState(todayLocal())
-  const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState('USD')
-  const [rate, setRate] = useState('')
-  const [credits, setCredits] = useState('')
-  const [note, setNote] = useState('')
-  const foreign = currency.trim().toUpperCase() !== 'USD' && currency.trim() !== ''
+  const [editing, setEditing] = useState<number | null>(null)
+  const [showHistory, setShowHistory] = useState<number | null>(null)
   return (
     <div className="mt-6 border-t border-white/10 pt-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">Prepaid credit purchases</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Recorded separately. Buying credits is not that month&rsquo;s usage expense, and it is never added to the estimates or to a reconciliation.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Recorded separately. Buying credits is not that month&rsquo;s usage expense, and it is never added to the estimates or to a reconciliation. A purchase can be corrected but not deleted; every earlier version is kept.</p>
         </div>
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="min-h-9 shrink-0 rounded-lg px-3 text-xs font-medium underline-offset-4 hover:underline" style={{ color: GOLD }}>{open ? 'Close' : 'Add purchase'}</button>
       </div>
       {view.purchases.length === 0 ? <p className="mt-3 text-sm text-slate-400">No purchases recorded.</p> : (
-        <ul className="mt-3 space-y-2 text-sm" data-testid="purchases">
+        <ul className="mt-3 space-y-3 text-sm" data-testid="purchases">
           {view.purchases.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <span>{p.purchasedOn} · {p.label}{p.credits !== null ? ` · ${p.credits.toLocaleString('en-US')} credits` : ''}</span>
-              <span className="tabular-nums text-slate-300">{p.paid} · {usd(p.amountUsd)}</span>
+            <li key={p.id} data-testid={`purchase-${p.id}`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <span>{p.purchasedOn} · {p.label}{p.credits !== null ? ` · ${p.credits.toLocaleString('en-US')} credits` : ''}{p.note ? <span className="text-slate-400"> · {p.note}</span> : null}</span>
+                <span className="flex items-center gap-3">
+                  <span className="tabular-nums text-slate-300">{p.paid} · {usd(p.amountUsd)}</span>
+                  <button type="button" onClick={() => { setEditing(editing === p.id ? null : p.id); setShowHistory(null) }} aria-expanded={editing === p.id} className="min-h-9 rounded-lg px-2 text-xs font-medium underline-offset-4 hover:underline" style={{ color: GOLD }}>{editing === p.id ? 'Close' : 'Edit'}</button>
+                </span>
+              </div>
+              {p.history.length > 0 ? (
+                <div className="mt-1 text-xs text-slate-400">
+                  Edited {p.history.length} {p.history.length === 1 ? 'time' : 'times'}{p.updatedAt ? `, last ${new Date(p.updatedAt).toLocaleDateString('en-CA')}` : ''} ·{' '}
+                  <button type="button" onClick={() => setShowHistory(showHistory === p.id ? null : p.id)} aria-expanded={showHistory === p.id} className="underline underline-offset-4" style={{ color: GOLD }}>{showHistory === p.id ? 'Hide history' : 'Show history'}</button>
+                </div>
+              ) : null}
+              {showHistory === p.id ? <History purchase={p} /> : null}
+              {editing === p.id ? <EditPurchase purchase={p} onSave={async (body) => { const ok = await onEdit(p.id, body); if (ok) setEditing(null); return ok }} /> : null}
             </li>
           ))}
         </ul>
       )}
-      {open ? (
-        <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={async (event) => {
-          event.preventDefault()
-          const ok = await onAdd({ provider, purchasedOn: date, amountPaid: amount, currency, exchangeRate: foreign ? rate : undefined, credits, note })
-          if (ok) { setOpen(false); setAmount(''); setCredits(''); setNote('') }
-        }}>
-          <div><label htmlFor="p-provider" className={label}>Provider</label><select id="p-provider" value={provider} onChange={(e) => setProvider(e.target.value)} className={`${field} mt-1`}>{RECONCILE_PROVIDERS.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>)}</select></div>
-          <div><label htmlFor="p-date" className={label}>Purchased on</label><input id="p-date" type="date" value={date} max={todayLocal()} onChange={(e) => setDate(e.target.value)} className={`${field} mt-1`} /></div>
-          <div><label htmlFor="p-amount" className={label}>Amount paid</label><input id="p-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${field} mt-1`} /></div>
-          <div><label htmlFor="p-currency" className={label}>Currency</label><input id="p-currency" value={currency} maxLength={3} onChange={(e) => setCurrency(e.target.value.toUpperCase())} className={`${field} mt-1`} /></div>
-          {foreign ? <div><label htmlFor="p-rate" className={label}>Exchange rate used (USD per 1 {currency || '…'})</label><input id="p-rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} className={`${field} mt-1`} /></div> : null}
-          <div><label htmlFor="p-credits" className={label}>Credits purchased</label><input id="p-credits" inputMode="decimal" value={credits} onChange={(e) => setCredits(e.target.value)} className={`${field} mt-1`} /></div>
-          <div className="sm:col-span-2"><label htmlFor="p-note" className={label}>Note (optional)</label><input id="p-note" value={note} maxLength={1000} onChange={(e) => setNote(e.target.value)} className={`${field} mt-1`} /></div>
-          <div className="sm:col-span-2"><button type="submit" className="min-h-10 rounded-full px-5 text-sm font-semibold" style={{ background: GOLD, color: '#0b1730' }}>Save purchase</button></div>
-        </form>
-      ) : null}
+      {open ? <NewPurchase onAdd={async (body) => { const ok = await onAdd(body); if (ok) setOpen(false); return ok }} /> : null}
     </div>
+  )
+}
+
+function History({ purchase }: { purchase: PurchaseView }) {
+  return (
+    <ol data-testid={`history-${purchase.id}`} className="mt-2 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-slate-300">
+      {purchase.history.map((h) => (
+        <li key={h.replacedVersion}>
+          <span className="font-medium text-slate-100">{h.replacedVersion === 1 ? 'Original' : `Version ${h.replacedVersion}`}:</span>{' '}
+          {h.purchasedOn} · {h.paid} ({usd(h.amountUsd)}){h.credits !== null ? ` · ${h.credits.toLocaleString('en-US')} credits` : ''}{h.note ? ` · ${h.note}` : ''}
+          <span className="block text-slate-400">Replaced {new Date(h.changedAt).toLocaleString('en-CA')}{h.changedBy ? ` by ${h.changedBy}` : ''}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+type PurchaseFormValues = { date: string; amount: string; currency: string; rate: string; credits: string; note: string }
+
+function PurchaseFields({ v, set, idPrefix }: { v: PurchaseFormValues; set: (patch: Partial<PurchaseFormValues>) => void; idPrefix: string }) {
+  const foreign = v.currency.trim().toUpperCase() !== 'USD' && v.currency.trim() !== ''
+  const id = (name: string) => `${idPrefix}-${name}`
+  return (
+    <>
+      <div><label htmlFor={id('date')} className={label}>Purchased on</label><input id={id('date')} type="date" value={v.date} max={todayLocal()} onChange={(e) => set({ date: e.target.value })} className={`${field} mt-1`} /></div>
+      <div><label htmlFor={id('amount')} className={label}>Amount paid</label><input id={id('amount')} inputMode="decimal" value={v.amount} onChange={(e) => set({ amount: e.target.value })} className={`${field} mt-1`} /></div>
+      <div><label htmlFor={id('currency')} className={label}>Currency</label><input id={id('currency')} value={v.currency} maxLength={3} onChange={(e) => set({ currency: e.target.value.toUpperCase() })} className={`${field} mt-1`} /></div>
+      {foreign ? <div><label htmlFor={id('rate')} className={label}>Exchange rate used (USD per 1 {v.currency || '…'})</label><input id={id('rate')} inputMode="decimal" value={v.rate} onChange={(e) => set({ rate: e.target.value })} className={`${field} mt-1`} /></div> : null}
+      <div><label htmlFor={id('credits')} className={label}>Credits purchased</label><input id={id('credits')} inputMode="decimal" value={v.credits} onChange={(e) => set({ credits: e.target.value })} className={`${field} mt-1`} /></div>
+      <div className="sm:col-span-2"><label htmlFor={id('note')} className={label}>Note (optional)</label><input id={id('note')} value={v.note} maxLength={1000} onChange={(e) => set({ note: e.target.value })} className={`${field} mt-1`} /></div>
+    </>
+  )
+}
+
+function NewPurchase({ onAdd }: { onAdd: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [provider, setProvider] = useState('serper')
+  const [v, setV] = useState<PurchaseFormValues>({ date: todayLocal(), amount: '', currency: 'USD', rate: '', credits: '', note: '' })
+  const key = useRef(newKey()) // one key per opening of the form: a double click or a repeated submit stores one purchase
+  const [saving, setSaving] = useState(false)
+  const foreign = v.currency.trim().toUpperCase() !== 'USD' && v.currency.trim() !== ''
+  return (
+    <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={async (event) => {
+      event.preventDefault()
+      if (saving) return
+      setSaving(true)
+      await onAdd({ requestKey: key.current, provider, purchasedOn: v.date, amountPaid: v.amount, currency: v.currency, exchangeRate: foreign ? v.rate : undefined, credits: v.credits, note: v.note })
+      setSaving(false)
+    }}>
+      <div><label htmlFor="p-provider" className={label}>Provider</label><select id="p-provider" value={provider} onChange={(e) => setProvider(e.target.value)} className={`${field} mt-1`}>{RECONCILE_PROVIDERS.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>)}</select></div>
+      <PurchaseFields v={v} set={(patch) => setV({ ...v, ...patch })} idPrefix="p" />
+      <div className="sm:col-span-2"><button type="submit" disabled={saving} className="min-h-10 rounded-full px-5 text-sm font-semibold disabled:opacity-60" style={{ background: GOLD, color: '#0b1730' }}>{saving ? 'Saving…' : 'Save purchase'}</button></div>
+    </form>
+  )
+}
+
+function EditPurchase({ purchase, onSave }: { purchase: PurchaseView; onSave: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [v, setV] = useState<PurchaseFormValues>({
+    date: purchase.form.purchasedOn, amount: String(purchase.form.amountPaid), currency: purchase.form.currency,
+    rate: purchase.form.exchangeRate === null ? '' : String(purchase.form.exchangeRate), credits: purchase.credits === null ? '' : String(purchase.credits), note: purchase.note ?? '',
+  })
+  const key = useRef(newKey())
+  const [saving, setSaving] = useState(false)
+  const foreign = v.currency.trim().toUpperCase() !== 'USD' && v.currency.trim() !== ''
+  return (
+    <form className="mt-3 grid gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:grid-cols-2" aria-label={`Edit purchase ${purchase.id}`} onSubmit={async (event) => {
+      event.preventDefault()
+      if (saving) return
+      setSaving(true)
+      const ok = await onSave({ requestKey: key.current, expectedVersion: purchase.version, provider: purchase.provider, purchasedOn: v.date, amountPaid: v.amount, currency: v.currency, exchangeRate: foreign ? v.rate : undefined, credits: v.credits, note: v.note })
+      if (!ok) setSaving(false) // after a refused save the same request key may be used again for the same, corrected, attempt
+    }}>
+      <p className="text-xs leading-5 text-slate-400 sm:col-span-2">Saving keeps the current values in this purchase&rsquo;s history. It does not change any recorded API usage, estimate or reconciliation.</p>
+      <PurchaseFields v={v} set={(patch) => setV({ ...v, ...patch })} idPrefix={`e${purchase.id}`} />
+      <div className="sm:col-span-2"><button type="submit" disabled={saving} className="min-h-10 rounded-full px-5 text-sm font-semibold disabled:opacity-60" style={{ background: GOLD, color: '#0b1730' }}>{saving ? 'Saving…' : 'Save correction'}</button></div>
+    </form>
   )
 }

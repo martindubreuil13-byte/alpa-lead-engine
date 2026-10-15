@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { RawTrackingHealth } from '@/lib/costs/health'
 import { buildCostReport, type CostReport, type DateRange, type LimitRow, type RawHistory, type RawOverview } from '@/lib/costs/report'
 
 export type CostReportResult =
@@ -17,14 +18,19 @@ export async function loadCostReport(range: DateRange, tz: string): Promise<Cost
   const overview = await admin.rpc('admin_cost_overview', args)
   if (overview.error) return isMissingObject(overview.error) ? { state: 'not_enabled' } : { state: 'error', message: 'The cost figures could not be loaded.' }
 
-  const [history, limits] = await Promise.all([admin.rpc('admin_research_history', args), admin.from('api_cost_limits').select('scope, provider, limit_usd, alert_at_percent, enforce')])
+  const [history, limits, health] = await Promise.all([
+    admin.rpc('admin_research_history', args),
+    admin.from('api_cost_limits').select('scope, provider, limit_usd, alert_at_percent, enforce'),
+    admin.rpc('admin_tracking_health'),
+  ])
   return {
     state: 'ready',
     report: buildCostReport(
       overview.data as RawOverview,
       history.error ? null : (history.data as RawHistory),
       limits.error ? [] : ((limits.data ?? []) as LimitRow[]),
-      range
+      range,
+      health.error ? null : (health.data as RawTrackingHealth)
     ),
   }
 }

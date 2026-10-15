@@ -18,6 +18,8 @@ export type ReconciliationInput = {
   note: string | null
 }
 export type PurchaseInput = {
+  /** Identifies one submission of the form: sending it twice stores or applies it once. */
+  requestKey: string
   provider: Provider
   purchasedOn: string
   amountPaid: number
@@ -26,6 +28,7 @@ export type PurchaseInput = {
   credits: number | null
   note: string | null
 }
+export type PurchaseEditInput = PurchaseInput & { expectedVersion: number }
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -89,7 +92,11 @@ export function parseReconciliationInput(body: any, today: string): Parsed<Recon
   }
 }
 
+const REQUEST_KEY = /^[A-Za-z0-9_-]{8,64}$/
+
 export function parsePurchaseInput(body: any, today: string): Parsed<PurchaseInput> {
+  const requestKey = String(body?.requestKey ?? '')
+  if (!REQUEST_KEY.test(requestKey)) return { ok: false, error: 'Reload the page and try again.' }
   const provider = body?.provider as Provider
   if (!RECONCILE_PROVIDERS.includes(provider)) return { ok: false, error: 'Choose Serper, Google Places or OpenAI.' }
   const purchasedOn = String(body?.purchasedOn ?? '')
@@ -101,7 +108,16 @@ export function parsePurchaseInput(body: any, today: string): Parsed<PurchaseInp
   if (credits === undefined || (credits !== null && (credits <= 0 || credits > MAX_AMOUNT))) return { ok: false, error: 'Credits purchased must be a positive number.' }
   const currency = money({ currency: body?.currency, exchangeRate: body?.exchangeRate })
   if (!currency.ok) return currency
-  return { ok: true, value: { provider, purchasedOn, amountPaid: cents4(amount), currency: currency.value.currency, exchangeRateToUsd: currency.value.rate, credits, note: cleanNote(body?.note) } }
+  return { ok: true, value: { requestKey, provider, purchasedOn, amountPaid: cents4(amount), currency: currency.value.currency, exchangeRateToUsd: currency.value.rate, credits, note: cleanNote(body?.note) } }
+}
+
+/** An edit: the same fields as a new purchase, plus the version the person was looking at (a stale form is refused). */
+export function parsePurchaseEditInput(body: any, today: string): Parsed<PurchaseEditInput> {
+  const parsed = parsePurchaseInput(body, today)
+  if (!parsed.ok) return parsed
+  const version = Number(body?.expectedVersion)
+  if (!Number.isInteger(version) || version < 1 || version > 100_000) return { ok: false, error: 'Reload the page and try again.' }
+  return { ok: true, value: { ...parsed.value, expectedVersion: version } }
 }
 
 // ---- what is shown ---------------------------------------------------------------------------------------------------------------
@@ -112,7 +128,11 @@ export type RawReconciliation = {
     provider: Provider; status: 'pending' | 'reconciled'; billed_amount: number | null; billed_currency: string; exchange_rate_to_usd: number
     billed_usd: number | null; reported_credits: number | null; reconciled_on: string | null; estimated_usd_at_reconciliation: number | null; note: string | null
   }[]
-  purchases: { id: number; provider: Provider; purchased_on: string; amount_paid: number; currency: string; exchange_rate_to_usd: number; amount_usd: number; credits: number | null; note: string | null }[]
+  purchases: {
+    id: number; provider: Provider; purchased_on: string; amount_paid: number; currency: string; exchange_rate_to_usd: number; amount_usd: number
+    credits: number | null; note: string | null; version?: number; updated_at?: string | null
+    history?: { replaced_version: number; purchased_on: string; amount_paid: number; currency: string; exchange_rate_to_usd: number; amount_usd: number; credits: number | null; note: string | null; changed_by_label: string | null; changed_at: string }[]
+  }[]
 }
 
 const num = (value: unknown) => { const v = Number(value); return Number.isFinite(v) ? v : 0 }
@@ -133,13 +153,25 @@ export type ReconciliationRow = {
   /** The estimate has moved since it was reconciled (more usage was recorded for that month, or prices were revised). */
   estimateChangedSinceUsd: number | null
 }
+export type PurchaseView = {
+  id: number; provider: Provider; label: string; purchasedOn: string; paid: string; amountUsd: number; credits: number | null; note: string | null
+  /** What an edit form starts from. */
+  form: { amountPaid: number; currency: string; exchangeRate: number | null; purchasedOn: string }
+  version: number
+  updatedAt: string | null
+  /** The earlier values of this purchase, oldest first. The first entry is the original. */
+  history: { replacedVersion: number; purchasedOn: string; paid: string; amountUsd: number; credits: number | null; note: string | null; changedBy: string | null; changedAt: string }[]
+}
 export type ReconciliationView = {
   month: string
   rows: ReconciliationRow[]
-  purchases: { id: number; provider: Provider; label: string; purchasedOn: string; paid: string; amountUsd: number; credits: number | null; note: string | null }[]
+  purchases: PurchaseView[]
   purchasedUsd: number
   summary: { reconciled: number; total: number; estimatedUsd: number; billedUsd: number | null }
 }
+
+const paidText = (amount: number, currency: string, rate: number) =>
+  currency === 'USD' ? `$${num(amount).toFixed(2)}` : `${num(amount).toFixed(2)} ${currency} @ ${num(rate)}`
 
 export function buildReconciliationView(raw: RawReconciliation): ReconciliationView {
   const rows = RECONCILE_PROVIDERS.map((provider): ReconciliationRow => {
@@ -170,10 +202,15 @@ export function buildReconciliationView(raw: RawReconciliation): ReconciliationV
   return {
     month: raw.month,
     rows,
-    purchases: (raw.purchases ?? []).map((p) => ({
-      id: p.id, provider: p.provider, label: PROVIDER_LABEL[p.provider], purchasedOn: p.purchased_on,
-      paid: p.currency === 'USD' ? `$${num(p.amount_paid).toFixed(2)}` : `${num(p.amount_paid).toFixed(2)} ${p.currency} @ ${num(p.exchange_rate_to_usd)}`,
+    purchases: (raw.purchases ?? []).map((p): PurchaseView => ({
+      id: p.id, provider: p.provider, label: PROVIDER_LABEL[p.provider], purchasedOn: p.purchased_on, paid: paidText(p.amount_paid, p.currency, p.exchange_rate_to_usd),
       amountUsd: num(p.amount_usd), credits: p.credits === null ? null : num(p.credits), note: p.note,
+      form: { amountPaid: num(p.amount_paid), currency: p.currency, exchangeRate: p.currency === 'USD' ? null : num(p.exchange_rate_to_usd), purchasedOn: p.purchased_on },
+      version: p.version ?? 1, updatedAt: p.updated_at ?? null,
+      history: (p.history ?? []).map((h) => ({
+        replacedVersion: h.replaced_version, purchasedOn: h.purchased_on, paid: paidText(h.amount_paid, h.currency, h.exchange_rate_to_usd), amountUsd: num(h.amount_usd),
+        credits: h.credits === null ? null : num(h.credits), note: h.note, changedBy: h.changed_by_label, changedAt: h.changed_at,
+      })),
     })),
     purchasedUsd: (raw.purchases ?? []).reduce((t, p) => t + num(p.amount_usd), 0),
     summary: {

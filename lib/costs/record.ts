@@ -70,14 +70,24 @@ export type DiscoveryRunSummary = {
   stopReason?: string | null
 }
 
+export type TrackingFailureRow = {
+  occurred_first_at: string
+  occurred_last_at: string
+  failed_count: number
+  kind: 'write_failed' | 'timeout' | 'mixed'
+  detail_code: string | null
+}
+
 type Sink = {
   usage: (rows: UsageRow[]) => Promise<unknown>
   run: (row: Record<string, unknown>) => Promise<unknown>
+  /** Optional: records a batch of failed writes, for the tracking-health panel. */
+  failure?: (row: TrackingFailureRow) => Promise<unknown>
 }
 
 let sink: Sink | null = null
 /** Tests replace the destination; production uses the admin client. */
-export function setCostSink(next: Sink | null) { sink = next; pausedUntil = 0 }
+export function setCostSink(next: Sink | null) { sink = next; pausedUntil = 0; unrecorded.count = 0; unrecorded.first = 0; unrecorded.last = 0; unrecorded.timeouts = 0; unrecorded.failed = 0; unrecorded.code = null }
 
 const isMissingTable = (error: { code?: string; message?: string } | null | undefined) =>
   Boolean(error && (error.code === '42P01' || error.code === 'PGRST205' || /does not exist|schema cache/i.test(error.message ?? '')))
@@ -93,6 +103,7 @@ async function defaultSink(): Promise<Sink> {
   return {
     usage: async (rows) => check(await client.from('api_usage_events').upsert(rows, { onConflict: 'event_key', ignoreDuplicates: true })),
     run: async (row) => check(await client.from('api_usage_runs').upsert(row, { onConflict: 'run_id' })),
+    failure: async (row) => check(await client.from('api_tracking_failures').insert(row)),
   }
 }
 
@@ -126,34 +137,100 @@ export const costRecordingStats = () => ({ ...stats })
 let pausedUntil = 0
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+/** A short, safe error code (never a message). */
+const codeOf = (error: unknown) => {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(code) ? code : null
+}
 
-/** Runs a write twice at most, never past the budget, never throws. Resolves true when the write landed. */
-async function writeBounded(write: (destination: Sink) => Promise<unknown>): Promise<boolean> {
-  if (Date.now() < pausedUntil) return false
+type WriteOutcome = { landed: true } | { landed: false; reason: 'failed' | 'timeout' | 'paused' | 'missing'; code: string | null }
+
+/** Runs a write twice at most, never past the budget, never throws. */
+async function writeBounded(write: (destination: Sink) => Promise<unknown>): Promise<WriteOutcome> {
+  if (Date.now() < pausedUntil) return { landed: false, reason: 'paused', code: null }
   const deadline = Date.now() + WRITE_BUDGET_MS
-  const attempt = async () => {
+  const attempt = async (): Promise<WriteOutcome> => {
+    let code: string | null = null
     for (let n = 1; n <= 2; n += 1) {
       try {
         await write(sink ?? (await defaultSink()))
-        return true
+        return { landed: true }
       } catch (error) {
-        if (error instanceof TablesMissing || isMissingTable(error as { code?: string; message?: string })) { pausedUntil = Date.now() + MISSING_TABLE_PAUSE_MS; return false }
-        if (n === 2 || Date.now() + RETRY_DELAY_MS >= deadline) return false
+        if (error instanceof TablesMissing || isMissingTable(error as { code?: string; message?: string })) { pausedUntil = Date.now() + MISSING_TABLE_PAUSE_MS; return { landed: false, reason: 'missing', code: null } }
+        code = codeOf(error)
+        if (n === 2 || Date.now() + RETRY_DELAY_MS >= deadline) return { landed: false, reason: 'failed', code }
         await wait(RETRY_DELAY_MS)
       }
     }
-    return false
+    return { landed: false, reason: 'failed', code }
   }
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), WRITE_BUDGET_MS) })
-  try { return await Promise.race([attempt(), timeout]) } catch { return false } finally { if (timer) clearTimeout(timer) }
+  const timeout = new Promise<WriteOutcome>((resolve) => { timer = setTimeout(() => resolve({ landed: false, reason: 'timeout', code: null }), WRITE_BUDGET_MS) })
+  try { return await Promise.race([attempt(), timeout]) } catch { return { landed: false, reason: 'failed', code: null } } finally { if (timer) clearTimeout(timer) }
+}
+
+// ---- known failures (for the tracking-health panel) -----------------------------------------------------------------------------
+// A failed write is counted in memory and written to api_tracking_failures as one batch as soon as the database can be reached again
+// (right away if it only failed once, otherwise on the next successful write). Only counts, times and a short code are kept.
+// Limits: a failure while the database is unreachable cannot be stored until it is back; an instance killed before then loses the count,
+// and a function killed mid-request records nothing at all. Those gaps are not detectable here.
+const unrecorded = { count: 0, first: 0, last: 0, timeouts: 0, failed: 0, code: null as string | null }
+let flushingFailures = false
+const FAILURE_WRITE_BUDGET_MS = 1000
+
+export const unrecordedFailures = () => ({ ...unrecorded })
+
+function noteFailure(reason: 'failed' | 'timeout', code: string | null) {
+  const now = Date.now()
+  if (unrecorded.count === 0) unrecorded.first = now
+  unrecorded.count += 1
+  unrecorded.last = now
+  if (reason === 'timeout') unrecorded.timeouts += 1; else unrecorded.failed += 1
+  if (code) unrecorded.code = code
+  void flushFailures()
+}
+
+async function flushFailures() {
+  if (flushingFailures || unrecorded.count === 0 || Date.now() < pausedUntil) return
+  flushingFailures = true
+  const batch = { ...unrecorded }
+  try {
+    const destination = sink ?? (await defaultSink())
+    if (!destination.failure) return
+    const row: TrackingFailureRow = {
+      occurred_first_at: new Date(batch.first).toISOString(),
+      occurred_last_at: new Date(batch.last).toISOString(),
+      failed_count: batch.count,
+      kind: batch.timeouts > 0 && batch.failed > 0 ? 'mixed' : batch.timeouts > 0 ? 'timeout' : 'write_failed',
+      detail_code: batch.code,
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const landed = await Promise.race([
+      destination.failure(row).then(() => true, () => false),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), FAILURE_WRITE_BUDGET_MS) }),
+    ])
+    if (timer) clearTimeout(timer)
+    if (landed) {
+      // Failures noted while this batch was being written stay for the next one.
+      unrecorded.count -= batch.count
+      unrecorded.timeouts = Math.max(0, unrecorded.timeouts - batch.timeouts)
+      unrecorded.failed = Math.max(0, unrecorded.failed - batch.failed)
+      if (unrecorded.count === 0) { unrecorded.code = null; unrecorded.first = 0; unrecorded.last = 0 } else unrecorded.first = batch.last
+    }
+  } catch { /* health reporting never affects anything */ } finally { flushingFailures = false }
 }
 
 const pending = new Set<Promise<unknown>>()
-function track(work: Promise<boolean>) {
-  const tracked = work.then((landed) => {
-    if (landed) stats.written += 1
-    else if (Date.now() >= pausedUntil) { stats.dropped += 1; console.warn('[costs] a usage record was not written') }
+function track(work: Promise<WriteOutcome>) {
+  const tracked = work.then((outcome) => {
+    if (outcome.landed) {
+      stats.written += 1
+      if (unrecorded.count > 0) void flushFailures() // the database is reachable again
+    } else if (outcome.reason === 'failed' || outcome.reason === 'timeout') {
+      stats.dropped += 1
+      console.warn('[costs] a usage record was not written')
+      noteFailure(outcome.reason, outcome.code)
+    }
   })
   pending.add(tracked)
   void tracked.finally(() => pending.delete(tracked))

@@ -21,7 +21,8 @@ process.env.GOOGLE_PLACES_API_KEY = 'google-secret-key-for-test'
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8')
 
 const pricing = await import('../lib/costs/pricing.ts')
-const { setCostSink, flushCostRecords, recordApiUsage, recordDiscoveryRun, toUsageRow, costRecordingStats } = await import('../lib/costs/record.ts')
+const { setCostSink, flushCostRecords, recordApiUsage, recordDiscoveryRun, toUsageRow, costRecordingStats, unrecordedFailures } = await import('../lib/costs/record.ts')
+const { classifyTrackingHealth, HEALTH_CAVEAT } = await import('../lib/costs/health.ts')
 const { runWithCostContext } = await import('../lib/costs/context.ts')
 const { recordOpenAiCompletion } = await import('../lib/costs/openai.ts')
 const { buildCostReport, resolveRange } = await import('../lib/costs/report.ts')
@@ -298,4 +299,139 @@ test('nothing in this phase changes spending limits, pricing, Stripe or entitlem
   assert.doesNotMatch(sql, /ci_research_controls|set_ci_research|DROP TABLE(?! IF EXISTS public\.api_)/)
   assert.match(sql, /enforce boolean NOT NULL DEFAULT false/)
   assert.equal(fs.existsSync(path.join(ROOT, 'supabase/migrations/20261017_api_cost_intelligence.sql')), false)
+})
+
+// ---- tracking health: known failures
+const settle = () => new Promise((resolve) => setTimeout(resolve, 60))
+function failingSink({ usageFails = true, failureFails = false, error = Object.assign(new Error('password=hunter2 select * from secrets'), { code: '57014' }), hang = false } = {}) {
+  const sink = { stored: [], failures: [], usageFails, failureFails, hang }
+  sink.usage = async (rows) => { if (sink.hang) return new Promise(() => {}); if (sink.usageFails) throw error; sink.stored.push(...rows) }
+  sink.run = async () => {}
+  sink.failure = async (row) => { if (sink.failureFails) throw new Error('database is down'); sink.failures.push(row) }
+  return sink
+}
+
+test('health: a failed write is recorded as a failure with a count, times and a short code, never the message', async () => {
+  const sink = failingSink()
+  await withSink(sink, async () => {
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    await settle()
+    assert.equal(sink.failures.length, 1)
+    const row = sink.failures[0]
+    assert.deepEqual([row.failed_count, row.kind, row.detail_code], [1, 'write_failed', '57014'])
+    assert.ok(Date.parse(row.occurred_first_at) <= Date.parse(row.occurred_last_at))
+    assert.doesNotMatch(JSON.stringify(row), /hunter2|secrets|select/i, 'no error message, query or credential is ever stored')
+    assert.equal(unrecordedFailures().count, 0, 'recorded, so nothing is waiting')
+  })
+})
+
+test('health: when the database is down, failures are held and recorded as one batch as soon as a write succeeds again', async () => {
+  const sink = failingSink({ failureFails: true })
+  await withSink(sink, async () => {
+    for (let i = 0; i < 3; i += 1) await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    await settle()
+    assert.equal(sink.failures.length, 0, 'the failure itself could not be written while the database was down')
+    assert.equal(unrecordedFailures().count, 3, 'but it is not forgotten')
+    sink.usageFails = false; sink.failureFails = false
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    await settle()
+    assert.equal(sink.stored.length, 1, 'the new record was written')
+    assert.equal(sink.failures.length, 1); assert.equal(sink.failures[0].failed_count, 3, 'the three earlier failures, as one batch')
+    assert.equal(unrecordedFailures().count, 0)
+  })
+})
+
+test('health: a write that times out is a failure of kind timeout (it may or may not have landed); mixed kinds are labelled mixed', async () => {
+  const sink = failingSink({ hang: true })
+  await withSink(sink, async () => {
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    await settle()
+    assert.equal(sink.failures.length, 1); assert.equal(sink.failures[0].kind, 'timeout')
+    sink.hang = false; sink.usageFails = true
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    await settle()
+    assert.equal(sink.failures[1].kind, 'write_failed')
+  })
+})
+
+test('health: a code that is not a short code is dropped; tables that do not exist are "not enabled", not a failure', async () => {
+  const odd = failingSink({ error: Object.assign(new Error('x'), { code: 'this is far too long to be a code' }) })
+  await withSink(odd, async () => {
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true }); await settle()
+    assert.equal(odd.failures[0].detail_code, null)
+  })
+  const missing = failingSink({ error: Object.assign(new Error('relation "api_usage_events" does not exist'), { code: '42P01' }) })
+  await withSink(missing, async () => {
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true }); await settle()
+    assert.deepEqual([missing.failures.length, unrecordedFailures().count], [0, 0])
+  })
+})
+
+test('health: reporting a failure can never interrupt or fail the work being recorded', async () => {
+  const sink = failingSink({ failureFails: true })
+  sink.failure = () => { throw new Error('thrown synchronously') }
+  await withSink(sink, async () => {
+    await assert.doesNotReject(recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true }))
+    await assert.doesNotReject(recordOpenAiCompletion('gpt-4o-mini', { id: 'chatcmpl-x', usage: { prompt_tokens: 1, completion_tokens: 1 } }, 'research_profile'))
+    await settle()
+  })
+  const hanging = failingSink(); hanging.failure = () => new Promise(() => {})
+  await withSink(hanging, async () => {
+    const started = Date.now()
+    await recordApiUsage({ provider: 'serper', operation: 'maps_search', credits: 3, estimatedCostUsd: 0.003, ok: true })
+    assert.ok(Date.now() - started < 1500, 'the caller does not wait for the failure to be written')
+  })
+})
+
+test('the customer-facing code paths do not wait on failure reporting or let it throw', () => {
+  const record = read('lib/costs/record.ts')
+  assert.match(record, /void flushFailures\(\)/, 'failure reporting is fire-and-forget')
+  assert.doesNotMatch(record, /await flushFailures/)
+})
+
+// ---- tracking health: the verdict
+const facts = (over = {}) => ({ first_event_at: '2026-10-01T00:00:00Z', last_event_at: '2026-10-16T10:00:00Z', events_24h: 40, expected_runs: 12, covered_runs: 12, failures_7d: 0, failures_30d: 0, last_failure_at: null, ...over })
+
+test('health: healthy needs positive evidence - recorded events, activity that was expected, and that activity recorded', () => {
+  const h = classifyTrackingHealth(facts())
+  assert.deepEqual([h.state, h.reason], ['healthy', 'confirmed'])
+  assert.match(h.detail, /12 of 12/); assert.equal(h.caveat, HEALTH_CAVEAT)
+})
+
+test('health: an empty failure list is never enough - no activity to check, no events, or not enabled are all unknown', () => {
+  const quiet = classifyTrackingHealth(facts({ expected_runs: 0, covered_runs: 0, events_24h: 0 }))
+  assert.deepEqual([quiet.state, quiet.reason], ['unknown', 'no_expected_activity'])
+  assert.match(quiet.detail, /proves nothing/)
+  const none = classifyTrackingHealth(facts({ first_event_at: null, last_event_at: null, events_24h: 0, expected_runs: 0, covered_runs: 0 }))
+  assert.deepEqual([none.state, none.reason], ['unknown', 'no_events'])
+  assert.deepEqual([classifyTrackingHealth(null, 'not_enabled').state, classifyTrackingHealth(null, 'not_enabled').reason], ['unknown', 'not_enabled'])
+  assert.deepEqual([classifyTrackingHealth(null).state, classifyTrackingHealth(null).reason], ['unknown', 'unavailable'])
+  for (const h of [quiet, none, classifyTrackingHealth(null, 'not_enabled'), classifyTrackingHealth(null)]) assert.notEqual(h.state, 'healthy')
+})
+
+test('health: recorded failures or discovery runs that left no record make it degraded, with the numbers', () => {
+  const failed = classifyTrackingHealth(facts({ failures_7d: 5, failures_30d: 8, last_failure_at: '2026-10-15T09:30:00Z' }))
+  assert.deepEqual([failed.state, failed.reason, failed.failures7d, failed.failures30d, failed.lastFailureAt], ['degraded', 'failures', 5, 8, '2026-10-15T09:30:00Z'])
+  assert.match(failed.headline, /5 usage recordings failed/); assert.match(failed.detail, /not interrupted/)
+  assert.match(classifyTrackingHealth(facts({ failures_7d: 1 })).headline, /1 usage recording failed/)
+  const missing = classifyTrackingHealth(facts({ expected_runs: 10, covered_runs: 7 }))
+  assert.deepEqual([missing.state, missing.reason, missing.missingRuns], ['degraded', 'missing_runs', 3])
+  assert.equal(classifyTrackingHealth(facts({ expected_runs: 40, covered_runs: 39 })).state, 'healthy', 'one miss in forty is within the 5% tolerance')
+  assert.equal(classifyTrackingHealth(facts({ expected_runs: 10, covered_runs: 9 })).state, 'degraded', 'one miss in ten is not')
+  assert.equal(classifyTrackingHealth(facts({ failures_7d: 0, failures_30d: 12, last_failure_at: '2026-09-25T00:00:00Z' })).state, 'healthy', 'old failures outside 7 days are shown but no longer degrade')
+  assert.equal(classifyTrackingHealth(facts({ failures_7d: 3, expected_runs: 0, covered_runs: 0 })).state, 'degraded', 'a known failure beats everything else')
+})
+
+test('health: every verdict carries the caveat that undetected gaps are possible, and the report includes it', () => {
+  for (const h of [classifyTrackingHealth(facts()), classifyTrackingHealth(null), classifyTrackingHealth(facts({ failures_7d: 1 }))]) {
+    assert.match(h.caveat, /serverless termination/i); assert.match(h.caveat, /cannot be detected|not be detected|can lose a record without leaving any trace/i)
+  }
+  const r = buildCostReport(raw(), null, [], RANGE, facts())
+  assert.equal(r.health.state, 'healthy')
+  assert.equal(buildCostReport(raw(), null, [], RANGE).health.state, 'unknown', 'without health facts the report never claims healthy')
+})
+
+test('health: the loader reads the facts, and a failed read is "unknown", not healthy', () => {
+  const load = read('lib/costs/load.ts')
+  assert.match(load, /rpc\('admin_tracking_health'\)/); assert.match(load, /health\.error \? null/)
 })
