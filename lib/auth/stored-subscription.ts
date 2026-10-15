@@ -35,7 +35,7 @@ export type UserRow = {
 }
 
 export function normalizePlan(plan: string | null | undefined): UserPlan {
-  if (plan === 'admin' || plan === 'pro' || plan === 'prospector' || plan === 'starter') {
+  if (plan === 'admin' || plan === 'pro' || plan === 'starter_100' || plan === 'prospector' || plan === 'starter') {
     return plan
   }
 

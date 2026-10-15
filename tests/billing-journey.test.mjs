@@ -52,18 +52,18 @@ test('1. a new account completes checkout and is activated', async () => {
   assert.deepEqual(await (await lookup(new Request(`https://alpa.example/api/checkout/session?session_id=${sessionId}`))).json(), {verified: true}, 'no email in the answer')
   const done = await post(activate, '/api/post-checkout/activate', {sessionId})
   assert.equal(done.status, 200)
-  assert.equal(world.profiles.get(A).plan, 'starter'); assert.equal(world.profiles.get(A).plan_status, 'active')
+  assert.equal(world.profiles.get(A).plan, 'starter_100'); assert.equal(world.profiles.get(A).plan_status, 'active')
 })
 
 test('2. an existing account with leads completes checkout; nothing is deleted or imported, whatever the browser sends', async () => {
   resetWorld(); addUser(B); signIn(B); world.leads = claimedLeads(B)
   const before = JSON.stringify(world.leads)
-  const sessionId = sessionIdOf((await startFor('prospector')).body.url)
+  const sessionId = sessionIdOf((await startFor('pro')).body.url)
   pay(sessionId)
   const done = await post(activate, '/api/post-checkout/activate', {sessionId, cleanWorkspace: true, leads: [{company_name: 'INJECTED', email: 'x@y.z'}]})
   assert.equal(done.status, 200)
   assert.equal(JSON.stringify(world.leads), before, 'every business, with its saved AI profile and website facts, is untouched')
-  assert.equal(world.profiles.get(B).plan, 'prospector')
+  assert.equal(world.profiles.get(B).plan, 'pro')
 })
 
 test('3. another account cannot use or even look up that session', async () => {
@@ -88,8 +88,8 @@ test('4. a stale checkout session cannot replace the subscription the account ha
   const oldSession = sessionIdOf((await startFor()).body.url)
   const oldSub = pay(oldSession, {status: 'canceled', current_period_end: Math.floor(Date.now() / 1000) - 86400})
   // later the account subscribes again and is live
-  const live = world.subscriptions.set('sub_live', {id: 'sub_live', customer: world.sessions.get(oldSession).customer, status: 'active', cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 86400 * 20, metadata: {plan: 'prospector'}})
-  Object.assign(world.profiles.get(A), {plan: 'prospector', plan_status: 'active', stripe_subscription_id: 'sub_live', stripe_customer_id: world.sessions.get(oldSession).customer})
+  const live = world.subscriptions.set('sub_live', {id: 'sub_live', customer: world.sessions.get(oldSession).customer, status: 'active', cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 86400 * 20, metadata: {plan: 'pro'}})
+  Object.assign(world.profiles.get(A), {plan: 'pro', plan_status: 'active', stripe_subscription_id: 'sub_live', stripe_customer_id: world.sessions.get(oldSession).customer})
   const refused = await post(activate, '/api/post-checkout/activate', {sessionId: oldSession})
   assert.equal(refused.status, 409); assert.match((await refused.json()).code, /session_expired|session_superseded/)
   assert.equal(world.profiles.get(A).stripe_subscription_id, 'sub_live'); assert.equal(world.syncCalls.length, 0)

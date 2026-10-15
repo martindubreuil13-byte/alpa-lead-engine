@@ -39,7 +39,7 @@ export function describeOfferEligibility(profile: ProfileLike): OfferEligibility
   if (!profile) return { eligible: true, reason: 'guest' }
   if (profile.plan === 'admin' || profile.role === 'admin') return { eligible: false, reason: 'administrator' }
   const status = String(profile.plan_status ?? profile.subscription_status ?? '')
-  const paidNow = ['prospector', 'starter', 'pro'].includes(String(profile.plan)) || profile.subscription_active === true || status === 'active' || status === 'trialing'
+  const paidNow = ['starter_100', 'prospector', 'starter', 'pro'].includes(String(profile.plan)) || profile.subscription_active === true || status === 'active' || status === 'trialing'
   if (paidNow) return { eligible: false, reason: 'paid' }
   const hadSubscription = Boolean(profile.stripe_subscription_id) || Boolean(profile.canceled_at) || LAPSED.has(status)
   if (hadSubscription) return { eligible: false, reason: 'previous_subscriber' }

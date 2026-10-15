@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-import { createStripeCustomer, createStarterCheckoutSession, createProspectorCheckoutSession } from '@/lib/stripe'
+import { createStripeCustomer, createStarterCheckoutSession, createProCheckoutSession } from '@/lib/stripe'
+import { parseCheckoutPlan } from '@/lib/checkout/pending-plan'
 import { decideNewCheckout } from '@/lib/stripe/checkout-guard'
 import { getActiveSubscription } from '@/lib/stripe/subscription'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -22,6 +23,8 @@ type CheckoutRequestBody = {
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => null)) as CheckoutRequestBody | null
+    const requestedPlan = parseCheckoutPlan(body?.plan)
+    if (!requestedPlan) return NextResponse.json({ error: 'Choose a valid ALPA plan.' }, { status: 400 })
     const origin = new URL(req.url).origin
     const supabase = await createSupabaseServerClient()
     const {
@@ -76,7 +79,6 @@ export async function POST(req: Request) {
       }
     }
 
-    const requestedPlan = String(body?.plan || '').trim()
 
     const checkoutParams = {
       origin,
@@ -86,8 +88,8 @@ export async function POST(req: Request) {
       source: body?.source || null,
     }
 
-    const session = requestedPlan === 'prospector'
-      ? await createProspectorCheckoutSession(checkoutParams)
+    const session = requestedPlan === 'pro'
+      ? await createProCheckoutSession(checkoutParams)
       : await createStarterCheckoutSession(checkoutParams)
 
     return NextResponse.json({ url: session.url })

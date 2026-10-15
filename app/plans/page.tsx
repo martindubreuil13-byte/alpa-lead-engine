@@ -9,7 +9,7 @@ import PlansPageTracker from '@/components/tracking/PlansPageTracker'
 
 const pageTitle = 'Pricing & Plans for Lead Generation | ALPA'
 const pageDescription =
-  'ALPA plans start free — get 25 verified leads instantly. Prospector: 120 leads/month for $9.99. Starter: 500 leads/month for $29.99. Find real business contacts with website, email, and phone.'
+  'ALPA plans start free — get 25 verified leads instantly. ALPA Starter: 100 businesses/month for $9.99. ALPA Pro: 500 businesses/month for $24.99. Free: 25 businesses, one time. Find real business contacts with website, email, and phone.'
 
 export const metadata: Metadata = {
   title: {
@@ -32,70 +32,15 @@ export const metadata: Metadata = {
 }
 
 const plans: PlanCardProps[] = [
-  {
-    name: 'Free',
-    price: 'Free',
-    description: 'Test ALPA with your first verified business leads.',
-    features: [
-      '25 verified leads',
-      'CSV export',
-      'Website & business details',
-      'At least 1 contact point',
-    ],
-    ctaLabel: 'Start Free',
-    href: '/dashboard/scraper',
-  },
-  {
-    name: 'Prospector',
-    price: '$9.99',
-    priceSuffix: '/ month',
-    pricePerLead: '$0.08 per verified lead',
-    description: 'For light prospecting when you need a clean list fast.',
-    features: [
-      'Everything in Free',
-      '120 verified leads / month',
-      '$0.08 per verified lead',
-      'Save & export lead lists',
-    ],
-    ctaLabel: 'Start Prospecting',
-    checkoutSource: 'plans_prospector',
-    checkoutPlan: 'prospector',
-    highlight: true,
-  },
-  {
-    name: 'Starter',
-    price: '$29.99',
-    priceSuffix: '/ month',
-    pricePerLead: '$0.06 per verified lead',
-    description: 'For operators who want more leads and a saved lead history.',
-    features: [
-      'Everything in Prospector',
-      '500 verified leads / month',
-      '$0.06 per verified lead',
-      'Lead history',
-    ],
-    ctaLabel: 'Start Building',
-    checkoutSource: 'plans_featured',
-    badge: 'Most Popular',
-    featured: true,
-  },
-  {
-    name: 'Pro',
-    price: '$49.99',
-    priceSuffix: '/ month',
-    pricePerLead: '$0.05 per verified lead',
-    description: 'For teams scaling outbound prospecting.',
-    features: [
-      'Everything in Starter',
-      '1,000 verified leads / month',
-      '$0.05 per verified lead',
-      'Advanced lead library',
-      'Higher-volume workflow',
-    ],
-    ctaLabel: 'Coming Soon',
-    badge: 'Coming Soon',
-    disabled: true,
-  },
+  { name: 'ALPA Free', price: 'Free', description: 'Try ALPA with 25 businesses, one time.',
+    features: ['25 businesses · one-time allowance', 'CSV export', 'Website & business details', 'At least 1 contact point'],
+    ctaLabel: 'Start Free', href: '/dashboard/scraper' },
+  { name: 'ALPA Starter', price: '$9.99', priceSuffix: '/ month', description: 'For regular prospecting.',
+    features: ['100 businesses / month', 'CSV export', 'Save & export business lists'],
+    ctaLabel: 'Choose Starter', checkoutSource: 'plans_starter', checkoutPlan: 'starter', highlight: true },
+  { name: 'ALPA Pro', price: '$24.99', priceSuffix: '/ month', description: 'For higher-volume prospecting.',
+    features: ['500 businesses / month', 'Everything in Starter', 'Business history'],
+    ctaLabel: 'Choose Pro', checkoutSource: 'plans_pro', checkoutPlan: 'pro', badge: 'Most Popular', featured: true },
 ]
 
 export default function PlansPage() {
@@ -129,15 +74,16 @@ export default function PlansPage() {
       {/* Plan cards */}
       <section className="relative px-4 pb-16 sm:px-6 lg:px-10 lg:pb-22">
         <div className="mx-auto max-w-7xl">
-          <div className="grid gap-4 sm:gap-5 md:grid-cols-2 xl:grid-cols-4 xl:items-stretch">
+          <div className="grid gap-4 sm:gap-5 md:grid-cols-2 xl:grid-cols-3 xl:items-stretch">
             {plans.map((plan) => (
               <PlanCard key={plan.name} {...plan} />
             ))}
           </div>
 
+          <p className="mt-6 text-center text-sm text-slate-300">Upcoming offer: 50% off your first month. Not active yet — regular prices apply until the Stripe coupon is configured and verified.</p>
           {/* Trust line */}
           <p className="mt-8 text-center text-xs text-slate-600">
-            No contracts. Cancel anytime. Billed monthly.
+            Paid plans are billed monthly. Cancel anytime. Free includes 25 businesses, one time. Monthly allowances reset on the usage date shown in your account; unused businesses do not roll over.
           </p>
         </div>
       </section>
@@ -165,7 +111,7 @@ export default function PlansPage() {
                 <StartCheckoutButton
                   label="Start Prospecting"
                   source="plans_footer"
-                  plan="prospector"
+                  plan="starter"
                   wrapperClassName="flex-1"
                   className="btn-primary-gold w-full"
                 />

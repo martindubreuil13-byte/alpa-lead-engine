@@ -6,7 +6,7 @@ export function isAdminPlan(plan: string | null | undefined) {
 }
 
 export function isPaidPlan(plan: string | null | undefined) {
-  return plan === 'prospector' || plan === 'starter' || plan === 'pro'
+  return plan === 'starter_100' || plan === 'prospector' || plan === 'starter' || plan === 'pro'
 }
 
 function hasBillableAccess(user: UserProfile | null) {

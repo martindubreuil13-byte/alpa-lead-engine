@@ -83,8 +83,7 @@ export default function PostCheckoutAccountForm() {
           },
         })
         trackGaEvent('subscription_started', {
-          plan_name: 'starter',
-          price: 29.99,
+          // Checkout amount is not known here; do not report a hard-coded purchase value.
           billing_period: 'monthly',
           currency: 'USD',
           visitor_type: 'logged_in',

@@ -96,7 +96,7 @@ test('wiring: pages degrade, paid actions stay live and fail closed, and nothing
   const route = read('app/api/auth/subscription/route.ts')
   assert.match(route, /resolveSubscriptionForNavigation/)
   const scrape = read('app/api/scrape/route.ts')
-  assert.match(scrape, /resolveUserSubscription\(user\.id, \{ email: user\.email \}\)/, 'discovery verifies live, with no navigation shortcut')
+  assert.match(scrape, /resolveUserSubscription\(user\.id, \{ email: user\.email, forceRefresh: true \}\)/, 'discovery verifies live, with no navigation shortcut')
   assert.doesNotMatch(scrape, /resolveSubscriptionForNavigation|readStoredSubscription/)
   assert.match(scrape, /could not verify your subscription right now, so no search was started and nothing was used/)
   assert.match(scrape, /isEntitledToAutomaticResearch\(authenticatedPlan\)/)

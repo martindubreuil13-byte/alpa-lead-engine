@@ -25,7 +25,7 @@ const stub = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end() }
   const object = String(req.headers.accept || '').includes('vnd.pgrst.object')
   if (req.url.startsWith('/auth/v1/user')) { res.writeHead(200, cors); return res.end(JSON.stringify(USER)) }
-  if (req.method === 'HEAD' && req.url.startsWith('/rest/v1/leads')) { res.writeHead(200, {...cors, 'Content-Range': `*/${state.leadCount}`}); return res.end() }
+  if (req.method === 'HEAD' && (req.url.startsWith('/rest/v1/leads') || req.url.startsWith('/rest/v1/business_allowance_ledger'))) { res.writeHead(200, {...cors, 'Content-Range': `*/${state.leadCount}`}); return res.end() }
   if (req.url.startsWith('/rest/v1/users')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? {id: USER.id, email: USER.email, plan: PROFILE.plan} : [{id: USER.id, email: USER.email, plan: PROFILE.plan}])) }
   if (req.url.startsWith('/rest/v1/usage')) { res.writeHead(200, cors); const row = {leads_used: 120, leads_limit: 500, period_start: '2026-10-01T00:00:00Z', period_end: '2026-11-01T00:00:00Z'}; return res.end(JSON.stringify(object ? row : [row])) }
   if (req.url.startsWith('/rest/v1/profiles')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? PROFILE : [PROFILE])) }
@@ -293,9 +293,9 @@ await scenario('member whose plan lookup hits an unreachable Stripe: My Leads st
 await scenario('signed out: choosing a plan carries the plan to sign-up, and the choice is kept for the sign-in that follows', 'desktop', async (page) => {
   await page.goto(base + '/plans')
   await page.getByRole('button', {name: /Start Prospecting|Start Building/}).first().click()
-  await page.waitForURL(/\/login\?mode=signup&plan=(prospector|starter)&source=/, {timeout: 60000})
+  await page.waitForURL(/\/login\?mode=signup&plan=(pro|starter)&source=/, {timeout: 60000})
   const plan = new URL(page.url()).searchParams.get('plan')
-  assert.ok(['prospector', 'starter'].includes(plan))
+  assert.ok(['pro', 'starter'].includes(plan))
   const kept = await page.evaluate(() => window.localStorage.getItem('alpa_pending_checkout'))
   assert.ok(kept && JSON.parse(kept).plan === plan, 'the plan is also kept in the browser')
   // a later visit to plain /login (after confirming the email) still remembers the plan: the sign-in will continue to checkout
@@ -306,7 +306,7 @@ await scenario('signed out: choosing a plan carries the plan to sign-up, and the
 await scenario('signed in with a plan chosen earlier: the hand-over page asks the server once and shows a calm message if checkout cannot start', 'desktop', async (page, requests) => {
   let posts = 0
   await page.route('**/api/checkout', async (route) => { posts += 1; return route.fulfill({status: 500, json: {error: 'Unable to start checkout'}}) })
-  await page.goto(base + '/checkout/start?plan=prospector&source=plans_featured')
+  await page.goto(base + '/checkout/start?plan=pro&source=plans_featured')
   await page.getByText('We could not start checkout').waitFor({timeout: 60000})
   await page.getByText('Unable to start checkout', {exact: true}).waitFor()
   await page.getByRole('link', {name: 'Back to plans'}).waitFor()

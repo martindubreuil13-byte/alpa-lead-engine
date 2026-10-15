@@ -56,8 +56,8 @@ async function newSession({ customerId, userId, userEmail, source }, plan) {
   const session = { id, mode: 'subscription', status: 'open', payment_status: 'unpaid', customer: customerId, subscription: null, metadata: { user_id: userId ?? '', email: userEmail, plan, ...(source ? { source } : {}) }, url: `https://checkout.stripe.test/${id}` }
   world.sessions.set(id, session); return session
 }
-export const createStarterCheckoutSession = (p) => newSession(p, 'starter')
-export const createProspectorCheckoutSession = (p) => newSession(p, 'prospector')
+export const createStarterCheckoutSession = (p) => newSession(p, 'starter_100')
+export const createProCheckoutSession = (p) => newSession(p, 'pro')
 export const STRIPE_API_VERSION = 'test'
 // the customer pays: the session completes with a live subscription for its customer
 export function pay(sessionId, over = {}) {
@@ -77,7 +77,7 @@ export async function getActiveSubscription(userId) {
 export async function syncSubscriptionToDatabase(subscription, { userId, customerId }) {
   world.syncCalls.push({ subscriptionId: subscription.id, userId, customerId })
   const cur = world.profiles.get(userId); if (!cur) return null
-  const plan = subscription.metadata?.plan === 'prospector' ? 'prospector' : 'starter'
+  const plan = subscription.metadata?.plan ?? 'starter'
   world.profiles.set(userId, { ...cur, plan, subscription_tier: plan, plan_status: subscription.status, subscription_status: subscription.status, stripe_customer_id: customerId, stripe_subscription_id: subscription.id })
   return { userId }
 }

@@ -1196,7 +1196,7 @@ export async function POST(req: Request) {
     let verified: [Awaited<ReturnType<typeof resolveUserSubscription>>, { count: number | null }] | null = null
     try {
       verified = await Promise.all([
-        resolveUserSubscription(user.id, { email: user.email }),
+        resolveUserSubscription(user.id, { email: user.email, forceRefresh: true }),
         supabase
           .from('leads')
           .select('id', { count: 'exact', head: true })

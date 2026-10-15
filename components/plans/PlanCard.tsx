@@ -14,7 +14,7 @@ export type PlanCardProps = {
   ctaLabel: string
   href?: string
   checkoutSource?: string
-  checkoutPlan?: 'starter' | 'prospector'
+  checkoutPlan?: 'starter' | 'pro'
   badge?: string
   featured?: boolean
   highlight?: boolean

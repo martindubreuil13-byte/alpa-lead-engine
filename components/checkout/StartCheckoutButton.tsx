@@ -1,5 +1,6 @@
 'use client'
 
+import { PLANS, entitlementForCheckout } from '@/lib/billing/plans'
 import { useEffect, useState } from 'react'
 
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
@@ -10,12 +11,7 @@ import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session
 import { trackEvent } from '@/lib/track'
 import { parseCheckoutSource, savePendingCheckout, signupHref } from '@/lib/checkout/pending-plan'
 
-type CheckoutPlan = 'starter' | 'prospector'
-
-const PLAN_META: Record<CheckoutPlan, { price: number; leadLimit: number }> = {
-  starter:    { price: 29.99, leadLimit: 500 },
-  prospector: { price: 9.99,  leadLimit: 120 },
-}
+type CheckoutPlan = 'starter' | 'pro'
 
 type StartCheckoutButtonProps = {
   label: string
@@ -86,7 +82,9 @@ export default function StartCheckoutButton({
       saveGuestCaptureEmail(normalizedEmail)
     }
 
-    const { price: planPrice, leadLimit: planLeadLimit } = PLAN_META[plan]
+    const definition = PLANS[entitlementForCheckout(plan)]
+    const planPrice = definition.priceCents / 100
+    const planLeadLimit = definition.businesses
 
     void trackEvent('upgrade_clicked', {
       email: normalizedEmail || null,

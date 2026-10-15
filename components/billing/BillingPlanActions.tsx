@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState, useTransition } from 'react'
 
 type BillingPlanActionsProps = {
+  planChangesEnabled?: boolean
   initialState: {
     planStatus: string | null
     cancelAtPeriodEnd: boolean
@@ -28,13 +29,13 @@ function formatBillingDate(value: string | null | undefined) {
   }).format(date)
 }
 
-export default function BillingPlanActions({ initialState }: BillingPlanActionsProps) {
+export default function BillingPlanActions({ initialState, planChangesEnabled = false }: BillingPlanActionsProps) {
   const router = useRouter()
   const [state, setState] = useState(initialState)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [action, setAction] = useState<'cancel' | 'resume' | null>(null)
+  const [action, setAction] = useState<'cancel' | 'resume' | 'change-plan' | null>(null)
   const [, startTransition] = useTransition()
   const actionInFlight = useRef(false)
 
@@ -91,6 +92,25 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
       setAction(null)
       actionInFlight.current = false
     }
+  }
+
+  async function changePlan(plan: 'starter' | 'pro') {
+    if (actionInFlight.current) return
+    actionInFlight.current = true
+    setAction('change-plan')
+    setError(null)
+    setSuccess(null)
+    try {
+      const response = await fetch('/api/billing/change-plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan }),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || 'Unable to change plan')
+      setSuccess(payload.message)
+      if (payload.effectivePlan) setState((current) => ({ ...current, subscriptionTier: payload.effectivePlan }))
+      startTransition(() => router.refresh())
+    } catch (error) { setError(error instanceof Error ? error.message : 'Unable to change plan') }
+    finally { actionInFlight.current = false; setAction(null) }
   }
 
   return (
@@ -175,6 +195,17 @@ export default function BillingPlanActions({ initialState }: BillingPlanActionsP
         </div>
       )}
 
+      {canManage && (state.subscriptionTier === 'starter_100' || state.subscriptionTier === 'pro') ? (
+        <section aria-label="Change subscription plan" className="space-y-3 text-sm text-slate-300">
+          <p>Upgrades apply after successful payment, with a prorated charge. Downgrades apply on your next billing date. Saved businesses are retained and usage is not reset when changing plans.</p>
+          {planChangesEnabled ? (
+            <button type="button" disabled={isBusy || isCanceling} onClick={() => void changePlan(state.subscriptionTier === 'pro' ? 'starter' : 'pro')}
+              className="min-h-[44px] rounded border border-white/20 px-4 disabled:opacity-50">
+              {state.subscriptionTier === 'pro' ? 'Switch to Starter · $9.99/month at renewal' : 'Upgrade to Pro · $24.99/month plus prorated charge'}
+            </button>
+          ) : <p>Plan changes are not active yet. Your existing subscription continues unchanged.</p>}
+        </section>
+      ) : null}
       {confirming ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b1a33] p-6 shadow-2xl">

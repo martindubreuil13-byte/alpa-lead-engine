@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth/paid-access'
 import { STRIPE_API_VERSION, getPlanFromSubscription } from '@/lib/stripe'
 
-export type BillingPlan = 'free' | 'prospector' | 'starter'
+export type BillingPlan = 'free' | 'starter_100' | 'pro' | 'prospector' | 'starter'
 export type BillingPlanStatus =
   | 'active'
   | 'canceling'
@@ -68,7 +68,7 @@ export function getStripeSubscriptionId(
 export function getCurrentPeriodEnd(subscription: Stripe.Subscription) {
   return toIsoDate(
     (subscription as Stripe.Subscription & { current_period_end?: number | null })
-      .current_period_end
+      .current_period_end ?? subscription.items.data[0]?.current_period_end
   )
 }
 
@@ -180,7 +180,16 @@ export async function getActiveSubscription(userId: string) {
   return { profile, subscription: await listLatestUsableSubscription(customerId) }
 }
 
-export async function cancelSubscription(subscriptionId: string) {
+export async function cancelSubscription(subscriptionId: string, scheduleId?: string | null) {
+  if (scheduleId) {
+    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId)
+    const ownerSubscription = typeof schedule.subscription === 'string' ? schedule.subscription : schedule.subscription?.id
+    if (ownerSubscription !== subscriptionId || schedule.metadata?.alpa_plan_change !== 'true') {
+      throw new Error('This subscription has a billing schedule that requires review before cancellation.')
+    }
+    // Canceling also removes the pending downgrade; resuming later retains the current plan.
+    await stripe.subscriptionSchedules.release(scheduleId, { preserve_cancel_date: false })
+  }
   return stripe.subscriptions.update(subscriptionId, {
     cancel_at_period_end: true,
   })

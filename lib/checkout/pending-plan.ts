@@ -4,7 +4,7 @@
 // be lost on the way: it travels in the address (?plan=...) and is also kept in the browser for a day, so it survives the
 // confirm-your-email round trip and a later sign-in. It is only a choice of plan, never a price or an identity; the server decides
 // everything about the checkout (see app/api/checkout/route.ts).
-export type CheckoutPlan = 'starter' | 'prospector'
+export type CheckoutPlan = 'starter' | 'pro'
 
 export const PENDING_CHECKOUT_KEY = 'alpa_pending_checkout'
 export const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000
@@ -13,7 +13,7 @@ export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export type PendingCheckout = { plan: CheckoutPlan; source: string }
 
 export function parseCheckoutPlan(value: unknown): CheckoutPlan | null {
-  return value === 'starter' || value === 'prospector' ? value : null
+  return value === 'starter' || value === 'pro' ? value : null
 }
 
 /** A short analytics label; anything unexpected becomes the default so it can never carry markup or a path. */

@@ -4,40 +4,35 @@ import { customerBelongsToUser } from '@/lib/stripe/checkout-guard'
 
 export const STRIPE_API_VERSION = '2026-02-25.clover'
 
-// Maps known Stripe price IDs to internal plan keys.
-// Add new plans here; unknown price IDs fall back to 'starter'.
-export function getPlanFromPriceId(priceId: string | null | undefined): 'prospector' | 'starter' {
-  if (!priceId) return 'starter'
-  if (priceId === process.env.STRIPE_PROSPECTOR_PRICE_ID) return 'prospector'
-  return 'starter'
+// Legacy IDs retain their original entitlement; an unrecognized ID must never grant access.
+export function getPlanFromPriceId(priceId: string | null | undefined): 'starter_100' | 'pro' | 'prospector' | 'starter' {
+  if (priceId && priceId === process.env.STRIPE_ALPA_STARTER_PRICE_ID) return 'starter_100'
+  if (priceId && priceId === process.env.STRIPE_ALPA_PRO_PRICE_ID) return 'pro'
+  if (priceId && priceId === process.env.STRIPE_PROSPECTOR_PRICE_ID) return 'prospector'
+  if (priceId && priceId === process.env.STRIPE_STARTER_PRICE_ID) return 'starter'
+  throw new Error('Unrecognized Stripe price; subscriber audit required')
 }
-
-export function getPlanFromSubscription(subscription: Stripe.Subscription): 'prospector' | 'starter' {
-  const priceId = subscription.items.data[0]?.price?.id ?? null
-  return getPlanFromPriceId(priceId)
+export function getPlanFromSubscription(subscription: Stripe.Subscription) {
+  if (subscription.items.data.length !== 1) throw new Error('Expected one subscription item')
+  return getPlanFromPriceId(subscription.items.data[0]?.price?.id)
 }
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
 })
 
-function getStarterPriceId() {
-  const priceId = process.env.STRIPE_STARTER_PRICE_ID
-
-  if (!priceId) {
-    throw new Error('STRIPE_STARTER_PRICE_ID is not configured')
+export async function getConfiguredPrice(plan: 'starter' | 'pro') {
+  const priceId = process.env[plan === 'starter' ? 'STRIPE_ALPA_STARTER_PRICE_ID' : 'STRIPE_ALPA_PRO_PRICE_ID']
+  if (!priceId) throw new Error('New ALPA prices are not configured')
+  const legacy = [process.env.STRIPE_STARTER_PRICE_ID, process.env.STRIPE_PROSPECTOR_PRICE_ID]
+  if (legacy.includes(priceId) || process.env.STRIPE_ALPA_STARTER_PRICE_ID === process.env.STRIPE_ALPA_PRO_PRICE_ID) {
+    throw new Error('New and legacy prices must be distinct')
   }
-
-  return priceId
-}
-
-function getProspectorPriceId() {
-  const priceId = process.env.STRIPE_PROSPECTOR_PRICE_ID
-
-  if (!priceId) {
-    throw new Error('STRIPE_PROSPECTOR_PRICE_ID is not configured')
+  const price = await stripe.prices.retrieve(priceId)
+  if (!price.active || price.currency !== 'usd' || price.unit_amount !== (plan === 'starter' ? 999 : 2499) ||
+      price.type !== 'recurring' || price.recurring?.interval !== 'month' || price.recurring.interval_count !== 1 || price.recurring.usage_type !== 'licensed') {
+    throw new Error('Configured ALPA price does not match the advertised monthly plan')
   }
-
   return priceId
 }
 
@@ -94,11 +89,11 @@ async function createSubscriptionCheckoutSession({
 type PublicCheckoutParams = Omit<CheckoutSessionParams, 'priceId'>
 
 export async function createStarterCheckoutSession(params: PublicCheckoutParams) {
-  return createSubscriptionCheckoutSession({ ...params, priceId: getStarterPriceId() })
+  return createSubscriptionCheckoutSession({ ...params, priceId: await getConfiguredPrice('starter') })
 }
 
-export async function createProspectorCheckoutSession(params: PublicCheckoutParams) {
-  return createSubscriptionCheckoutSession({ ...params, priceId: getProspectorPriceId() })
+export async function createProCheckoutSession(params: PublicCheckoutParams) {
+  return createSubscriptionCheckoutSession({ ...params, priceId: await getConfiguredPrice('pro') })
 }
 
 export async function createStripeCustomer({

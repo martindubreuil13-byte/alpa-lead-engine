@@ -13,12 +13,12 @@ const read = (file) => fs.readFileSync(file, 'utf8')
 const memory = () => { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, String(v)), removeItem: (k) => void data.delete(k), data } }
 
 test('the chosen plan survives sign-up and sign-in: in the address and in the browser', () => {
-  assert.equal(signupHref('prospector', 'plans_featured'), '/login?mode=signup&plan=prospector&source=plans_featured')
+  assert.equal(signupHref('pro', 'plans_featured'), '/login?mode=signup&plan=pro&source=plans_featured')
   assert.equal(loginHref('starter', 'upgrade'), '/login?plan=starter&source=upgrade')
   assert.equal(checkoutStartHref('starter', 'plans_footer'), '/checkout/start?plan=starter&source=plans_footer')
   const storage = memory()
-  savePendingCheckout(storage, { plan: 'prospector', source: 'plans_featured' }, 1_000)
-  assert.deepEqual(readPendingCheckout(storage, 2_000), { plan: 'prospector', source: 'plans_featured' }, 'survives the confirm-your-email round trip')
+  savePendingCheckout(storage, { plan: 'pro', source: 'plans_featured' }, 1_000)
+  assert.deepEqual(readPendingCheckout(storage, 2_000), { plan: 'pro', source: 'plans_featured' }, 'survives the confirm-your-email round trip')
   assert.equal(readPendingCheckout(storage, 1_000 + PENDING_CHECKOUT_TTL_MS + 1), null, 'a day later it is forgotten')
   assert.equal(readPendingCheckout(storage, 1_000 - 120_000), null, 'a date from the future is refused')
   clearPendingCheckout(storage); assert.equal(readPendingCheckout(storage, 2_000), null)
@@ -28,8 +28,8 @@ test('the chosen plan survives sign-up and sign-in: in the address and in the br
 })
 
 test('only real plans and plain labels travel; the return address is limited to finishing a payment', () => {
-  assert.equal(parseCheckoutPlan('starter'), 'starter'); assert.equal(parseCheckoutPlan('prospector'), 'prospector')
-  for (const bad of ['admin', 'free', 'pro', '', null, undefined, 'starter ', 'STARTER', { plan: 'starter' }]) assert.equal(parseCheckoutPlan(bad), null, String(bad))
+  assert.equal(parseCheckoutPlan('starter'), 'starter'); assert.equal(parseCheckoutPlan('pro'), 'pro')
+  for (const bad of ['admin', 'free', 'prospector', '', null, undefined, 'starter ', 'STARTER', { plan: 'starter' }]) assert.equal(parseCheckoutPlan(bad), null, String(bad))
   assert.equal(parseCheckoutSource('plans_featured'), 'plans_featured')
   for (const bad of ['<script>', 'a b', '../x', 'x'.repeat(61), '', null, 42]) assert.equal(parseCheckoutSource(bad), 'upgrade', String(bad))
   assert.equal(safeNextPath('/post-checkout?session_id=cs_test_a1B2'), '/post-checkout?session_id=cs_test_a1B2')
@@ -39,9 +39,9 @@ test('only real plans and plain labels travel; the return address is limited to 
 })
 
 test('after signing in: finish a payment first, else continue to checkout with the chosen plan, else the usual page', () => {
-  const pending = { plan: 'prospector', source: 'plans_featured' }
+  const pending = { plan: 'pro', source: 'plans_featured' }
   assert.equal(destinationAfterAuth({ next: '/post-checkout?session_id=cs_1', pending, fallback: '/dashboard/scraper' }), '/post-checkout?session_id=cs_1')
-  assert.equal(destinationAfterAuth({ next: null, pending, fallback: '/dashboard/scraper' }), '/checkout/start?plan=prospector&source=plans_featured')
+  assert.equal(destinationAfterAuth({ next: null, pending, fallback: '/dashboard/scraper' }), '/checkout/start?plan=pro&source=plans_featured')
   assert.equal(destinationAfterAuth({ next: null, pending: null, fallback: '/dashboard' }), '/dashboard')
 })
 
