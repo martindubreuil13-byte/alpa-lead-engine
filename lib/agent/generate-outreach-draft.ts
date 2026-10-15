@@ -671,7 +671,7 @@ async function callOpenAI(prompt: string): Promise<{ subject: string; body: stri
       response_format: { type: 'json_object' },
     })
 
-    recordOpenAiCompletion('gpt-4.1-mini', completion.usage, 'outreach')
+    await recordOpenAiCompletion('gpt-4.1-mini', completion, 'outreach')
     const text = completion.choices[0]?.message.content?.trim() || ''
     const parsed = JSON.parse(text) as Record<string, unknown>
     const subject = String(parsed.subject || '').trim()

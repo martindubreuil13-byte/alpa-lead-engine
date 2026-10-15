@@ -1,5 +1,5 @@
 import { recordApiUsage } from "@/lib/costs/record"
-import { GOOGLE_SKU_USD, googleCostOf, googleDetailsSkus } from "@/lib/costs/pricing"
+import { GOOGLE_TEXT_SEARCH_SKUS, googleCostOf, googleDetailsSkus } from "@/lib/costs/pricing"
 import { googleRegionFor } from "./country"
 import { firstProviderCategory } from "./category"
 import type { SourceLead, SourceSearchInput } from "./types"
@@ -89,7 +89,7 @@ async function fetchPlaces(
     const res = await fetch(`${GOOGLE_TEXT_SEARCH_URL}?${params.toString()}`)
 
     if (!res.ok) {
-      recordApiUsage({ provider: "google_places", operation: "text_search", skus: ["text_search"], estimatedCostUsd: 0, ok: false, httpStatus: res.status })
+      recordApiUsage({ provider: "google_places", operation: "text_search", skus: [], estimatedCostUsd: 0, ok: false, httpStatus: res.status })
       send?.(`❌ Google API error: ${res.status}`)
       break
     }
@@ -97,13 +97,14 @@ async function fetchPlaces(
     const data = await res.json()
     const status = String(data?.status || "")
 
-    // Every page of a text search is its own billable request. A request Google answers with an error status is not billed.
+    // Every page of a text search is its own billable request, billed under the Text Search SKU and the data SKUs together (events of
+    // this one request). A request Google answers with an error status is not billed.
     const answered = !status || status === "OK" || status === "ZERO_RESULTS"
     recordApiUsage({
       provider: "google_places",
       operation: "text_search",
-      skus: answered ? ["text_search"] : [],
-      estimatedCostUsd: answered ? GOOGLE_SKU_USD.text_search : 0,
+      skus: answered ? GOOGLE_TEXT_SEARCH_SKUS : [],
+      estimatedCostUsd: answered ? googleCostOf(GOOGLE_TEXT_SEARCH_SKUS) : 0,
       ok: answered,
       httpStatus: res.status,
       resultsReturned: Array.isArray(data?.results) ? data.results.length : 0,

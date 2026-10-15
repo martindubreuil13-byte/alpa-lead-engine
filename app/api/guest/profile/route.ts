@@ -100,7 +100,7 @@ export async function POST(req: Request) {
           },
           { timeout: LIGHT_PROFILE_LIMITS.timeoutMs, maxRetries: 0 }
         )
-        recordOpenAiCompletion(LIGHT_PROFILE_MODEL, completion.usage, 'guest_profile')
+        await recordOpenAiCompletion(LIGHT_PROFILE_MODEL, completion, 'guest_profile')
         return {
           content: completion.choices[0]?.message?.content || '',
           inputTokens: completion.usage?.prompt_tokens || 0,

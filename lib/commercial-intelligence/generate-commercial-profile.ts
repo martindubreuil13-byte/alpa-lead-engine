@@ -61,7 +61,7 @@ export async function generateCommercialProfile(
         response_format: { type: 'json_object' },
       }, { ...OPENAI_PROFILE_REQUEST_OPTIONS, signal: options.signal })
 
-      recordOpenAiCompletion(MODEL, completion.usage, 'research_profile')
+      await recordOpenAiCompletion(MODEL, completion, 'research_profile')
       return {
         content: completion.choices[0]?.message?.content || '',
         inputTokens: completion.usage?.prompt_tokens || 0,

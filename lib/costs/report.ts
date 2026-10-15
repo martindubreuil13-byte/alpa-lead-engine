@@ -1,4 +1,4 @@
-import { GOOGLE_FREE_MONTHLY_EVENTS, PRICING_AS_OF, type GoogleSku, type Provider } from './pricing.ts'
+import { PRICING_AS_OF, type Provider } from './pricing.ts'
 
 // Turns the database's aggregated answer into what the dashboard shows. Pure: no database, no provider call. Everything here is an
 // ESTIMATE at list price from ALPA's own request log; nothing is read from a provider's billing.
@@ -19,8 +19,10 @@ export type RawOverview = {
   daily_delivered: { day: string; runs: number; delivered: number }[]
   runs: { count: number; delivered: number; duplicates: number; rejected: number }
   first_event_at: string | null
+  today_by_provider: { provider: Provider; cost: number }[]
   month_by_provider: { provider: Provider; cost: number }[]
-  google_month_events: Record<string, number>
+  month_delivered: number
+  google_sku_events: Record<string, number>
 }
 export type RawHistory = { daily: { day: string; settled: number; cost: number }[]; first_settled_at: string | null }
 export type LimitRow = { scope: 'monthly' | 'run'; provider: Provider | 'all'; limit_usd: number; alert_at_percent: number; enforce: boolean }
@@ -81,7 +83,8 @@ export type TableRow = {
   provider: Provider; label: string; operation: string; requests: number; creditsOrTokens: string; cost: number; unitCost: number | null; unitLabel: string; unpriced: number
 }
 export type SeriesPoint = { day: string; serper: number; google_places: number; openai: number; total: number; requests: number; costPerBusiness: number | null; delivered: number }
-export type AllowanceRow = { sku: GoogleSku; label: string; used: number; free: number; remaining: number; percent: number }
+export type SkuEventRow = { sku: string; label: string; events: number }
+export type SpendNow = { total: number; byProvider: Record<Provider, number> }
 export type LimitStatus = { scope: string; provider: string; limitUsd: number; spentUsd: number | null; percent: number | null; alertAtPercent: number; state: 'ok' | 'approaching' | 'over' | 'not_measured'; enforced: boolean }
 
 export type CostReport = {
@@ -96,15 +99,25 @@ export type CostReport = {
   providers: ProviderSummary[]
   table: TableRow[]
   series: SeriesPoint[]
-  allowances: AllowanceRow[]
+  /** Spending today and this month so far, whatever range is being viewed. Estimates, before any free allowance. */
+  now: { today: SpendNow; month: SpendNow; monthDelivered: number; monthCostPerDelivered: number | null }
+  /** Google billing events (SKUs) in the range. One request produces several; they are events, not additional requests. */
+  googleSkuEvents: SkuEventRow[]
   limits: LimitStatus[]
   history: { available: boolean; note: string; daily: { day: string; cost: number; settled: number }[]; total: number }
 }
 
 const LABEL: Record<Provider, string> = { serper: 'Serper', google_places: 'Google Places', openai: 'OpenAI' }
 const OP_LABEL: Record<string, string> = { maps_search: 'Maps search', text_search: 'Text Search', place_details: 'Place Details', chat_completion: 'Chat completions' }
-const SKU_LABEL: Record<string, string> = { text_search: 'Text Search', place_details: 'Place Details', contact_data: 'Contact Data' }
+const SKU_LABEL: Record<string, string> = { text_search: 'Text Search', place_details: 'Place Details', basic_data: 'Basic Data', contact_data: 'Contact Data', atmosphere_data: 'Atmosphere Data' }
+const SKU_ORDER = ['text_search', 'place_details', 'basic_data', 'contact_data', 'atmosphere_data']
 const PROFILE_PURPOSES = new Set(['research_profile', 'guest_profile'])
+
+function spendNow(rows: { provider: Provider; cost: number }[] | undefined): SpendNow {
+  const byProvider: Record<Provider, number> = { serper: 0, google_places: 0, openai: 0 }
+  for (const row of rows ?? []) byProvider[row.provider] += n(row.cost)
+  return { total: byProvider.serper + byProvider.google_places + byProvider.openai, byProvider }
+}
 
 export function buildCostReport(raw: RawOverview, history: RawHistory | null, limits: LimitRow[], range: DateRange): CostReport {
   const ops = (raw.by_operation ?? []).map((row) => ({ ...row, requests: n(row.requests), failed: n(row.failed), credits: n(row.credits), input_tokens: n(row.input_tokens), output_tokens: n(row.output_tokens), cost: n(row.cost), unpriced: n(row.unpriced) }))
@@ -127,7 +140,7 @@ export function buildCostReport(raw: RawOverview, history: RawHistory | null, li
 
   const table = ops.map((row): TableRow => ({
     provider: row.provider, label: LABEL[row.provider], operation: OP_LABEL[row.operation] ?? row.operation, requests: row.requests,
-    creditsOrTokens: row.provider === 'serper' ? `${row.credits.toLocaleString('en-US')} credits` : row.provider === 'openai' ? `${(row.input_tokens + row.output_tokens).toLocaleString('en-US')} tokens` : 'priced per request',
+    creditsOrTokens: row.provider === 'serper' ? `${row.credits.toLocaleString('en-US')} credits` : row.provider === 'openai' ? `${(row.input_tokens + row.output_tokens).toLocaleString('en-US')} tokens` : 'priced per billing event',
     cost: row.cost, unitCost: ratio(row.cost, row.requests), unitLabel: 'per request', unpriced: row.unpriced,
   }))
 
@@ -154,12 +167,10 @@ export function buildCostReport(raw: RawOverview, history: RawHistory | null, li
   const series = [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day))
   for (const point of series) point.costPerBusiness = ratio(discoveryByDay.get(point.day) ?? 0, point.delivered)
 
-  const monthEvents = raw.google_month_events ?? {}
-  const allowances = (Object.keys(GOOGLE_FREE_MONTHLY_EVENTS) as GoogleSku[]).map((sku): AllowanceRow => {
-    const free = GOOGLE_FREE_MONTHLY_EVENTS[sku] ?? 0
-    const used = n(monthEvents[sku])
-    return { sku, label: SKU_LABEL[sku] ?? sku, used, free, remaining: Math.max(0, free - used), percent: free > 0 ? Math.min(100, (used / free) * 100) : 0 }
-  })
+  const skuCounts = raw.google_sku_events ?? {}
+  const googleSkuEvents = Object.keys(skuCounts)
+    .sort((a, b) => (SKU_ORDER.indexOf(a) === -1 ? 99 : SKU_ORDER.indexOf(a)) - (SKU_ORDER.indexOf(b) === -1 ? 99 : SKU_ORDER.indexOf(b)))
+    .map((sku): SkuEventRow => ({ sku, label: SKU_LABEL[sku] ?? sku, events: n(skuCounts[sku]) }))
 
   const monthSpend = new Map((raw.month_by_provider ?? []).map((row) => [row.provider, n(row.cost)]))
   const monthAll = [...monthSpend.values()].reduce((t, v) => t + v, 0)
@@ -184,7 +195,17 @@ export function buildCostReport(raw: RawOverview, history: RawHistory | null, li
       aiCostPerProfile: ratio(profileCost, aiProfiles), runs: n(raw.runs?.count), duplicates: n(raw.runs?.duplicates), rejected: n(raw.runs?.rejected),
     },
     contribution: { available: false, reason: 'No reliable revenue figure is connected: subscription revenue is not read from Stripe here, so a margin would be a guess.' },
-    providers, table, series, allowances, limits: limitStatus,
+    now: {
+      today: spendNow(raw.today_by_provider),
+      month: spendNow(raw.month_by_provider),
+      monthDelivered: n(raw.month_delivered),
+      monthCostPerDelivered: ratio(
+        (raw.month_by_provider ?? []).filter((row) => row.provider !== 'openai').reduce((t, row) => t + n(row.cost), 0),
+        n(raw.month_delivered)
+      ),
+    },
+    googleSkuEvents,
+    providers, table, series, limits: limitStatus,
     history: {
       available: earlier.length > 0,
       note: earlier.length > 0

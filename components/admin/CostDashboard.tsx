@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { CostReport, LimitStatus, SeriesPoint } from '@/lib/costs/report'
+import CostReconciliation from '@/components/admin/CostReconciliation'
+import type { CostReport, LimitStatus, SeriesPoint, SpendNow } from '@/lib/costs/report'
 
 type Preset = 'today' | '7d' | '30d' | 'custom'
 type Payload =
@@ -25,6 +26,8 @@ function usd(value: number | null | undefined) {
 }
 const int = (value: number) => Math.round(value).toLocaleString('en-US')
 
+export const REFRESH_MS = 60_000
+
 export default function CostDashboard() {
   const [preset, setPreset] = useState<Preset>('30d')
   const [from, setFrom] = useState('')
@@ -32,27 +35,45 @@ export default function CostDashboard() {
   const [payload, setPayload] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const inFlight = useRef(false)
+  const latest = useRef(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (preset === 'custom' && (!from || !to)) return
-    setLoading(true)
-    setFailed(null)
+    // A background refresh never overlaps another request; a choice the person just made always goes through, and only the newest answer is used.
+    if (silent && inFlight.current) return
+    const ticket = ++latest.current
+    inFlight.current = true
+    if (!silent) setLoading(true)
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
       const query = new URLSearchParams({ range: preset, tz })
       if (preset === 'custom') { query.set('from', from); query.set('to', to) }
       const response = await fetch(`/api/admin/costs?${query}`, { cache: 'no-store' })
       const body = (await response.json()) as Partial<Payload> & { error?: string }
-      if (body.state) setPayload(body as Payload)
-      else setFailed(body.error || 'The cost figures could not be loaded.')
+      if (ticket !== latest.current) return
+      // A background refresh that fails keeps the figures already on screen and says they may be out of date.
+      if (body.state && !(silent && body.state === 'error')) { setPayload(body as Payload); setFailed(null); if (body.state === 'ready') setUpdatedAt(new Date()) }
+      else setFailed(silent ? 'The latest figures could not be loaded; the numbers below may be out of date.' : body.error || 'The cost figures could not be loaded.')
     } catch {
-      setFailed('The cost figures could not be loaded.')
+      if (ticket !== latest.current) return
+      setFailed(silent ? 'The latest figures could not be loaded; the numbers below may be out of date.' : 'The cost figures could not be loaded.')
     } finally {
-      setLoading(false)
+      if (ticket === latest.current) { inFlight.current = false; if (!silent) setLoading(false) }
     }
   }, [preset, from, to])
 
   useEffect(() => { void load() }, [load])
+
+  // Refresh from ALPA's own database every 60 seconds while the page is open and visible. No provider is contacted.
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === 'visible') void load(true) }
+    const timer = window.setInterval(tick, REFRESH_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible' && (!updatedAt || Date.now() - updatedAt.getTime() >= REFRESH_MS)) void load(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [load, updatedAt])
 
   return (
     <div className="space-y-6 pb-10" style={{ color: IVORY }}>
@@ -68,7 +89,8 @@ export default function CostDashboard() {
       {failed ? <Notice tone="warn">{failed}</Notice> : null}
       {payload?.state === 'not_enabled' ? <NotEnabled /> : null}
       {payload?.state === 'error' ? <Notice tone="warn">{payload.message}</Notice> : null}
-      {payload?.state === 'ready' ? <Report report={payload.report} dim={loading} /> : null}
+      {payload?.state === 'ready' ? <Report report={payload.report} dim={loading} updatedAt={updatedAt} /> : null}
+      <CostReconciliation />
       {!payload && loading ? <div className="h-40 animate-pulse rounded-3xl bg-white/[0.04]" aria-label="Loading" /> : null}
     </div>
   )
@@ -117,6 +139,27 @@ function NotEnabled() {
   )
 }
 
+function NowStrip({ now }: { now: CostReport['now'] }) {
+  const chips = (spend: SpendNow) => (['serper', 'google_places', 'openai'] as const).map((k) => (
+    <span key={k} className="flex items-center gap-1.5 text-xs text-slate-300"><span className="inline-block size-2 rounded-full" style={{ background: COLORS[k] }} />{NAMES[k]} <span className="tabular-nums text-slate-100">{usd(spend.byProvider[k])}</span></span>
+  ))
+  return (
+    <div className="grid gap-3 sm:grid-cols-2" aria-label="Spending now">
+      <div className="rounded-2xl border p-4" style={{ borderColor: 'rgba(201,162,75,.35)', background: 'rgba(201,162,75,.06)' }}>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: GOLD }}>Today · estimated</div>
+        <div className="mt-2 text-3xl font-semibold tabular-nums" data-testid="today-total">{usd(now.today.total)}</div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{chips(now.today)}</div>
+      </div>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">This month so far · estimated</div>
+        <div className="mt-2 text-3xl font-semibold tabular-nums" data-testid="month-total">{usd(now.month.total)}</div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{chips(now.month)}</div>
+        <div className="mt-2 text-xs text-slate-400">{int(now.monthDelivered)} businesses delivered · {usd(now.monthCostPerDelivered)} estimated per business</div>
+      </div>
+    </div>
+  )
+}
+
 function Card({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: boolean }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
@@ -137,13 +180,16 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   )
 }
 
-function Report({ report, dim }: { report: CostReport; dim: boolean }) {
+function Report({ report, dim, updatedAt }: { report: CostReport; dim: boolean; updatedAt: Date | null }) {
   const h = report.headline
   const empty = report.table.length === 0
   return (
     <div className={`space-y-6 transition-opacity ${dim ? 'opacity-60' : ''}`}>
+      <NowStrip now={report.now} />
+      <div className="text-xs text-slate-400" data-testid="updated-at">{updatedAt ? `Updated ${updatedAt.toLocaleTimeString('en-CA')} · refreshes every 60 seconds from ALPA's own records` : 'Loading…'}</div>
+
       <Notice tone="info">
-        <strong className="font-semibold">Estimated, not billed.</strong> Prices are list prices as of {report.pricingAsOf}; free monthly allowances are counted from ALPA&rsquo;s own calls only.{' '}
+        <strong className="font-semibold">Estimated, not billed.</strong> Estimates use the prices configured as of {report.pricingAsOf}, before any free monthly allowance or credit; the monthly reconciliation below compares them with what was actually charged.{' '}
         {report.trackingSince ? <>Request-level tracking began {new Date(report.trackingSince).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}; nothing earlier is reconstructed.</> : <>No requests have been recorded yet.</>}
       </Notice>
 
@@ -152,10 +198,10 @@ function Report({ report, dim }: { report: CostReport; dim: boolean }) {
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Card label="API spending" value={usd(h.totalCost)} hint="Estimated, selected range" accent />
+        <Card label="Est. API spending" value={usd(h.totalCost)} hint="Estimated, selected range" accent />
         <Card label="Businesses delivered" value={int(h.delivered)} hint={`${int(h.runs)} runs · ${int(h.duplicates)} duplicates · ${int(h.rejected)} rejected`} />
-        <Card label="Cost per business" value={usd(h.costPerDelivered)} hint="Serper + Google ÷ delivered" />
-        <Card label="AI research" value={usd(h.aiCost)} hint={h.aiProfiles > 0 ? `${int(h.aiProfiles)} profiles · ${usd(h.aiCostPerProfile)} each` : 'No profiles in range'} />
+        <Card label="Est. cost per business" value={usd(h.costPerDelivered)} hint="Serper + Google ÷ delivered" />
+        <Card label="Est. AI research" value={usd(h.aiCost)} hint={h.aiProfiles > 0 ? `${int(h.aiProfiles)} profiles · ${usd(h.aiCostPerProfile)} each` : 'No profiles in range'} />
         <Card label="Gross contribution" value="Not available" hint={report.contribution.reason} />
       </div>
 
@@ -164,7 +210,7 @@ function Report({ report, dim }: { report: CostReport; dim: boolean }) {
       ) : (
         <>
           <div className="grid gap-6 lg:grid-cols-2">
-            <Section title="Daily spending" note="Estimated cost per day, by provider."><DailyBars series={report.series} pick="total" stacked /></Section>
+            <Section title="Daily spending" note="Estimated cost per day, by provider, before free allowances."><DailyBars series={report.series} pick="total" stacked /></Section>
             <Section title="Spending by provider"><ProviderBars report={report} /></Section>
             <Section title="Cost per delivered business" note="Discovery cost (Serper + Google) ÷ businesses delivered that day. Days without a delivery have no value."><LineChart series={report.series} /></Section>
             <Section title="Request volume" note="Provider requests per day."><DailyBars series={report.series} pick="requests" /></Section>
@@ -195,19 +241,17 @@ function Report({ report, dim }: { report: CostReport; dim: boolean }) {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Section title="Google free monthly allowance" note="This month, counted from ALPA's own tracked calls. Other uses of the same Google project are not visible here.">
-          <div className="space-y-4">
-            {report.allowances.map((row) => (
-              <div key={row.sku}>
-                <div className="flex items-baseline justify-between text-sm"><span>{row.label}</span><span className="tabular-nums text-slate-300">{int(row.used)} of {int(row.free)} used · {int(row.remaining)} left</span></div>
-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={Math.round(row.percent)} aria-valuemin={0} aria-valuemax={100} aria-label={`${row.label} allowance used`}>
-                  <div className="h-full rounded-full" style={{ width: `${row.percent}%`, background: row.percent >= 80 ? '#f59e0b' : GOLD }} />
-                </div>
-              </div>
-            ))}
-          </div>
+        <Section title="Google billing events" note="One Google request generates several billing events (its base SKU plus data SKUs). They are events of a single request, not extra requests. Google's free monthly allowance is shared across the whole Google project, so it cannot be worked out from ALPA's own counts.">
+          {report.googleSkuEvents.length === 0 ? <p className="text-sm text-slate-400">No Google requests in this range.</p> : (
+            <ul className="space-y-3 text-sm">
+              {report.googleSkuEvents.map((row) => (
+                <li key={row.sku} className="flex items-baseline justify-between gap-3"><span>{row.label}</span><span className="tabular-nums text-slate-300">{int(row.events)} events</span></li>
+              ))}
+              <li className="border-t border-white/10 pt-3 text-xs text-slate-400">Actual billed amount: <span className="text-slate-200">Not reconciled</span> until entered in the monthly reconciliation.</li>
+            </ul>
+          )}
         </Section>
-        <Section title="Spending ceilings" note="Alerts only in this version. Ceilings are not enforced and nothing is blocked.">
+        <Section title="Spending ceilings" note="Alerts only, measured against this month's estimated spending before free allowances. Nothing is enforced or blocked.">
           {report.limits.length === 0 ? <p className="text-sm text-slate-400">No ceilings are configured.</p> : (
             <ul className="space-y-3 text-sm">
               {report.limits.map((limit) => (
