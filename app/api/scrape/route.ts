@@ -16,6 +16,8 @@ import {
   normalizePhone,
 } from '@/lib/validation'
 import { type TrialLead } from '@/lib/trial'
+import { currentCostContext, runWithCostContext } from '@/lib/costs/context'
+import { flushCostRecords, recordDiscoveryRun } from '@/lib/costs/record'
 import { runSharedProspectorDiscovery } from '@/lib/scraper/run-scraper-shared'
 import { loadExistingBusinessIndex } from '@/lib/scraper/existing-business-index'
 import { describeSearchShortfall, type DiscoveryStopReason } from '@/lib/scraper/discovery-outcome'
@@ -802,7 +804,25 @@ async function enrichLeadQueue(
   )
 }
 
+// Every provider call made while a discovery runs is recorded against this run (see lib/costs); recording never affects the run.
 async function runScraper(
+  supabase: ReturnType<typeof createServerClient>,
+  config: ScrapeConfig,
+  send: (msg: string) => void,
+  options?: Parameters<typeof runScraperCore>[3]
+) {
+  const runId = config.accounting?.runId ?? crypto.randomUUID()
+  try {
+    return await runWithCostContext(
+      { runId, userId: config.userId ?? null, purpose: 'discovery', audience: options?.guestMode ? 'guest' : 'member' },
+      () => runScraperCore(supabase, config, send, options)
+    )
+  } finally {
+    await flushCostRecords()
+  }
+}
+
+async function runScraperCore(
   supabase: ReturnType<typeof createServerClient>,
   config: ScrapeConfig,
   send: (msg: string) => void,
@@ -1021,6 +1041,19 @@ async function runScraper(
           .limit(5)
 
         console.log('POST-SCRAPE DB CHECK:', testRows)
+      }
+
+      const costRunId = currentCostContext()?.runId
+      if (costRunId) {
+        recordDiscoveryRun({
+          runId: costRunId,
+          userId: userId ?? null,
+          audience: options?.guestMode ? 'guest' : 'member',
+          delivered: addedCount,
+          duplicates: duplicateCount + alreadySavedBeforeSave,
+          rejected: discovery.filteredOutRelevanceCount + filteredOutWithoutContactCount + invalidCount,
+          stopReason: discovery.stopReason,
+        })
       }
 
       send(

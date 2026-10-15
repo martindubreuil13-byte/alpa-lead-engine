@@ -2,6 +2,7 @@ import { openai } from '@/lib/ai/openai'
 import type { LeadContext } from '@/lib/agent/enrich-context'
 import { buildPromptContext, formatCTA, sanitize } from '@/lib/agent/outreach-context'
 import type { SelectedCta } from '@/lib/agent/user-ctas'
+import { recordOpenAiCompletion } from '@/lib/costs/openai'
 
 export type OutreachDraft = {
   subject: string
@@ -670,6 +671,7 @@ async function callOpenAI(prompt: string): Promise<{ subject: string; body: stri
       response_format: { type: 'json_object' },
     })
 
+    recordOpenAiCompletion('gpt-4.1-mini', completion.usage, 'outreach')
     const text = completion.choices[0]?.message.content?.trim() || ''
     const parsed = JSON.parse(text) as Record<string, unknown>
     const subject = String(parsed.subject || '').trim()

@@ -8,6 +8,7 @@ import {
   BarChart3,
   BookOpenText,
   CreditCard,
+  CircleDollarSign,
   Home,
   Inbox,
   LifeBuoy,
@@ -65,6 +66,7 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: '/admin/activity', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/lead-capture', label: 'Lead Capture', icon: Mail },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/costs', label: 'Costs', icon: CircleDollarSign },
   { href: '/admin/system', label: 'System', icon: ServerCog },
 ]
 

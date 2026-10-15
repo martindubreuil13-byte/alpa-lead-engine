@@ -12,6 +12,7 @@ import {
 import { sameOrigin } from '@/lib/guest/security'
 import { guestDb, guestSession, loadGuestSession } from '@/lib/guest/server'
 import type { TrialLead } from '@/lib/trial'
+import { recordOpenAiCompletion } from '@/lib/costs/openai'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -99,6 +100,7 @@ export async function POST(req: Request) {
           },
           { timeout: LIGHT_PROFILE_LIMITS.timeoutMs, maxRetries: 0 }
         )
+        recordOpenAiCompletion(LIGHT_PROFILE_MODEL, completion.usage, 'guest_profile')
         return {
           content: completion.choices[0]?.message?.content || '',
           inputTokens: completion.usage?.prompt_tokens || 0,
