@@ -70,3 +70,13 @@ Also verified in the same run: webhook signature rejection (wrong secret, unsign
 - **Test subscriptions and customers:** in Stripe test mode, cancel with `stripe subscriptions cancel <id>` and delete customers with `stripe customers delete <id>`; or use the dashboard's "Delete all test data" for the test environment.
 - **Usage:** the test database holds its own usage rows; delete them with the test users, or truncate the test project's usage tables.
 - **Credentials:** the test secret key can be rolled in the Stripe dashboard (API keys, Roll key) and a test webhook endpoint or listener simply stopped; the Supabase test keys die with the project (or can be rotated in Project settings, API). `.env.stripe-test` is git-ignored; delete the file when finished.
+
+
+## Status after the schema step (2026-10-15)
+
+- **Schema extraction: done, read-only.** `supabase/test-env/schema.sql` (34 tables, 35 functions, 9 triggers, 42 policies, 92 constraints, 113 indexes, grants).
+  Verified by an empty-database load and a catalog fingerprint against production; the only differences are a harmless rendering of one
+  `status IN (...)` condition (see `supabase/test-env/README.md`). No data copied, nothing written to production.
+- **A new Supabase project is required** (the schema cannot be applied to production, and the app must not point at it). Steps for the owner are in `supabase/test-env/README.md`.
+- **Stripe test mode: still needs the owner** (section 1 above). Checks that cannot be done before then: the key is a test key and both prices are test prices (the isolation guard checks the key prefix and that two price ids are set; it cannot tell a live price from a test price by its text, so scenario 5 proves it: a live price id is rejected by a test key), and the webhook secret (`whsec_` looks the same live or test; scenario 6 proves it, because a delivery signed by the test endpoint only verifies with the test secret).
+- Isolation guard run on the present machine environment (no test variables set) fails every check, as it should; there is nothing to leak.
