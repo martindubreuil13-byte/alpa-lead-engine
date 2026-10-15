@@ -9,4 +9,16 @@ export const getStripeCustomerId = (c) => (!c ? '' : typeof c === 'string' ? c :
 export const getStripeSubscriptionId = (s) => (!s ? '' : typeof s === 'string' ? s : s.id)
 export const syncSubscriptionToDatabase = async (subscription, options = {}) => { hook.syncs.push({ id: subscription.id, ...options }); return {} }
 export const syncCustomerSubscriptionState = async (customerId) => { hook.customerSyncs.push(customerId) }
-export const createClient = () => ({ from: () => ({ insert: async (row) => { hook.analytics.push(row); return { error: null } } }) })
+export const createClient = () => ({
+  from: () => ({
+    insert: async (row) => { hook.analytics.push(row); return { error: null } },
+    select: () => {
+      const filters = {}
+      const q = {
+        eq: (c, v) => { filters[c] = v; return q },
+        limit: async () => ({ data: hook.analytics.filter((r) => Object.entries(filters).every(([c, v]) => r[c] === v)).map((r, i) => ({ id: i })), error: null }),
+      }
+      return q
+    },
+  }),
+})

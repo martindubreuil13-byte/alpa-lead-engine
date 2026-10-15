@@ -35,7 +35,7 @@ export type RetryContext = {
 export function isRecoverableFailure(lastError: string | null | undefined): boolean {
   const error = String(lastError ?? '')
   if (!error) return true
-  if (/budget_exhausted|did not provide enough readable|no website|exceeded the size limit|certificate|HTTP (401|403|404|410|451)|INVALID_CONTENT_TYPE|not allowed|private address/i.test(error)) return false
+  if (/budget_exhausted|entitlement_ended|did not provide enough readable|no website|exceeded the size limit|certificate|HTTP (401|403|404|410|451)|INVALID_CONTENT_TYPE|not allowed|private address/i.test(error)) return false
   return true
 }
 

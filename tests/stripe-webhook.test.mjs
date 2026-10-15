@@ -31,8 +31,9 @@ const {POST} = await import('../app/api/stripe/webhook/route.ts')
 const USER = '11111111-1111-4111-8111-111111111111'
 const sub = (over = {}) => ({id: 'sub_1', customer: 'cus_1', status: 'active', ...over})
 const event = (type, object) => ({id: `evt_${type}`, object: 'event', type, data: {object}})
-async function send(evt, {secret = SECRET, tamper = false, unsigned = false, timestamp} = {}) {
-  reset(); hook.subscriptions.set('sub_1', sub())
+async function send(evt, {secret = SECRET, tamper = false, unsigned = false, timestamp, keep = false} = {}) {
+  if (!keep) reset()
+  hook.subscriptions.set('sub_1', sub())
   const payload = JSON.stringify(evt)
   const headers = new Headers()
   if (!unsigned) headers.set('stripe-signature', Stripe.webhooks.generateTestHeaderString({payload, secret, timestamp}))
@@ -46,6 +47,16 @@ test('a correctly signed checkout completion syncs that customer\'s subscription
   assert.equal(status, 200)
   assert.deepEqual(hook.syncs, [{id: 'sub_1', userId: USER, customerId: 'cus_1'}])
   assert.equal(hook.analytics[0].event, 'payment_completed'); assert.equal(hook.analytics[0].user_id, USER)
+})
+
+test('a redelivered checkout completion is recorded once and still syncs safely', async () => {
+  const evt = event('checkout.session.completed', {id: 'cs_9', customer: 'cus_1', subscription: 'sub_1', metadata: {user_id: USER}})
+  assert.equal(await send(evt), 200)
+  for (let i = 0; i < 3; i += 1) assert.equal(await send(evt, {keep: true}), 200)
+  assert.equal(hook.analytics.filter((r) => r.event === 'payment_completed' && r.session_id === 'cs_9').length, 1, 'one analytics row for four deliveries')
+  assert.equal(hook.syncs.length, 4, 'the subscription sync is idempotent and still runs each time')
+  assert.equal(await send(event('checkout.session.completed', {id: 'cs_10', customer: 'cus_1', subscription: 'sub_1', metadata: {user_id: USER}}), {keep: true}), 200)
+  assert.equal(hook.analytics.length, 2, 'a different session is a different payment')
 })
 
 test('requests Stripe did not sign change nothing: missing signature, wrong secret, tampered body, expired timestamp', async () => {

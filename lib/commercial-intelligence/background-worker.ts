@@ -1,4 +1,7 @@
+import { verifyEntitlementLive } from '@/lib/auth/paid-entitlement'
+import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
 import { enrichLeadDirect } from './enrich-lead-direct'
+import { isEntitledToAutomaticResearch } from './research-entitlement'
 import { runBackgroundWorkerCore } from './background-worker-core'
 import { claimRunItems, completeRunItem, recoverRunItems } from './queue-manager'
 
@@ -15,6 +18,12 @@ export async function runCommercialIntelligenceWorker(
       recover: recoverRunItems,
       enrich: enrichLeadDirect,
       complete: completeRunItem,
+      // Authorization happened when the run was saved; every job re-confirms that the customer is still entitled (Stripe, not the stored plan).
+      verifyEntitlement: async (userId) => {
+        const check = await verifyEntitlementLive(() => resolveUserSubscription(userId, { requireFresh: true }))
+        if (!check.ok) return 'unavailable'
+        return isEntitledToAutomaticResearch(check.subscription.subscription_active ? check.subscription.plan : 'free') ? 'entitled' : 'not_entitled'
+      },
     },
     options
   )

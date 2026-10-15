@@ -211,7 +211,7 @@ export function describeProfileNote(stage: IntelligenceStage | null | undefined)
 // Customer-safe reasons (the stored error text is internal and is never shown as is)
 // ---------------------------------------------------------------------------------------------
 
-export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website' | 'expired' | 'unreadable' | null
+export type ProfileReason = 'budget' | 'cancelled' | 'research_failed' | 'run_limit' | 'no_website' | 'expired' | 'unreadable' | 'plan_ended' | null
 
 export function toProfileReason(state: ProfileState, lastError: string | null | undefined, initialState?: string | null): ProfileReason {
   if (state === 'cancelled') return 'cancelled'
@@ -222,6 +222,7 @@ export function toProfileReason(state: ProfileState, lastError: string | null | 
   if (state === 'unavailable' && (initialState === 'skipped_limit' || initialState === 'skipped_existing')) return 'run_limit'
   if (state !== 'failed' && state !== 'partial') return null
   if (lastError && /budget_exhausted/i.test(lastError)) return 'budget'
+  if (lastError && /^entitlement_ended/i.test(lastError)) return 'plan_ended'
   // A website that is blocked, missing, too large or unreadable will not change by trying again; say so instead of 'failed'.
   if (lastError && !isRecoverableFailure(lastError)) return 'unreadable'
   return 'research_failed'
