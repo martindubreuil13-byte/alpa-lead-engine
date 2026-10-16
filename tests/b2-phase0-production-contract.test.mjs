@@ -33,8 +33,8 @@ test('every RPC the application calls exists in production, with exactly the par
       const [, name, argument] = match
       seen.add(name)
       if (contract.outOfScope.includes(name)) continue
-      // Production today or an explicitly recorded proposal; billing imports fail closed until their migration exists.
-      const known = contract.functions[name] ?? contract.proposedPhase1[name] ?? contract.proposedGuestProfiles?.[name] ?? proposedBilling[name]
+      // Proposed RPCs remain distinct from the verified production contract.
+      const known = contract.functions[name] ?? contract.proposedPhase1[name] ?? contract.proposedGuestProfiles?.[name] ?? proposedBilling[name] ?? contract.proposedCostIntelligence?.[name]
       assert.ok(known, `${file} calls ${name}, which is in neither the production contract nor the Phase 1 proposal`)
       if (argument?.startsWith('{')) {
         const keys = [...argument.matchAll(/\b(p_[a-z_]+)\b\s*[:,}]/g)].map((entry) => entry[1])

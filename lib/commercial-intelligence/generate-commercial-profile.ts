@@ -7,6 +7,7 @@ import {
   type ProfileCompletion,
 } from './commercial-profile-core'
 import type { BusinessSignals, CommercialProfile, ExtractionResult, WebsiteSnapshot } from './types'
+import { recordOpenAiCompletion } from '@/lib/costs/openai'
 
 const MODEL = 'gpt-4o-mini'
 const MAX_TOKENS = 500
@@ -60,6 +61,7 @@ export async function generateCommercialProfile(
         response_format: { type: 'json_object' },
       }, { ...OPENAI_PROFILE_REQUEST_OPTIONS, signal: options.signal })
 
+      await recordOpenAiCompletion(MODEL, completion, 'research_profile')
       return {
         content: completion.choices[0]?.message?.content || '',
         inputTokens: completion.usage?.prompt_tokens || 0,

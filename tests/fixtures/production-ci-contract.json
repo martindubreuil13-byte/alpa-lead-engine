@@ -280,6 +280,14 @@
     "get_ci_run_progress"
   ],
   "_guest_source": "Read-only production catalog query 2026-10-12 after applying 20261012_guest_trial.sql",
+  "proposedCostIntelligence": {
+    "_source": "supabase/proposed/20261017_api_cost_intelligence.sql (NOT applied). The admin Costs page shows \"tracking not switched on\" until it is; recording is silent until then.",
+    "admin_cost_overview": { "params": ["p_from", "p_to", "p_tz"], "returns": ["jsonb"] },
+    "admin_research_history": { "params": ["p_from", "p_to", "p_tz"], "returns": ["jsonb"] },
+    "admin_reconciliation_overview": { "params": ["p_month", "p_tz"], "returns": ["jsonb"] },
+    "admin_tracking_health": { "params": [], "returns": ["jsonb"] },
+    "admin_edit_prepaid_purchase": { "params": ["p_id", "p_expected_version", "p_purchased_on", "p_amount_paid", "p_currency", "p_rate", "p_credits", "p_note", "p_admin", "p_admin_label", "p_request_key"], "returns": ["jsonb"] }
+  },
   "proposedGuestProfiles": {
     "_source": "supabase/proposed/20261018_guest_light_profiles.sql (NOT applied). The route answers \"unavailable\" until it is, and only runs when GUEST_PROFILES_ENABLED=true.",
     "begin_guest_profile": {

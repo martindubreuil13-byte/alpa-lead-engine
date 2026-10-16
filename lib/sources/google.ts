@@ -1,6 +1,8 @@
+import { recordApiUsage } from "@/lib/costs/record"
+import { GOOGLE_TEXT_SEARCH_SKUS, googleCostOf, googleDetailsSkus } from "@/lib/costs/pricing"
 import { googleRegionFor } from "./country"
 import { firstProviderCategory } from "./category"
-import { SourceLead, SourceSearchInput } from "./types"
+import type { SourceLead, SourceSearchInput } from "./types"
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY!
 const GOOGLE_TEXT_SEARCH_URL =
@@ -87,12 +89,26 @@ async function fetchPlaces(
     const res = await fetch(`${GOOGLE_TEXT_SEARCH_URL}?${params.toString()}`)
 
     if (!res.ok) {
+      recordApiUsage({ provider: "google_places", operation: "text_search", skus: [], estimatedCostUsd: 0, ok: false, httpStatus: res.status })
       send?.(`❌ Google API error: ${res.status}`)
       break
     }
 
     const data = await res.json()
     const status = String(data?.status || "")
+
+    // Every page of a text search is its own billable request, billed under the Text Search SKU and the data SKUs together (events of
+    // this one request). A request Google answers with an error status is not billed.
+    const answered = !status || status === "OK" || status === "ZERO_RESULTS"
+    recordApiUsage({
+      provider: "google_places",
+      operation: "text_search",
+      skus: answered ? GOOGLE_TEXT_SEARCH_SKUS : [],
+      estimatedCostUsd: answered ? googleCostOf(GOOGLE_TEXT_SEARCH_SKUS) : 0,
+      ok: answered,
+      httpStatus: res.status,
+      resultsReturned: Array.isArray(data?.results) ? data.results.length : 0,
+    })
 
     if (status && status !== "OK" && status !== "ZERO_RESULTS") {
       send?.(`❌ Google API error: ${status}`)
@@ -133,9 +149,25 @@ async function fetchPlaceDetails(placeId: string) {
 
   const res = await fetch(`${GOOGLE_PLACE_DETAILS_URL}?${params.toString()}`)
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    recordApiUsage({ provider: "google_places", operation: "place_details", skus: [], estimatedCostUsd: 0, ok: false, httpStatus: res.status })
+    return null
+  }
 
   const data = await res.json()
+
+  // One Place Details request is one event that lists the SKUs it generated; the data SKUs are never counted as separate requests.
+  const skus = googleDetailsSkus(fields)
+  const answered = !data?.status || data.status === "OK"
+  recordApiUsage({
+    provider: "google_places",
+    operation: "place_details",
+    skus: answered ? skus : [],
+    estimatedCostUsd: answered ? googleCostOf(skus) : 0,
+    ok: answered,
+    httpStatus: res.status,
+    resultsReturned: answered && data?.result ? 1 : 0,
+  })
 
   if (data?.status && data.status !== "OK") {
     return null

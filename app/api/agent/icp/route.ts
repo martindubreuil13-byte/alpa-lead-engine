@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { openai } from '@/lib/ai/openai'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { createServerClient } from '@/lib/supabase/server'
+import { recordOpenAiCompletion } from '@/lib/costs/openai'
 
 export const runtime = 'nodejs'
 
@@ -148,6 +149,7 @@ Return ONLY valid JSON.
       response_format: { type: 'json_object' },
     })
 
+    await recordOpenAiCompletion('gpt-4.1-mini', completion, 'agent')
     const text = completion.choices[0].message.content || ''
 
     let parsed: unknown

@@ -27,8 +27,8 @@ test('customer sidebar has exactly the four approved entries, in order', () => {
   assert.deepEqual(labels(shell, 'NAV_ITEMS'), ['Dashboard', 'Discover', 'My Leads', 'Plan & Billing'])
 })
 
-test('administrator navigation keeps Analytics, Lead Capture, Users and System', () => {
-  assert.deepEqual(labels(shell, 'ADMIN_NAV_ITEMS'), ['Analytics', 'Lead Capture', 'Users', 'System'])
+test('administrator navigation keeps Analytics, Lead Capture, Users and System, and adds Costs', () => {
+  assert.deepEqual(labels(shell, 'ADMIN_NAV_ITEMS'), ['Analytics', 'Lead Capture', 'Users', 'Costs', 'System'])
 })
 
 test('retired customer pages are guarded server-side by a shared admin layout', () => {
@@ -56,7 +56,7 @@ test('every retired API rejects non-admins server-side', () => {
 })
 
 test('administrator pages and APIs keep their server-side authorization', () => {
-  for (const p of ['activity', 'lead-capture', 'users', 'system']) {
+  for (const p of ['activity', 'lead-capture', 'users', 'system', 'costs']) {
     assert.match(read(`app/admin/${p}/page.tsx`), /!isAdmin\(profile\)/, p)
   }
   for (const f of routeFiles('app/api/admin')) {

@@ -1,3 +1,5 @@
+import { recordApiUsage } from "@/lib/costs/record"
+import { serperConfiguredCredits, serperCostOf } from "@/lib/costs/pricing"
 import { parseBusinessAddress } from "./address"
 import { serperPlaceCategory } from "./category"
 import type { SourceLead, SourceSearchInput } from "./types"
@@ -111,12 +113,29 @@ async function searchOneTile(
   })
 
   if (!res.ok) {
+    // A rejected request is recorded, but not charged: Serper bills credits only for searches it answers.
+    recordApiUsage({ provider: "serper", operation: "maps_search", credits: 0, creditsBasis: "configured", estimatedCostUsd: 0, ok: false, httpStatus: res.status })
     send?.(`⚠️ Serper maps failed: ${res.status}`)
     return []
   }
 
   const data = await res.json()
   const places = Array.isArray(data.places) ? data.places : []
+
+  // Credits actually consumed: the figure Serper reports for this request when it gives one, otherwise what this operation is
+  // configured to consume. Which of the two it was is recorded with the request.
+  const reported = Number(data?.credits)
+  const credits = Number.isFinite(reported) && reported > 0 ? reported : serperConfiguredCredits("maps_search")
+  recordApiUsage({
+    provider: "serper",
+    operation: "maps_search",
+    credits,
+    creditsBasis: Number.isFinite(reported) && reported > 0 ? "reported" : "configured",
+    estimatedCostUsd: serperCostOf(credits),
+    ok: true,
+    httpStatus: res.status,
+    resultsReturned: places.length,
+  })
 
   send?.(`📡 Serper raw places: ${places.length}`)
 
