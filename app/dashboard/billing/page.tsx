@@ -50,10 +50,9 @@ export default async function BillingPage() {
       .limit(1)
       .maybeSingle(),
     supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .or('email.not.is.null,phone.not.is.null'),
+      .from('business_allowance_ledger')
+      .select('lead_id', { count: 'exact', head: true })
+      .eq('user_id', user.id),
   ])
 
   const usagePlan = user.plan
@@ -63,11 +62,11 @@ export default async function BillingPage() {
   const billingPeriodEnd = user.current_period_end ?? profileData?.current_period_end ?? null
   const hasStripeSubscription = Boolean(user.stripe_subscription_id ?? profileData?.stripe_subscription_id)
   const hasStripeCustomer = Boolean(user.stripe_customer_id)
-  const isPaidUsagePlan = usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter' || usagePlan === 'pro'
+  const isPaidUsagePlan = usagePlan === 'starter_100' || usagePlan === 'admin' || usagePlan === 'prospector' || usagePlan === 'starter' || usagePlan === 'pro'
   const usageStatus = usagePlan === 'free' ? 'free' : billingStatus ?? 'active'
   const usageStarted = isPaidUsagePlan ? usageData?.period_start ?? null : null
   const usageRenewal = isPaidUsagePlan ? usageData?.period_end ?? null : null
-  const usageLimit = isPaidUsagePlan ? usageData?.leads_limit ?? getLeadLimit(usagePlan) : getLeadLimit(usagePlan)
+  const usageLimit = getLeadLimit(usagePlan)
   const usageUsed = isPaidUsagePlan ? usageData?.leads_used ?? 0 : freeLeadCount ?? 0
   const usageWarning =
     isPaidUsagePlan && usageLimit > 0
@@ -81,12 +80,14 @@ export default async function BillingPage() {
   const currentPlanName = userIsAdmin
     ? 'Admin Access'
     : user.plan === 'pro'
-      ? 'Pro Plan'
-      : user.plan === 'prospector'
-        ? 'Prospector Plan'
-        : userIsPaid
-          ? 'Starter Plan'
-          : 'Free Plan'
+      ? 'ALPA Pro'
+      : user.plan === 'starter_100'
+        ? 'ALPA Starter'
+        : user.plan === 'prospector'
+          ? 'Legacy Prospector'
+          : userIsPaid
+            ? 'Legacy Starter'
+            : 'Free Plan'
   const statusLabel = userIsAdmin ? 'Administrator access' : userIsFree ? 'Free access' : cancelAtPeriodEnd ? 'Cancellation scheduled' : billingStatus ? billingStatus.replaceAll('_', ' ') : 'Status unavailable'
   const billingDate = hasStripeSubscription && !userIsAdmin ? formatDate(billingPeriodEnd) : null
 
@@ -125,7 +126,7 @@ export default async function BillingPage() {
       <section aria-labelledby="management-title" className="border-b border-white/10 pb-6">
         <h2 id="management-title" className="text-[10px] uppercase tracking-[0.22em] text-[#d8c28a]">Subscription Management</h2>
         <div className="mt-4">
-          {userIsAdmin ? <p className="text-sm text-slate-400">This workspace has administrator access. It is not a paid subscription.</p> : userIsFree ? <p className="text-sm text-slate-400">Your workspace has free access. There is no paid subscription to manage.</p> : <BillingPlanActions initialState={{ planStatus: billingStatus, cancelAtPeriodEnd, currentPeriodEnd: billingPeriodEnd, subscriptionTier: user.subscription_tier ?? profileData?.subscription_tier ?? usagePlan, hasStripeSubscription, hasStripeCustomer, subscriptionActive: Boolean(user.subscription_active) }} />}
+          {userIsAdmin ? <p className="text-sm text-slate-400">This workspace has administrator access. It is not a paid subscription.</p> : userIsFree ? <p className="text-sm text-slate-400">Your workspace has free access. There is no paid subscription to manage.</p> : <BillingPlanActions planChangesEnabled={process.env.ALPA_PLAN_CHANGES_ENABLED === 'true'} initialState={{ planStatus: billingStatus, cancelAtPeriodEnd, currentPeriodEnd: billingPeriodEnd, subscriptionTier: user.subscription_tier ?? profileData?.subscription_tier ?? usagePlan, hasStripeSubscription, hasStripeCustomer, subscriptionActive: Boolean(user.subscription_active) }} />}
         </div>
       </section>
 

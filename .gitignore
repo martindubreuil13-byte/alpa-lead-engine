@@ -5,3 +5,6 @@ node_modules
 .env
 .next
 .vercel
+
+# billing test environment (TEST values only)
+.env.stripe-test

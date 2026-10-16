@@ -1,4 +1,5 @@
-import { isAdminPlan, isPaidPlan } from '@/lib/auth/access'
+import { PLANS } from '@/lib/billing/plans'
+import { isAdminPlan } from '@/lib/auth/access'
 
 type CountableLead = {
   email?: string | null
@@ -12,9 +13,7 @@ export const STARTER_LOCK_MESSAGE = 'Available on Starter plan'
 
 export function getLeadLimit(plan: string) {
   if (isAdminPlan(plan)) return 10000
-  if (plan === 'prospector') return 120
-  if (isPaidPlan(plan)) return 500
-  return 25
+  return PLANS[plan as keyof typeof PLANS]?.businesses ?? 25
 }
 
 export function isCountableLead(lead: CountableLead) {

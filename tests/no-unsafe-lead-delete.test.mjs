@@ -14,8 +14,8 @@ const read = (file) => fs.readFileSync(file, 'utf8')
 
 test('the unauthenticated service-role lead delete endpoint is gone and cannot return unnoticed', () => {
   assert.equal(fs.existsSync('app/api/leads/[id]/route.ts'), false)
-  // No API route deletes leads without scoping the delete to the authenticated owner (post-checkout activation removes the
-  // signed-in user's own guest leads: `.eq('user_id', user.id)`).
+  // No API route deletes leads without scoping the delete to the authenticated owner (post-checkout activation no longer deletes
+  // anything; any remaining delete must be owner-scoped).
   for (const file of routes) {
     const flat = read(file).replace(/\s+/g, ' ')
     for (const match of flat.matchAll(/\.from\(\s*['"]leads['"]\s*\)\s*\.delete\(\)/g)) {

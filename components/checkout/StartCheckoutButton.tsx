@@ -1,5 +1,6 @@
 'use client'
 
+import { PLANS, entitlementForCheckout } from '@/lib/billing/plans'
 import { useEffect, useState } from 'react'
 
 import { getSourcePage, trackEvent as trackGaEvent } from '@/lib/analytics/ga'
@@ -8,13 +9,9 @@ import { useClientUserProfile } from '@/lib/auth/use-client-user-profile'
 import { useCurrentUser } from '@/lib/auth/useCurrentUser'
 import { getGuestCaptureEmail, saveGuestCaptureEmail } from '@/lib/guest-session'
 import { trackEvent } from '@/lib/track'
+import { parseCheckoutSource, savePendingCheckout, signupHref } from '@/lib/checkout/pending-plan'
 
-type CheckoutPlan = 'starter' | 'prospector'
-
-const PLAN_META: Record<CheckoutPlan, { price: number; leadLimit: number }> = {
-  starter:    { price: 29.99, leadLimit: 500 },
-  prospector: { price: 9.99,  leadLimit: 120 },
-}
+type CheckoutPlan = 'starter' | 'pro'
 
 type StartCheckoutButtonProps = {
   label: string
@@ -43,7 +40,6 @@ export default function StartCheckoutButton({
   const [emailInput, setEmailInput] = useState(() =>
     String(email || getGuestCaptureEmail()).trim().toLowerCase()
   )
-  const [showEmailInput, setShowEmailInput] = useState(false)
   const isAuthenticated = Boolean(user?.id)
   const visitorType = isPaid(profile) ? 'paid' : isAuthenticated ? 'logged_in' : 'anonymous'
 
@@ -69,10 +65,14 @@ export default function StartCheckoutButton({
   async function handleCheckout() {
     if (loading || disabled) return
 
-    const normalizedEmail = String(email || emailInput || getGuestCaptureEmail()).trim().toLowerCase()
+    const normalizedEmail = String(user?.email || email || emailInput || getGuestCaptureEmail()).trim().toLowerCase()
 
-    if (!isAuthenticated && !normalizedEmail) {
-      setShowEmailInput(true)
+    // Checkout belongs to an account: a visitor creates one (or logs in) first, then returns to choose a plan.
+    if (!isAuthenticated) {
+      if (normalizedEmail) saveGuestCaptureEmail(normalizedEmail)
+      // The chosen plan travels with the visitor (in the address and in the browser) so signing up or in continues to checkout.
+      try { savePendingCheckout(window.localStorage, { plan, source: parseCheckoutSource(source) }) } catch { /* the address carries it */ }
+      window.location.href = signupHref(plan, source)
       return
     }
 
@@ -82,7 +82,9 @@ export default function StartCheckoutButton({
       saveGuestCaptureEmail(normalizedEmail)
     }
 
-    const { price: planPrice, leadLimit: planLeadLimit } = PLAN_META[plan]
+    const definition = PLANS[entitlementForCheckout(plan)]
+    const planPrice = definition.priceCents / 100
+    const planLeadLimit = definition.businesses
 
     void trackEvent('upgrade_clicked', {
       email: normalizedEmail || null,
@@ -105,14 +107,20 @@ export default function StartCheckoutButton({
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: normalizedEmail || null,
-          source,
-          plan,
-        }),
+        body: JSON.stringify({ source, plan }),
       })
 
       const data = await res.json().catch(() => null)
+
+      if (res.status === 401) {
+        window.location.href = signupHref(plan, source)
+        return
+      }
+
+      if (res.status === 409 && data?.code === 'already_subscribed') {
+        window.location.href = '/dashboard/billing'
+        return
+      }
 
       if (!res.ok || !data?.url) {
         throw new Error(data?.error || 'Unable to start checkout')
@@ -142,20 +150,6 @@ export default function StartCheckoutButton({
 
   return (
     <div className={['space-y-3', wrapperClassName].filter(Boolean).join(' ')}>
-      {showEmailInput && !isAuthenticated ? (
-        <div className="space-y-2">
-          <label className="text-sm text-gray-400">Email address</label>
-          <input
-            type="email"
-            placeholder="Enter your email to continue"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            autoComplete="email"
-            className="w-full rounded-lg border border-white/10 bg-[#020617] px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-      ) : null}
-
       <button
         type="button"
         onClick={() => void handleCheckout()}
@@ -166,9 +160,7 @@ export default function StartCheckoutButton({
           ? 'Redirecting...'
           : disabled
             ? disabledLabel
-            : !isAuthenticated && showEmailInput
-              ? 'Continue to Payment'
-              : label}
+            : label}
       </button>
     </div>
   )

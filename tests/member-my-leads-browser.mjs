@@ -25,7 +25,7 @@ const stub = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end() }
   const object = String(req.headers.accept || '').includes('vnd.pgrst.object')
   if (req.url.startsWith('/auth/v1/user')) { res.writeHead(200, cors); return res.end(JSON.stringify(USER)) }
-  if (req.method === 'HEAD' && req.url.startsWith('/rest/v1/leads')) { res.writeHead(200, {...cors, 'Content-Range': `*/${state.leadCount}`}); return res.end() }
+  if (req.method === 'HEAD' && (req.url.startsWith('/rest/v1/leads') || req.url.startsWith('/rest/v1/business_allowance_ledger'))) { res.writeHead(200, {...cors, 'Content-Range': `*/${state.leadCount}`}); return res.end() }
   if (req.url.startsWith('/rest/v1/users')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? {id: USER.id, email: USER.email, plan: PROFILE.plan} : [{id: USER.id, email: USER.email, plan: PROFILE.plan}])) }
   if (req.url.startsWith('/rest/v1/usage')) { res.writeHead(200, cors); const row = {leads_used: 120, leads_limit: 500, period_start: '2026-10-01T00:00:00Z', period_end: '2026-11-01T00:00:00Z'}; return res.end(JSON.stringify(object ? row : [row])) }
   if (req.url.startsWith('/rest/v1/profiles')) { res.writeHead(200, cors); return res.end(JSON.stringify(object ? PROFILE : [PROFILE])) }
@@ -61,7 +61,7 @@ async function scenario(name, device, fn, extra = {}) {
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
   const context = await browser.newContext(device === 'phone' ? {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 3} : {viewport: {width: 1280, height: 900}})
   const session = {access_token: 'aaa.bbb.ccc', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, refresh_token: 'r', user: USER}
-  await context.addCookies([{name: 'sb-localhost-auth-token', value: 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64url'), url: base}])
+  if (!extra.anonymous) await context.addCookies([{name: 'sb-localhost-auth-token', value: 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64url'), url: base}])
   const requests = []
   stubLog.length = 0
   await context.route('**/*', async (route) => {
@@ -251,14 +251,14 @@ await scenario('free member at 25 on a phone: readable, no horizontal scroll, la
   await page.screenshot({path: '/private/tmp/alpa-guest-browser/member-upgrade-phone.png'})
 }, {profile: FREE, leadCount: 25})
 
-// These two render the dossier a free or lapsed member's request returns (the route adds the note; unit-tested separately). They use the
-// harness's admin profile on purpose: for any non-admin profile the server page resolves the plan through Stripe (getUserProfile ->
-// resolveUserSubscription), the harness refuses every Stripe request, and My Leads then answers 500 ("A server error occurred").
-// That is a limit of the offline harness, not of the dossier; see docs/phase8-research-readiness.md.
+// These two render the dossier a free or lapsed member's request returns (the route adds the note; unit-tested separately). They run with
+// the harness's FREE profile on purpose: the harness refuses every Stripe request, so they also prove that My Leads works for a
+// non-admin member while Stripe cannot be reached (the plan falls back to the stored one for display and grants nothing).
+const PAID = {plan: 'starter', plan_status: 'active', subscription_status: 'active', stripe_customer_id: 'cus_test', stripe_subscription_id: 'sub_test', subscription_tier: 'starter', current_period_end: '2027-01-01T00:00:00Z'}
 const FREE_NOTE = 'Automatic business profiles are included with paid plans. Your saved businesses, and any profile already written, stay available.'
 const savedLight = {version: 1, summary: 'Clinique Laval is a family dental clinic in Laval. According to its website, it offers teeth whitening and implants for both children and adults across the city.', tags: ['Teeth whitening', 'Implants'], generated_at: '2026-10-14T00:00:00Z', model: 'gpt-4o-mini'}
 
-await scenario('a dossier carrying the free-member note: a business without a profile says automatic profiles come with paid plans, and nothing is hidden', 'desktop', async (page) => {
+await scenario('free member while Stripe is unreachable: a business without a profile says automatic profiles come with paid plans, and nothing is hidden', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/my-leads')
   await rows(page).first().waitFor({timeout: 60000})
   await page.getByRole('button', {name: /Member Business 1/}).first().click()
@@ -266,7 +266,60 @@ await scenario('a dossier carrying the free-member note: a business without a pr
   await region.getByText(FREE_NOTE).waitFor()
   await region.getByText('Family dental care in Laval since 1998.').waitFor()
   assert.equal(await region.getByText(/available separately/i).count(), 0)
-}, {dossier: imported({researchNote: FREE_NOTE})})
+}, {dossier: imported({researchNote: FREE_NOTE}), profile: FREE})
+
+await scenario('paying member while Stripe is unreachable: My Leads still lists and opens every business (no 500)', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 60000})
+  assert.equal(await rows(page).count(), 3)
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  await page.getByRole('region', {name: /details/}).getByText('Residential plumbing repairs and installations.').waitFor()
+  assert.equal(await page.getByText(/server error occurred/i).count(), 0)
+}, {profile: PAID})
+
+// A free member who HAS a Stripe customer forces the plan lookup, which this harness refuses: the real outage path (connection failure,
+// then the stored plan), not just the skipped lookup.
+await scenario('member whose plan lookup hits an unreachable Stripe: My Leads still opens (stored plan shown, nothing granted)', 'desktop', async (page) => {
+  await page.goto(base + '/dashboard/my-leads')
+  await rows(page).first().waitFor({timeout: 90000})
+  await page.getByRole('button', {name: /Member Business 1/}).first().click()
+  await page.getByRole('region', {name: /details/}).getByText('Residential plumbing repairs and installations.').waitFor()
+  assert.equal(await page.getByText(/server error occurred/i).count(), 0)
+  const blocked = (await import('node:fs')).readFileSync(BLOCK_LOG, 'utf8')
+  assert.ok(blocked.trim().length > 0, 'the plan lookup really was attempted and refused')
+}, {profile: {...FREE, stripe_customer_id: 'cus_unreachable'}})
+
+// ---- the account-first checkout journey, in a real browser, signed out
+await scenario('signed out: choosing a plan carries the plan to sign-up, and the choice is kept for the sign-in that follows', 'desktop', async (page) => {
+  await page.goto(base + '/plans')
+  await page.getByRole('button', {name: /Start Prospecting|Start Building/}).first().click()
+  await page.waitForURL(/\/login\?mode=signup&plan=(pro|starter)&source=/, {timeout: 60000})
+  const plan = new URL(page.url()).searchParams.get('plan')
+  assert.ok(['pro', 'starter'].includes(plan))
+  const kept = await page.evaluate(() => window.localStorage.getItem('alpa_pending_checkout'))
+  assert.ok(kept && JSON.parse(kept).plan === plan, 'the plan is also kept in the browser')
+  // a later visit to plain /login (after confirming the email) still remembers the plan: the sign-in will continue to checkout
+  await page.goto(base + '/login')
+  assert.equal(JSON.parse(await page.evaluate(() => window.localStorage.getItem('alpa_pending_checkout'))).plan, plan)
+}, {anonymous: true})
+
+await scenario('signed in with a plan chosen earlier: the hand-over page asks the server once and shows a calm message if checkout cannot start', 'desktop', async (page, requests) => {
+  let posts = 0
+  await page.route('**/api/checkout', async (route) => { posts += 1; return route.fulfill({status: 500, json: {error: 'Unable to start checkout'}}) })
+  await page.goto(base + '/checkout/start?plan=pro&source=plans_featured')
+  await page.getByText('We could not start checkout').waitFor({timeout: 60000})
+  await page.getByText('Unable to start checkout', {exact: true}).waitFor()
+  await page.getByRole('link', {name: 'Back to plans'}).waitFor()
+  await new Promise((r) => setTimeout(r, 1500))
+  assert.equal(posts, 1, 'one request, no retry loop')
+}, {})
+
+await scenario('signed in and already subscribed: the hand-over page sends the customer to billing instead of a second checkout', 'desktop', async (page) => {
+  await page.route('**/api/checkout', (route) => route.fulfill({status: 409, json: {error: 'You already have a subscription.', code: 'already_subscribed'}}))
+  await page.route('**/dashboard/billing', (route) => route.fulfill({contentType: 'text/html', body: '<h1>billing-page</h1>'}))
+  await page.goto(base + '/checkout/start?plan=starter')
+  await page.waitForURL('**/dashboard/billing', {timeout: 60000})
+}, {})
 
 await scenario('after a downgrade the saved profile stays: summary, tags and the website information behind a disclosure', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/my-leads')
@@ -279,7 +332,7 @@ await scenario('after a downgrade the saved profile stays: summary, tags and the
   await region.getByText('View original website information').click()
   await region.getByText('Family dental care in Laval since 1998.').waitFor()
   assert.equal(await region.getByText(FREE_NOTE).count(), 0, 'no "no profile" note next to a profile that exists')
-}, {dossier: imported({lightProfile: savedLight, researchNote: FREE_NOTE})})
+}, {dossier: imported({lightProfile: savedLight, researchNote: FREE_NOTE}), profile: FREE})
 
 await scenario('free member with room left (10 of 25) keeps discovering normally: the search form, no upgrade moment', 'desktop', async (page) => {
   await page.goto(base + '/dashboard/scraper')

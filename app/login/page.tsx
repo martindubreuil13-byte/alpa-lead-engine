@@ -7,6 +7,15 @@ import { useRouter } from 'next/navigation'
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
+import {
+  destinationAfterAuth,
+  parseCheckoutPlan,
+  parseCheckoutSource,
+  readPendingCheckout,
+  safeNextPath,
+  savePendingCheckout,
+  type PendingCheckout,
+} from '@/lib/checkout/pending-plan'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 import { trackEvent } from '@/lib/track'
 
@@ -41,12 +50,26 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [infoMessage, setInfoMessage] = useState('')
 
+  // A plan chosen before the account existed, or the payment page to return to: carried through sign-up, the confirm-your-email round
+  // trip and sign-in, so the visitor lands on their checkout instead of starting over.
+  const [pending, setPending] = useState<PendingCheckout | null>(null)
+  const [nextPath, setNextPath] = useState<string | null>(null)
+
   const router = useRouter()
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const mode = new URLSearchParams(window.location.search).get('mode')
-    setIsSignup(mode === 'signup')
+    const query = new URLSearchParams(window.location.search)
+    setIsSignup(query.get('mode') === 'signup')
+    setNextPath(safeNextPath(query.get('next')))
+    const plan = parseCheckoutPlan(query.get('plan'))
+    let stored: PendingCheckout | null = null
+    try { stored = readPendingCheckout(window.localStorage) } catch { stored = null }
+    const chosen = plan ? { plan, source: parseCheckoutSource(query.get('source')) } : stored
+    setPending(chosen)
+    if (plan && chosen) {
+      try { savePendingCheckout(window.localStorage, chosen) } catch { /* the address still carries it */ }
+    }
   }, [])
 
   useEffect(() => {
@@ -147,14 +170,14 @@ export default function LoginPage() {
             console.warn('Guest claim skipped:', err)
           })
           clearGuestTrialMode()
-          router.push('/dashboard/scraper')
+          router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
           return
         }
 
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
         if (signInError) {
           if (needsEmailConfirmation(signInError)) {
-            setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+            setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
             setIsSignup(false)
             return
           }
@@ -175,7 +198,7 @@ export default function LoginPage() {
           console.warn('Guest claim skipped:', err)
         })
         clearGuestTrialMode()
-        router.push('/dashboard/scraper')
+        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
         return
       }
 
@@ -198,15 +221,15 @@ export default function LoginPage() {
           : null
         const resolvedPlan = String(subscriptionPayload?.subscription?.plan ?? '')
         const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(resolvedPlan)
-        router.push(hasPaidPlan ? '/dashboard' : '/dashboard/scraper')
+        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: hasPaidPlan ? '/dashboard' : '/dashboard/scraper' }))
       } else {
-        router.push('/dashboard/scraper')
+        router.push(destinationAfterAuth({ next: nextPath, pending, fallback: '/dashboard/scraper' }))
       }
     } catch (err) {
       console.error('Login failed:', err)
 
       if (isSignup && needsEmailConfirmation(err)) {
-        setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+        setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads' + (pending ? ' and continue to checkout.' : '.'))
         setIsSignup(false)
         return
       }

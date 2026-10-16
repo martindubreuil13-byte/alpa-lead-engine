@@ -1,7 +1,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type UserRole = 'admin' | 'user';
-export type UserPlan = 'free' | 'prospector' | 'starter' | 'pro' | 'admin';
+export type UserPlan = 'free' | 'starter_100' | 'prospector' | 'starter' | 'pro' | 'admin';
 
 export type UserProfile = {
   id: string;
@@ -17,6 +17,8 @@ export type UserProfile = {
   canceled_at?: string | null;
   subscription_tier?: string | null;
   subscription_active?: boolean | null;
+  /** False when the plan shown was read from the database because Stripe could not be reached: display only, grants nothing. */
+  plan_verified?: boolean | null;
   analytics_excluded?: boolean | null;
   signup_date?: string | null;
   first_search_date?: string | null;

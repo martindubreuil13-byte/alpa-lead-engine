@@ -24,7 +24,7 @@ function isUUID(value: string) {
 async function retrieveInvoiceSubscription(invoice: Stripe.Invoice) {
   const invoiceSubscription = (
     invoice as Stripe.Invoice & { subscription?: string | Stripe.Subscription | null }
-  ).subscription
+  ).subscription ?? (invoice as Stripe.Invoice & { parent?: { subscription_details?: { subscription?: string | Stripe.Subscription } } }).parent?.subscription_details?.subscription
   const subscriptionId = getStripeSubscriptionId(invoiceSubscription)
 
   if (!subscriptionId) return null

@@ -1,16 +1,18 @@
 import type { UserProfile } from '@/lib/supabase/types'
-import { hasActivePaidAccessState } from '@/lib/auth/paid-access'
+import { hasActivePaidAccessState } from './paid-access.ts'
 
 export function isAdminPlan(plan: string | null | undefined) {
   return plan === 'admin'
 }
 
 export function isPaidPlan(plan: string | null | undefined) {
-  return plan === 'prospector' || plan === 'starter' || plan === 'pro'
+  return plan === 'starter_100' || plan === 'prospector' || plan === 'starter' || plan === 'pro'
 }
 
 function hasBillableAccess(user: UserProfile | null) {
   if (!user) return false
+  // A plan read from the database because Stripe was unreachable is for display only: it never grants paid access.
+  if (user.plan_verified === false) return false
   if (user.subscription_active) return true
 
   const status = user.plan_status ?? user.subscription_status ?? null

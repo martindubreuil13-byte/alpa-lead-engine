@@ -747,10 +747,9 @@ export function DiscoverExperience({ privatePreview = false }: { privatePreview?
 
     if (freePlan) {
       const { count, error } = await supabase
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
+        .from('business_allowance_ledger')
+        .select('lead_id', { count: 'exact', head: true })
         .eq('user_id', userId)
-        .or('email.not.is.null,phone.not.is.null')
 
       if (error) {
         console.error('Usage count failed:', error.message)

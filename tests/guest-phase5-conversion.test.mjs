@@ -23,14 +23,16 @@ test('the upgrade moment says exactly what was agreed, and the offer is previewe
   assert.equal(c.activeNotice, null)
 })
 
-test('the discount is not active, and only a billing release can change that', () => {
+test('the production discount stays preview-only; isolated test checkout may inspect eligibility', () => {
   assert.equal(FIRST_MONTH_OFFER.status, 'preview')
   assert.deepEqual([FIRST_MONTH_OFFER.percentOff, FIRST_MONTH_OFFER.durationMonths], [50, 1])
   // if it were active the notice would flip; proves the preview wording is not hard-coded into the screen
   const live = buildConversionCopy({ kind: 'allowance', saved: 25, eligible: true, offer: { ...FIRST_MONTH_OFFER, status: 'active' } })
   assert.equal(live.inactiveNotice, null); assert.match(live.activeNotice, /applied at checkout/)
   for (const file of ['lib/stripe.ts', 'lib/stripe/subscription.ts', 'lib/stripe/checkout-guard.ts', 'app/api/checkout/route.ts', 'app/api/stripe/webhook/route.ts', 'app/plans/page.tsx', 'components/checkout/StartCheckoutButton.tsx', 'lib/usage/usage.ts']) {
-    if (fs.existsSync(file)) assert.doesNotMatch(read(file), /first-month-offer|FIRST_MONTH_OFFER/, `${file} must not know about the offer yet`)
+    if (file === 'app/api/checkout/route.ts') {
+      assert.match(read(file), /introEligible: describeOfferEligibility\(profile\)\.eligible/)
+    } else if (fs.existsSync(file)) assert.doesNotMatch(read(file), /first-month-offer|FIRST_MONTH_OFFER/, `${file} cannot activate the production display offer`)
   }
 })
 

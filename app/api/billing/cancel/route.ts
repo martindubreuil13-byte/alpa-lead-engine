@@ -33,7 +33,7 @@ export async function POST() {
 
     const updatedSubscription = subscription.cancel_at_period_end
       ? subscription
-      : await cancelSubscription(subscription.id)
+      : await cancelSubscription(subscription.id, typeof subscription.schedule === 'string' ? subscription.schedule : subscription.schedule?.id)
     const syncState = await syncSubscriptionToDatabase(updatedSubscription, { userId: user.id })
     const synced = syncState as {
       plan_status?: string

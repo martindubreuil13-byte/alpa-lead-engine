@@ -34,7 +34,7 @@ const FREE_PROFILE=null
 const lead=(i,over={})=>({id:`g-${i}`,company_name:`Guest Business ${i}`,city:'Laval',industry:'Dentist',email:`info@g${i}.ca`,phone:'+1 450 555 0100',website:`https://g${i}.ca`,email_confidence:'medium',is_generic_email:false,source:'serper',cost_estimate:0.01,email_source:`https://g${i}.ca/contact`,
  website_intelligence:{title:`Dental ${i}`,description:`Family dental care ${i}.`,headings:['Whitening','Implants'],source_urls:[`https://g${i}.ca/`]},email_inspection:{state:'checked',partial:i%2===0},created_at:'2026-10-13T00:00:00Z',...over})
 function reset(over={}){
- Object.assign(state,{leads:[],used:0,email:null,existingLeads:[],profile:FREE_PROFILE,otherTrials:[],updates:[],factsColumn:true,expired:false,claimed:undefined,user:USER,owner_user_id:undefined,...over})
+ Object.assign(state,{leads:[],used:0,email:null,existingLeads:[],profile:FREE_PROFILE,otherTrials:[],updates:[],factsColumn:true,expired:false,claimed:undefined,user:USER,owner_user_id:undefined,lifetimeUsed:undefined,claimError:false,...over})
 }
 const run=async()=>{const r=await claim(req('/api/guest/claim',{leads:[{company_name:'FORGED'}]}));return {status:r.status,body:await r.json()}}
 
@@ -181,4 +181,14 @@ test('no additional free discoveries through signup: a guest who used 0, 10, 24 
  // and a second trial (another browser) cannot add a second 25 to the same account
  reset({otherTrials:[{id:'first'}],existingLeads:Array.from({length:25},(_,i)=>({id:`o${i}`,company_name:`O${i}`,email:`o${i}@x.ca`,phone:null,website:null,city:'X',website_facts:null}))});state.leads=Array.from({length:25},(_,i)=>lead(i))
  assert.equal((await run()).body.imported,0)
+})
+
+
+test('deleted businesses still consume lifetime capacity during guest import',async()=>{
+ reset({lifetimeUsed:25,existingLeads:[]});state.leads=[lead(101)]
+ const {status,body}=await run();assert.equal(status,200);assert.equal(body.imported,0);assert.equal(body.skipped_allowance,1);assert.equal(state.claimed,undefined)
+})
+test('missing/failed atomic import fails closed without linking the trial or ordinary insert fallback',async()=>{
+ reset({claimError:true});state.leads=[lead(102)]
+ assert.equal((await run()).status,503);assert.equal(state.owner_user_id,undefined);assert.equal(state.claimed,undefined)
 })

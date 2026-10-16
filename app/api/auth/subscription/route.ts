@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { readStoredSubscription, resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { resolveSubscriptionForNavigation } from '@/lib/auth/subscription-display'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export async function GET() {
@@ -15,8 +16,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const subscription = await resolveUserSubscription(user.id, {
-      email: user.email,
+    // Display only: a Stripe outage degrades to the stored plan (verified: false), never to an error or to extra access.
+    const subscription = await resolveSubscriptionForNavigation({
+      resolveLive: () => resolveUserSubscription(user.id, { email: user.email, navigation: true }),
+      readStored: () => readStoredSubscription(user.id),
     })
 
     return NextResponse.json({ subscription })

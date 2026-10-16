@@ -3,6 +3,28 @@ export async function guestSession() {return state.noCookie?null:'4f928ea6-1c42-
 export async function loadGuestSession() {if(state.expired)throw new Error('expired');return state}
 export function guestDb() {return {
  rpc:async(name,args)=>{
+  if(name==='claim_guest_businesses') {
+   if(state.claimError)return {data:null,error:{message:'unavailable'}}
+   if(state.owner_user_id&&state.owner_user_id!==args.p_user_id)return {data:null,error:{message:'wrong owner'}}
+   const answer={success:true,imported:0,skipped_invalid:0,skipped_duplicate:0,skipped_allowance:0,backfilled:0}
+   if(state.otherTrials.length)return {data:answer,error:null}
+   const key=r=>['company_name','email','phone','website','city'].map(k=>String(r[k]??'').trim().toLowerCase()).join('::')
+   const existing=new Map(state.existingLeads.map(r=>[key(r),r]))
+   let used=state.lifetimeUsed??state.existingLeads.filter(r=>r.email||r.phone).length
+   const paid=state.profile?.plan==='admin'||(['starter','starter_100','pro','prospector'].includes(state.profile?.plan)&&state.profile?.plan_status==='active')
+   const added=[]
+   for(const row of args.p_leads){
+    if(!row.company_name||(!row.email&&!row.phone)){answer.skipped_invalid++;continue}
+    const previous=existing.get(key(row))
+    if(previous){answer.skipped_duplicate++;if(state.factsColumn&&row.website_facts&&!previous.website_facts){state.updates.push({website_facts:row.website_facts});answer.backfilled++}continue}
+    if(!paid&&used>=25){answer.skipped_allowance++;continue}
+    const copy={...row};if(!state.factsColumn)delete copy.website_facts;if(!state.lightProfileColumn)delete copy.light_profile
+    added.push(copy);existing.set(key(row),copy);used++;answer.imported++
+   }
+   if(added.length)state.claimed=added
+   state.owner_user_id=args.p_user_id
+   return {data:answer,error:null}
+  }
   if(name==='reserve_guest_trial') {const n=Math.min(args.p_count,25-state.used);state.used+=n;state.reserved=n;return {data:n}}
   if(name==='finish_guest_trial') {state.used-=args.p_reserved-args.p_leads.length;state.leads.push(...args.p_leads);return {data:true}}
   // The Phase 7 profile functions, with the same rules as supabase/proposed/20261018_guest_light_profiles.sql.

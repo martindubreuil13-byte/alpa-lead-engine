@@ -93,8 +93,8 @@ export default function HomePage() {
               },
               {
                 '@type': 'Offer',
-                name: 'Starter',
-                price: '29.99',
+                name: 'ALPA Pro',
+                price: '24.99',
                 priceCurrency: 'USD',
                 description: '500 leads per month',
               },
