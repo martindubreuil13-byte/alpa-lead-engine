@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Instrument_Serif } from 'next/font/google'
+import AlpaDemo from '@/components/landing/AlpaDemo'
 import FreshStartCta from '@/components/landing/FreshStartCta'
 import PublicHeader from '@/components/site/PublicHeader'
 import ResourcesFooter from '@/components/site/ResourcesFooter'
@@ -111,7 +112,7 @@ export default function HomePage() {
 
 
       <PublicHeader trialCta />
-      <section className={`${section} grid gap-12 pt-12 lg:grid-cols-2 lg:items-center lg:gap-16`}>
+      <section className={`${section} grid gap-12 pt-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)] lg:items-center lg:gap-12`}>
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.22em] text-[#d9bd82]">ALPA by MINDRA</p>
           <h1 className="mt-6 font-display text-[2.6rem] font-normal leading-[1.06] tracking-normal sm:text-6xl lg:text-[4.5rem]">You need customers.<br /><span className="text-[#d9bd82]">We find them for you.</span></h1>
@@ -120,21 +121,7 @@ export default function HomePage() {
           <div className="mt-8"><FreshStartCta className={cta}>Find 25 businesses free →</FreshStartCta></div>
           <p className="mt-4 text-sm leading-6 text-slate-400">No account. No credit card. Just start.</p>
         </div>
-        <figure className="min-w-0 rounded-2xl border border-[#d9bd82]/25 bg-[#101e32] p-5 shadow-2xl sm:p-7">
-          <figcaption className="flex items-center justify-between gap-3 border-b border-white/10 pb-4 text-xs text-slate-400"><span className="font-semibold tracking-[0.15em] text-[#d9bd82]">DISCOVERY</span><span>Illustrative preview</span></figcaption>
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm"><div className="rounded-lg border border-white/10 p-3"><p className="text-xs text-slate-400">Business type</p><p className="mt-1">Dentists</p></div><div className="rounded-lg border border-white/10 p-3"><p className="text-xs text-slate-400">Location</p><p className="mt-1">Montreal</p></div></div>
-          <div className="mt-5 rounded-xl bg-[#f5f1e8] p-5 text-[#101a2c] sm:p-6">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#72613f]">Example business profile</p>
-            <h2 className="mt-3 text-xl font-semibold">Example Dental Clinic</h2>
-            <p className="mt-1 text-sm text-slate-600">Montreal, Quebec · Dentistry</p>
-            <dl className="mt-5 space-y-4 text-sm">
-              <div><dt className="text-xs font-semibold text-[#72613f]">01 — WHO THEY ARE</dt><dd className="mt-1 leading-6">A local dental practice serving Montreal.</dd></div>
-              <div><dt className="text-xs font-semibold text-[#72613f]">02 — WHAT THEY DO</dt><dd className="mt-1 leading-6">General dentistry and preventive care.</dd></div>
-              <div><dt className="text-xs font-semibold text-[#72613f]">03 — HOW TO REACH THEM</dt><dd className="mt-1 leading-6">Available email, phone, and website.</dd></div>
-            </dl>
-          </div>
-          <p className="mt-4 text-xs leading-5 text-slate-400">Sample content. Details vary by business.</p>
-        </figure>
+        <AlpaDemo />
       </section>
 
       <section className="bg-[#f5f1e8] text-[#101a2c]">
