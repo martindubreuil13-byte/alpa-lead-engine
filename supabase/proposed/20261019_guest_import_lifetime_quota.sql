@@ -64,7 +64,11 @@ BEGIN
  END IF;
  -- Lock the authoritative plan through commit; a concurrent downgrade cannot race the quota decision.
  SELECT * INTO v_profile FROM public.profiles WHERE id=p_user_id FOR SHARE;
+ -- A stored paid plan counts only while something still backs it: a paid-through date in the future, or a linked Stripe subscription
+ -- whose date is not recorded yet. A stale 'active' row with neither (a lapsed or never-linked account) is Free here. The profile
+ -- itself is not changed; the application's live Stripe check stays the authority for paid features.
  v_free := NOT coalesce(v_profile.plan='admin' OR (v_profile.plan IN ('starter','starter_100','prospector','pro') AND (
+   v_profile.current_period_end>clock_timestamp() OR (v_profile.current_period_end IS NULL AND v_profile.stripe_subscription_id IS NOT NULL)) AND (
    coalesce(v_profile.plan_status,v_profile.subscription_status) IN ('active','trialing') OR
    (coalesce(v_profile.plan_status,v_profile.subscription_status) IN ('canceling','past_due','paused','unpaid','canceled') AND v_profile.current_period_end>clock_timestamp()) OR
    (v_profile.plan_status IS NULL AND v_profile.subscription_status IS NULL))),false);

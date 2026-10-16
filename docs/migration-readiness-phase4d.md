@@ -76,3 +76,10 @@ Seconds of write blocking on `leads`; no downtime for reads or sign-in. Ask for 
 - Q4. Legacy Starter allowance (500) versus the usage limit of 300 on `f6b4f337`; and whether `6216135e` (621 businesses on Free) keeps access to them.
 - Q5. Approve wrapping the cost migration in one transaction.
 - Q6. Decide whether the pilot-limits script (`20261019_phase8_pilot_limits.sql`, not part of these three) is in this window; it is not needed.
+
+## Update: legacy Starter profiles (owner decision)
+`8f87a001` (a former customer) and `bca8fa4c` (the owner's paid test) are historical, expired accounts. They are preserved as they are, with their
+businesses; no production record is changed and no Stripe reconciliation or customer-recovery work is done. If either person returns, they register a new account.
+Q3 is closed. The only change is in `20261019_guest_import_lifetime_quota.sql`: a stored paid plan counts as paid in `claim_guest_businesses` only while a paid-through
+date is in the future, or a Stripe subscription is linked and its date is not yet recorded. Both profiles now get the Free lifetime quota there. Regression test:
+`an expired or never-linked paid profile gets the Free quota...` in `tests/guest-import-quota-db.test.mjs` (fails on the old migration, passes on the new).

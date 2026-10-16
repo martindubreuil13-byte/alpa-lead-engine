@@ -15,7 +15,7 @@ const claim=(user,trial,leads)=>`SET request.jwt.claim.role='service_role'; SELE
 const get=(u,t,leads)=>JSON.parse(sql(claim(u,t,leads)))
 function seed(n,used=0,plan='free'){
  const user=id(n),trial=id(n+1000)
- sql(`INSERT INTO auth.users VALUES('${user}');INSERT INTO profiles(id,plan,plan_status) VALUES('${user}','${plan}','${plan==='free'?'free':'active'}');INSERT INTO guest_trials(id) VALUES('${trial}');`)
+ sql(`INSERT INTO auth.users VALUES('${user}');INSERT INTO profiles(id,plan,plan_status,stripe_subscription_id) VALUES('${user}','${plan}','${plan==='free'?'free':'active'}',${plan==='free'?'NULL':"'sub_test'"});INSERT INTO guest_trials(id) VALUES('${trial}');`)
  if(used)sql(`INSERT INTO leads(user_id,company_name,phone) SELECT '${user}','Existing '||n,'old'||n FROM generate_series(1,${used}) n;`)
  return {user,trial}
 }
@@ -27,7 +27,7 @@ test('guest-import transaction against real PostgreSQL', {skip:!url&&'Disposable
   let fixture=fs.readFileSync('tests/sql/discover-atomic-saves.sql','utf8').split('INSERT INTO auth.users')[0].replace(/CREATE ROLE \w+;/g,'')
   fixture+=`CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
    CREATE TABLE public.users(id uuid PRIMARY KEY,plan text CONSTRAINT users_plan_check CHECK(plan IN ('free','starter')));
-   ALTER TABLE profiles ADD COLUMN plan text DEFAULT 'free',ADD COLUMN plan_status text,ADD COLUMN subscription_status text,ADD COLUMN current_period_end timestamptz;
+   ALTER TABLE profiles ADD COLUMN plan text DEFAULT 'free',ADD COLUMN plan_status text,ADD COLUMN subscription_status text,ADD COLUMN current_period_end timestamptz,ADD COLUMN stripe_subscription_id text;
    ALTER TABLE leads ADD COLUMN website_facts jsonb,ADD COLUMN light_profile jsonb;
    CREATE TABLE guest_trials(id uuid PRIMARY KEY,owner_user_id uuid,leads jsonb NOT NULL DEFAULT '[]',created_at timestamptz NOT NULL DEFAULT now());`
   sql(fixture);sql(fs.readFileSync('supabase/applied-records/20261014_discover_atomic_saves.sql','utf8'))
@@ -48,6 +48,18 @@ test('guest-import transaction against real PostgreSQL', {skip:!url&&'Disposable
    const {user,trial}=seed(4,0,'pro');assert.equal(get(user,trial,[lead(4)]).imported,1);sql(`DELETE FROM leads WHERE user_id='${user}'`)
    assert.equal(get(user,trial,[lead(4)]).skipped_duplicate,1);assert.equal(count('leads',user),0)
    sql(`UPDATE profiles SET plan='free',plan_status='free' WHERE id='${user}'`);assert.equal(get(user,trial,[lead(4)]).imported,0)
+  })
+  await t.test('an expired or never-linked paid profile gets the Free quota; a backed paid profile does not',()=>{
+   // The shapes found in production: plan starter, status active, no Stripe subscription, paid-through date long past.
+   const lapsed=seed(60,25,'starter');sql(`UPDATE profiles SET stripe_subscription_id=NULL,current_period_end='2026-05-04' WHERE id='${lapsed.user}'`)
+   const result=get(lapsed.user,lapsed.trial,[lead(60)]);assert.deepEqual([result.imported,result.skipped_allowance],[0,1],'expired: Free lifetime quota applies')
+   assert.equal(count('leads',lapsed.user),25,'existing businesses are untouched');assert.equal(sql(`SELECT plan||'/'||plan_status FROM profiles WHERE id='${lapsed.user}'`),'starter/active','the profile is not modified')
+   const unlinked=seed(61,25,'starter');sql(`UPDATE profiles SET stripe_subscription_id=NULL,current_period_end=NULL WHERE id='${unlinked.user}'`)
+   assert.equal(get(unlinked.user,unlinked.trial,[lead(61)]).skipped_allowance,1,'never linked and no date: Free quota applies')
+   const current=seed(62,25,'pro');sql(`UPDATE profiles SET current_period_end=now()+interval '10 days' WHERE id='${current.user}'`)
+   assert.equal(get(current.user,current.trial,[lead(62)]).imported,1,'paid through a future date: paid allowance')
+   const linked=seed(63,25,'pro');sql(`UPDATE profiles SET current_period_end=NULL WHERE id='${linked.user}'`)
+   assert.equal(get(linked.user,linked.trial,[lead(63)]).imported,1,'linked subscription with the date not yet recorded: still paid')
   })
   await t.test('legacy ownership and import receipts survive deletion without overwriting saved facts',()=>{
    sql(`UPDATE leads SET website_facts='{"title":"Keep me"}',light_profile='{"summary":"Keep profile"}' WHERE user_id='${legacy.user}'`)
