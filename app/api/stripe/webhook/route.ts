@@ -42,6 +42,20 @@ async function trackPaymentCompleted(session: Stripe.Checkout.Session) {
       null
 
     const supabase = createAnalyticsClient()
+
+    // Stripe redelivers events; record each checkout session once.
+    const { data: existing, error: lookupError } = await supabase
+      .from('activity_logs')
+      .select('id')
+      .eq('session_id', session.id)
+      .eq('event', 'payment_completed')
+      .limit(1)
+    if (lookupError) {
+      console.error('[stripe.webhook] payment analytics lookup failed', lookupError)
+      return
+    }
+    if (existing && existing.length > 0) return
+
     const { error } = await supabase.from('activity_logs').insert({
       session_id: session.id,
       user_id: isUUID(userId) ? userId : null,

@@ -1,6 +1,9 @@
 import { after, NextResponse } from 'next/server'
 
 import { getUserProfile } from '@/lib/auth/get-user-profile'
+import { verifyEntitlementLive } from '@/lib/auth/paid-entitlement'
+import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { isEntitledToAutomaticResearch } from '@/lib/commercial-intelligence/research-entitlement'
 import { decideRetry, requeueFailedItem } from '@/lib/commercial-intelligence/retry-run-item'
 import { kickResearch } from '@/lib/commercial-intelligence/kick-research'
 import { RETRY_REFUSAL_TEXT } from '@/lib/intelligence/retry-eligibility'
@@ -32,6 +35,16 @@ export async function POST(request: Request, context: { params: Promise<{ runId:
   if (error || !row) return NextResponse.json({ ok: false, error: 'NOT_FOUND' }, { status: 404 })
   if (row.state !== 'failed' && row.state !== 'partial') {
     return NextResponse.json({ ok: false, error: 'not_failed', message: RETRY_REFUSAL_TEXT.not_failed }, { status: 409 })
+  }
+
+  // A retry re-queues research, a paid action: the subscription is confirmed with Stripe now (fail closed when it cannot be reached).
+  const entitlement = await verifyEntitlementLive(() => resolveUserSubscription(profile.id, { email: profile.email, requireFresh: true }))
+  if (!entitlement.ok) {
+    return NextResponse.json({ ok: false, error: 'unavailable', message: RETRY_REFUSAL_TEXT.unavailable }, { status: 503 })
+  }
+  const plan = entitlement.subscription.subscription_active ? entitlement.subscription.plan : 'free'
+  if (!isEntitledToAutomaticResearch(plan)) {
+    return NextResponse.json({ ok: false, error: 'not_allowed', message: RETRY_REFUSAL_TEXT.not_allowed }, { status: 403 })
   }
 
   const admin = createAdminClient() as any

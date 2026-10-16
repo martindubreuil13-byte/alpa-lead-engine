@@ -31,6 +31,12 @@ type ResolveUserSubscriptionOptions = {
   forceRefresh?: boolean
   /** Ordinary page navigation: skip the Stripe lookup for a free member never linked to Stripe. Paid actions never set this. */
   navigation?: boolean
+  /**
+   * A paid action (a search, research authorization, a research retry, a background job): Stripe decides, the stored plan never does.
+   * Stripe is always asked (except for the operator's own admin plan, which has no Stripe subscription), a failure to reach it throws,
+   * and when Stripe finds no subscription for the account the answer is "free", never the stored plan.
+   */
+  requireFresh?: boolean
 }
 
 function getResolvedStripeStatus(subscription: Stripe.Subscription) {
@@ -188,7 +194,8 @@ export async function resolveUserSubscription(
   const localUser = (userRow ?? null) as UserRow | null
   const email = String(options.email || localUser?.email || '').trim().toLowerCase() || null
   const localState = getLocalSubscriptionState(localProfile, normalizePlan(localUser?.plan))
-  const refreshStripe = shouldRefreshStripe(localProfile, Boolean(options.forceRefresh), Boolean(options.navigation))
+  const strict = Boolean(options.requireFresh)
+  const refreshStripe = strict ? localState.plan !== 'admin' : shouldRefreshStripe(localProfile, Boolean(options.forceRefresh), Boolean(options.navigation))
 
   let resolvedState = localState
 
@@ -216,6 +223,17 @@ export async function resolveUserSubscription(
         stripe_customer_id: synced?.stripe_customer_id ?? getStripeCustomerId(subscription.customer) ?? null,
         stripe_subscription_id: subscription.id,
         subscription_tier: subscriptionTier,
+      }
+    } else if (strict) {
+      // Stripe is authoritative for a paid action and found no subscription: whatever the database still says, the account is not entitled.
+      resolvedState = {
+        ...localState,
+        plan: 'free',
+        plan_status: 'free',
+        subscription_active: false,
+        cancel_at_period_end: false,
+        current_period_end: null,
+        subscription_tier: 'free',
       }
     } else if (
       localProfile &&

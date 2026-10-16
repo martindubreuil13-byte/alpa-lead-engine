@@ -25,6 +25,7 @@ import { buildLeadInsertPayload, buildResultLead, toLeadRow } from '@/lib/scrape
 import { createSaveTracker, type ScrapeProgressEvent } from '@/lib/scraper/progress-events'
 import { getLeadLimit, isCountableLead } from '@/lib/usage/usage'
 import { resolveUserSubscription } from '@/lib/auth/resolve-user-subscription'
+import { ENTITLEMENT_UNAVAILABLE_MESSAGE, verifyEntitlementLive } from '@/lib/auth/paid-entitlement'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getDiscoverCapacity, saveDiscoverResults, type DiscoverCapacity } from '@/lib/scraper/save-discover-results'
 import { enqueueLeadEnrichment } from '@/lib/commercial-intelligence/queue-manager'
@@ -1191,23 +1192,24 @@ export async function POST(req: Request) {
   }
 
   if (user?.id && !isGuestMode) {
-    // A search is a paid action: the plan is verified live, never taken from a stored copy. If Stripe cannot be reached the search
-    // does not start (nothing is used) and the person is told so, instead of getting a generic error or an unverified plan.
+    // A search is a paid action: Stripe is asked every time and the stored plan is never a substitute. If Stripe cannot be reached the search
+    // does not start (nothing is used, no research is authorized) and the person is told so. Guests never reach this branch.
     let verified: [Awaited<ReturnType<typeof resolveUserSubscription>>, { count: number | null }] | null = null
     try {
-      verified = await Promise.all([
-        resolveUserSubscription(user.id, { email: user.email, forceRefresh: true }),
+      const [entitlement, leadCount] = await Promise.all([
+        verifyEntitlementLive(() => resolveUserSubscription(user.id, { email: user.email, requireFresh: true })),
         supabase
           .from('leads')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .or('email.not.is.null,phone.not.is.null'),
       ])
+      verified = entitlement.ok ? [entitlement.subscription, leadCount] : null
     } catch {
       verified = null
     }
     if (!verified) {
-      return createSseResponse('❌ We could not verify your subscription right now, so no search was started and nothing was used. Please try again in a moment.', 503)
+      return createSseResponse(`❌ ${ENTITLEMENT_UNAVAILABLE_MESSAGE}`, 503)
     }
     const [subscription, { count }] = verified
 

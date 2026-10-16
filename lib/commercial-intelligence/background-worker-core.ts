@@ -16,6 +16,7 @@ export type WorkerQueueItem = {
   last_error: string | null
   last_retry_at: string | null
   claim_token: string
+  user_id?: string
 }
 
 export type WorkerEnrichmentResult = {
@@ -34,6 +35,11 @@ export type BackgroundWorkerDependencies = {
   claim: (client: WorkerClient, limit: number) => Promise<WorkerQueueItem[]>
   recover: (client: WorkerClient, timeoutSeconds: number) => Promise<{ resetCount: number; failedCount: number }>
   enrich: (leadId: string, options: { client: WorkerClient; persist: 'deferred'; deadlineMs: number }) => Promise<WorkerEnrichmentResult>
+  /**
+   * Whether the job's customer is still entitled to automatic research, confirmed with Stripe (never from a stored plan). A job whose
+   * customer is no longer entitled, or whose entitlement cannot be confirmed, is ended before any website is fetched or any AI is called.
+   */
+  verifyEntitlement?: (userId: string) => Promise<'entitled' | 'not_entitled' | 'unavailable'>
   complete: (client: WorkerClient, item: WorkerQueueItem, snapshot: unknown, signals: unknown, profile: unknown, success: boolean, errorMsg?: string, actualCostUsd?: number) => Promise<{ ok: boolean; nextStatus?: string }>
 }
 
@@ -60,6 +66,12 @@ export async function runBackgroundWorkerCore(
   const recovery = await dependencies.recover(client, options.staleTimeoutSeconds || WORKER_DEFAULTS.staleTimeoutSeconds)
   const results: Array<{ queueId: string; leadId: string; status: string; cost: number }> = []
   let claimedTotal = 0
+  // One confirmation per customer per tick, so a run of jobs does not ask Stripe once per job.
+  const entitlements = new Map<string, Promise<'entitled' | 'not_entitled' | 'unavailable'>>()
+  const entitlementOf = (userId: string) => {
+    if (!entitlements.has(userId)) entitlements.set(userId, dependencies.verifyEntitlement!(userId).catch(() => 'unavailable' as const))
+    return entitlements.get(userId)!
+  }
   // True once a claim came back empty: nothing more is eligible right now (none left, or a budget/limit stopped the claim).
   let exhausted = false
 
@@ -85,6 +97,20 @@ export async function runBackgroundWorkerCore(
         nextIndex += 1
         if (!item) continue
 
+        if (dependencies.verifyEntitlement && item.user_id) {
+          const verdict = await entitlementOf(item.user_id)
+          if (verdict !== 'entitled') {
+            // No fetch, no AI call, no cost: the job simply ends with a reason code (the customer sees it as a plan or availability issue).
+            const message = verdict === 'not_entitled' ? 'entitlement_ended' : 'entitlement_unverifiable'
+            try {
+              const completion = await dependencies.complete(client, item, null, null, null, false, message, 0)
+              results.push({ queueId: item.id, leadId: item.lead_id, status: completion.ok ? completion.nextStatus || 'failed' : 'claim_lost', cost: 0 })
+            } catch {
+              results.push({ queueId: item.id, leadId: item.lead_id, status: 'interrupted', cost: 0 })
+            }
+            continue
+          }
+        }
         let enrichment: WorkerEnrichmentResult | null = null
         try {
           // The job's own deadline aborts its fetches and AI request. This outer guard is the backstop for

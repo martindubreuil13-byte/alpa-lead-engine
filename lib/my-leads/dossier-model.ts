@@ -66,6 +66,7 @@ const REASON_TEXT: Record<string, string> = {
   research_failed: 'The website could not be researched.',
   run_limit: "Not researched: this search's research limit was reached.",
   no_website: 'This business has no website to read.',
+  plan_ended: "Business Intelligence is included with a paid plan, and this account's plan is no longer active.",
   expired: 'This search is too old to be researched. Run a new search to research it.',
   unreadable: "ALPA can't read this website (it is blocked, missing or too large).",
 }
