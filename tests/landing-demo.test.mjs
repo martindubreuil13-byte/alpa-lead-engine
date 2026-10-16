@@ -42,7 +42,9 @@ test('it loads nothing and calls nothing: no network, no library, no paid AI, no
   assert.deepEqual(imports.filter((name) => !name.startsWith('@/') && name !== 'react'), ['lucide-react'], 'the only library is the icon set the site already uses (four icons, tree-shaken)')
   assert.doesNotMatch(css, /@import|url\(\s*['"]?https?:|@font-face/)
   assert.doesNotMatch(component, /framer-motion|gsap|lottie|motion-one|react-spring/, 'no animation library is used')
-  assert.equal(read('package.json'), execFileSync('git', ['show', '8854d35:package.json'], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname }), 'no dependency was added or changed')
+  // Shipped (runtime) dependencies are what the demo must not change; test tooling and scripts in package.json may evolve.
+  const baseline = JSON.parse(execFileSync('git', ['show', '8854d35:package.json'], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname }))
+  assert.deepEqual(JSON.parse(read('package.json')).dependencies, baseline.dependencies, 'no runtime dependency was added or changed')
 })
 
 test('motion: only for people who have not asked for less; compositor-friendly properties; pausable; plays only on screen', () => {

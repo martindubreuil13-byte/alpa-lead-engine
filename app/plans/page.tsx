@@ -1,3 +1,4 @@
+import LegalLinks from '@/components/legal/LegalLinks'
 import type { Metadata } from 'next'
 
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
@@ -120,6 +121,10 @@ export default function PlansPage() {
           </div>
         </div>
       </section>
+
+      <div className="relative px-4 pb-10 sm:px-6 lg:px-10">
+        <LegalLinks className="mx-auto max-w-6xl border-t border-white/8 pt-6" />
+      </div>
     </main>
   )
 }

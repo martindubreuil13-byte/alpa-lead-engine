@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import LegalLinks from '@/components/legal/LegalLinks'
 import { resources } from '@/lib/resources'
 
 export default function ResourcesFooter({ compact = false }: { compact?: boolean }) {
@@ -14,6 +15,7 @@ export default function ResourcesFooter({ compact = false }: { compact?: boolean
             Get more lead generation guides →
           </Link>
         </div>
+        <LegalLinks className="mx-auto max-w-6xl pt-4" />
       </section>
     )
   }
@@ -45,6 +47,7 @@ export default function ResourcesFooter({ compact = false }: { compact?: boolean
             </li>
           ))}
         </ul>
+        <LegalLinks className="mt-8 border-t border-white/8 pt-6" />
       </div>
     </section>
   )
