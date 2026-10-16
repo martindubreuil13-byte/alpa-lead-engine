@@ -4,7 +4,10 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { AuthShell } from '@/components/auth/AuthShell'
+import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
+import { confirmRedirectUrl, signupOptions } from '@/lib/auth/email-confirmation'
 import { supabase } from '@/lib/supabase'
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
@@ -36,6 +39,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignup, setIsSignup] = useState(false)
+  const [isForgot, setIsForgot] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -48,6 +52,15 @@ export default function LoginPage() {
     const mode = new URLSearchParams(window.location.search).get('mode')
     setIsSignup(mode === 'signup')
   }, [])
+
+  // Someone who is already signed in is taken on (their guest businesses handed over, then their workspace), not left on this page.
+  useEffect(() => {
+    let cancelled = false
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled && data.session?.user) router.replace('/auth/continue')
+    })
+    return () => { cancelled = true }
+  }, [router])
 
   useEffect(() => {
     void trackEvent(isSignup ? 'signup_page_view' : 'login_page_view')
@@ -134,7 +147,12 @@ export default function LoginPage() {
     try {
       if (isSignup) {
         void trackEvent('signup_started', { email })
-        const { data, error } = await supabase.auth.signUp({ email, password })
+        // The emailed confirmation link returns to /auth/confirm (an allow-listed address on this site).
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: signupOptions({ emailRedirectTo: confirmRedirectUrl({ origin: window.location.origin, appUrl: process.env.NEXT_PUBLIC_APP_URL, production: process.env.NODE_ENV === 'production' }) }),
+        })
         if (error) throw error
 
         if (data.session) {
@@ -154,7 +172,7 @@ export default function LoginPage() {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
         if (signInError) {
           if (needsEmailConfirmation(signInError)) {
-            setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+            setInfoMessage('Account created. Check your email and open the confirmation link to import your guest leads.')
             setIsSignup(false)
             return
           }
@@ -206,7 +224,7 @@ export default function LoginPage() {
       console.error('Login failed:', err)
 
       if (isSignup && needsEmailConfirmation(err)) {
-        setInfoMessage('Account created. Check your email to confirm your address, then log in to import your guest leads.')
+        setInfoMessage('Account created. Check your email and open the confirmation link to import your guest leads.')
         setIsSignup(false)
         return
       }
@@ -222,6 +240,14 @@ export default function LoginPage() {
     setShowPassword(false)
     setErrorMessage('')
     setInfoMessage('')
+  }
+
+  if (isForgot) {
+    return (
+      <AuthShell title="Reset your password">
+        <ForgotPasswordForm initialEmail={email} onBack={() => setIsForgot(false)} />
+      </AuthShell>
+    )
   }
 
   return (
@@ -280,10 +306,11 @@ export default function LoginPage() {
                       type="button"
                       onClick={() => {
                         setErrorMessage('')
-                        setInfoMessage('Password reset is not available yet. Please contact support if you need help accessing your account.')
+                        setInfoMessage('')
+                        setIsForgot(true)
                       }}
                       disabled={isLoading}
-                      className="text-sm font-medium text-slate-400 transition hover:text-white"
+                      className="inline-flex min-h-11 items-center text-sm font-medium text-slate-400 transition hover:text-white"
                     >
                       Forgot password?
                     </button>
