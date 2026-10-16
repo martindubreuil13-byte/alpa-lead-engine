@@ -169,12 +169,13 @@ function reasonFromError(error: AuthErrorLike): RecoveryOutcome {
 
 /**
  * Turns the link into a session. A session that was already there before the page opened never counts: only a session this
- * link produced makes the page "ready". An expired, used or foreign link is explained, never silently accepted.
+ * link produced makes the page "ready". A matching SDK exchange witness also proves a link completed before the page effect.
+ * An expired, used or foreign link is explained, never silently accepted.
  */
 export function establishRecoverySession(
   client: RecoveryClient,
   link: RecoveryLink,
-  options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number } = {}
+  options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number; hadCodeVerifier?: boolean; establishedToken?: (link: AuthLink) => string | null } = {}
 ): Promise<RecoveryOutcome> {
   return establishSessionFromLink(client, link.kind === 'token_hash' ? { ...link, otpType: 'recovery' } : link, options)
 }
@@ -183,16 +184,17 @@ export function establishRecoverySession(
 export async function establishSessionFromLink(
   client: RecoveryClient,
   link: AuthLink,
-  options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number } = {}
+  options: { timeoutMs?: number; pollMs?: number; manualAfterMs?: number; hadCodeVerifier?: boolean; establishedToken?: (link: AuthLink) => string | null } = {}
 ): Promise<RecoveryOutcome> {
   const { timeoutMs = 6000, pollMs = 200, manualAfterMs = 1500 } = options
   if (link.kind === 'none') return 'none'
   if (link.kind === 'error') return link.reason
 
   const before = (await client.auth.getSession()).data.session?.access_token ?? null
+  if (before !== null && options.establishedToken?.(link) === before) return 'ready'
   const fresh = async () => {
     const token = (await client.auth.getSession()).data.session?.access_token ?? null
-    return token !== null && token !== before
+    return token !== null && (token !== before || options.establishedToken?.(link) === token)
   }
 
   if (link.kind === 'token_hash') {
@@ -210,7 +212,11 @@ export async function establishSessionFromLink(
       manualTried = true
       const { error } = await client.auth.exchangeCodeForSession(link.code)
       if (await fresh()) return 'ready'
-      if (error) return reasonFromError(error)
+      if (error) {
+        const reason = reasonFromError(error)
+        // The SDK consumes the verifier even on a failed automatic exchange. That is not a different browser.
+        return reason === 'other_browser' && options.hadCodeVerifier ? 'expired' : reason
+      }
     }
     await sleep(pollMs)
   }

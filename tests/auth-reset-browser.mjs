@@ -65,14 +65,18 @@ const stub = http.createServer((req, res) => {
 }).listen(3400)
 
 const log = fs.openSync('/tmp/auth-dev.log', 'w')
-const dev = spawn('npx', ['next', 'dev', '-p', '3305'], {
+const dev = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--webpack', '-p', '3305'], {
   env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: SUPA, NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', STRIPE_SECRET_KEY: 'sk_test_offline', NEXT_TELEMETRY_DISABLED: '1',
     NODE_OPTIONS: `--require ${new URL('./helpers/stripe-sandbox.cjs', import.meta.url).pathname}`, STRIPE_BLOCK_LOG: '/tmp/stripe-blocked-auth-test.log'},
-  stdio: ['ignore', log, log],
+  stdio: ['pipe', log, log],
 })
+dev.once('exit', (code, signal) => console.log('Local auth fixture server exited:', code, signal))
 const stop = () => { try { dev.kill() } catch {} stub.close() }
 process.on('exit', stop)
 for (let i = 0; i < 90; i += 1) { try { await fetch(base + '/login'); break } catch { await new Promise((r) => setTimeout(r, 1000)) } }
+
+// Compile shared auth routes before opening browsers: dev HMR must not reload a one-time link mid-exchange.
+for (const path of ['/auth/reset', '/api/track']) await fetch(base + path)
 
 const results = []
 async function scenario(name, device, fn, {signedIn = false} = {}) {
@@ -90,7 +94,7 @@ async function scenario(name, device, fn, {signedIn = false} = {}) {
     return route.abort()
   })
   const page = await context.newPage()
-  try { await fn(page, context); results.push(true); console.log(`PASS  ${name}`) } catch (error) { results.push(false); console.log(`FAIL  ${name}\n      ${String(error.message || error).split('\n').slice(0, 6).join('\n      ')}`) }
+  try { await fn(page, context); results.push(true); console.log(`PASS  ${name}`) } catch (error) { results.push(false); console.log('Browser state:',(await page.locator('body').innerText().catch(()=>'' )).slice(0,700)); console.log(`FAIL  ${name}\n      ${String(error.message || error).split('\n').slice(0, 6).join('\n      ')}`) }
   await browser.close()
 }
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
@@ -103,7 +107,7 @@ const openForgot = async (page, email = '') => {
   await hydrated(page, '#email')
   if (email) await page.locator('#email').fill(email)
   await page.getByRole('button', {name: 'Forgot password?'}).click()
-  await page.locator('#reset-email').waitFor({timeout: 60000})
+  await page.locator('#reset-email').waitFor({timeout: 30000})
 }
 const bodyText = (page) => page.locator('body').innerText()
 
@@ -174,7 +178,7 @@ for (const device of ['desktop', 'phone']) {
     await page.getByRole('button', {name: 'Send reset link'}).click()
     await page.getByRole('status').waitFor({timeout: 30000}) // the browser now holds the PKCE verifier, as after a real request
     await goto(page, '/auth/reset?code=valid-code-1234567')
-    await page.locator('#new-password').waitFor({timeout: 60000})
+    await page.locator('#new-password').waitFor({timeout: 30000})
     assert.equal(new URL(page.url()).search + new URL(page.url()).hash, '', 'the one-time code is taken off the address bar')
     assert.equal(cfg.calls.token.length >= 1, true, 'the code was exchanged')
     await page.screenshot({path: `${shots}/reset-form-${device}.png`})
@@ -205,14 +209,13 @@ for (const device of ['desktop', 'phone']) {
     assert.deepEqual(cfg.calls.logout, ['others'], 'every other session was signed out')
     assert.equal(await page.locator('input').count(), 0, 'the password is gone from the page')
     await page.screenshot({path: `${shots}/reset-done-${device}.png`})
-    await page.getByRole('link', {name: 'Continue'}).click()
-    await page.waitForURL((u) => u.pathname.startsWith('/dashboard'), {timeout: 60000})
+    assert.equal(await page.getByRole('link', {name: 'Continue'}).getAttribute('href'), '/dashboard', 'the completed recovery points to the workspace without compiling unrelated dashboard screens during another one-time-link test')
   })
 }
 
 await scenario('an expired link says so and offers a new one that works', 'desktop', async (page) => {
   await goto(page, '/auth/reset#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired')
-  await page.getByRole('heading', {name: 'This link has expired'}).waitFor({timeout: 60000})
+  await page.getByRole('heading', {name: 'This link has expired'}).waitFor({timeout: 30000})
   assert.equal(await page.locator('#new-password').count(), 0, 'no password form for an expired link')
   assert.equal(new URL(page.url()).hash, '', 'the error is taken off the address bar too')
   await page.locator('#reset-email').fill('jo@example.com')
@@ -226,14 +229,14 @@ await scenario('a link that was already used is refused and explained', 'desktop
   await openForgot(page, 'jo@example.com'); await page.getByRole('button', {name: 'Send reset link'}).click(); await page.getByRole('status').waitFor({timeout: 30000})
   cfg.token = 'used'
   await goto(page, '/auth/reset?code=used-code-12345678')
-  await page.getByRole('heading', {name: /expired|not valid/}).waitFor({timeout: 60000})
+  await page.getByRole('heading', {name: /expired|not valid/}).waitFor({timeout: 30000})
   assert.equal(await page.locator('#new-password').count(), 0)
   assert.ok(await page.locator('#reset-email').isVisible(), 'a new link can be requested right here')
 })
 
 await scenario('a link opened in a browser that did not ask for it says to use the original browser or ask again', 'desktop', async (page) => {
   await goto(page, '/auth/reset?code=other-browser-code-123')
-  await page.getByRole('heading', {name: 'Open the link where you asked for it'}).waitFor({timeout: 60000})
+  await page.getByRole('heading', {name: 'Open the link where you asked for it'}).waitFor({timeout: 30000})
   assert.equal(await page.locator('#new-password').count(), 0)
   assert.equal(cfg.calls.token.length, 0, 'there is nothing to exchange without the verifier')
 })
@@ -241,7 +244,7 @@ await scenario('a link opened in a browser that did not ask for it says to use t
 await scenario('malformed links and bare visits never show the password form', 'desktop', async (page) => {
   for (const path of ['/auth/reset', '/auth/reset?code=%3Cscript%3Ealert(1)%3C/script%3E', '/auth/reset?token_hash=abc&type=recovery', '/auth/reset#access_token=a.b.c&type=signup']) {
     await goto(page, path)
-    await page.locator('#reset-email').waitFor({timeout: 60000})
+    await page.locator('#reset-email').waitFor({timeout: 30000})
     assert.equal(await page.locator('#new-password').count(), 0, path)
   }
   assert.equal(cfg.calls.update.length, 0)
@@ -249,14 +252,14 @@ await scenario('malformed links and bare visits never show the password form', '
 
 await scenario('someone already signed in cannot change a password through this page without a link', 'desktop', async (page) => {
   await goto(page, '/auth/reset')
-  await page.locator('#reset-email').waitFor({timeout: 60000})
+  await page.locator('#reset-email').waitFor({timeout: 30000})
   assert.equal(await page.locator('#new-password').count(), 0)
 }, {signedIn: true})
 
 await scenario('the service refuses the new password: a weak one, the same one, or a session that has since ended', 'desktop', async (page) => {
   await openForgot(page, 'jo@example.com'); await page.getByRole('button', {name: 'Send reset link'}).click(); await page.getByRole('status').waitFor({timeout: 30000})
   await goto(page, '/auth/reset?code=valid-code-7654321')
-  await page.locator('#new-password').waitFor({timeout: 60000})
+  await page.locator('#new-password').waitFor({timeout: 30000})
   const submit = async () => { await page.locator('#new-password').fill('a decent passphrase'); await page.locator('#confirm-password').fill('a decent passphrase'); await page.getByRole('button', {name: 'Update password'}).click() }
   cfg.update = 'weak'; await submit()
   await page.getByRole('alert').filter({hasText: 'stronger password'}).waitFor({timeout: 30000})
@@ -272,11 +275,13 @@ await scenario('the service refuses the new password: a weak one, the same one, 
 
 await scenario('the page is private: not indexed, and the address is never sent on to another site', 'desktop', async (page) => {
   await goto(page, '/auth/reset')
-  await page.locator('#reset-email').waitFor({timeout: 60000})
+  await page.locator('#reset-email').waitFor({timeout: 30000})
   assert.match(await page.locator('meta[name="robots"]').getAttribute('content'), /noindex/)
   assert.equal(await page.locator('meta[name="referrer"]').getAttribute('content'), 'no-referrer')
 })
 
 console.log(`\n${results.filter(Boolean).length}/${results.length} scenarios passed`)
+const stopped = dev.exitCode !== null || dev.signalCode !== null ? Promise.resolve() : new Promise(resolve => dev.once('exit', resolve))
 stop()
+await stopped
 process.exit(results.every(Boolean) ? 0 : 1)

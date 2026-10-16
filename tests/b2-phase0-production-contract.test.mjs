@@ -12,6 +12,8 @@ import test from 'node:test'
 
 const ROOT = path.resolve(new URL('..', import.meta.url).pathname)
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8')
+// Pending billing migration, not a claim about the production catalog. The RC requires it before release.
+const proposedBilling = { claim_guest_businesses: { params: ['p_user_id', 'p_trial_id', 'p_leads'] } }
 const contract = JSON.parse(read('tests/fixtures/production-ci-contract.json'))
 
 const walk = (dir, out = []) => {
@@ -31,8 +33,8 @@ test('every RPC the application calls exists in production, with exactly the par
       const [, name, argument] = match
       seen.add(name)
       if (contract.outOfScope.includes(name)) continue
-      // production today, or the Phase 1 proposal (the application calls those only behind switches that are OFF)
-      const known = contract.functions[name] ?? contract.proposedPhase1[name] ?? contract.proposedGuestProfiles?.[name]
+      // Production today or an explicitly recorded proposal; billing imports fail closed until their migration exists.
+      const known = contract.functions[name] ?? contract.proposedPhase1[name] ?? contract.proposedGuestProfiles?.[name] ?? proposedBilling[name]
       assert.ok(known, `${file} calls ${name}, which is in neither the production contract nor the Phase 1 proposal`)
       if (argument?.startsWith('{')) {
         const keys = [...argument.matchAll(/\b(p_[a-z_]+)\b\s*[:,}]/g)].map((entry) => entry[1])
@@ -102,4 +104,11 @@ test('the Phase 1 proposal defines exactly the functions and parameters the cont
     const params = [...match[1].matchAll(/\b(p_[a-z_]+)\b/g)].map((entry) => entry[1])
     assert.deepEqual(params, spec.params, `${name} parameters`)
   }
+})
+
+test('pending billing import RPC matches its proposed SQL signature and is server-only', () => {
+  const sql = read('supabase/proposed/20261019_guest_import_lifetime_quota.sql')
+  const signature = sql.match(/CREATE FUNCTION public.claim_guest_businesses\(([^)]*)\)/)[1]
+  assert.deepEqual([...signature.matchAll(/\b(p_[a-z_]+)\s/g)].map(m => m[1]), proposedBilling.claim_guest_businesses.params)
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public.claim_guest_businesses\(uuid,uuid,jsonb\) TO service_role/)
 })

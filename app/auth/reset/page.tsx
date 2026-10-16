@@ -8,6 +8,7 @@ import { AuthShell, inputClass, linkButtonClass } from '@/components/auth/AuthSh
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import {
   MIN_PASSWORD_LENGTH,
+  RESET_PATH,
   UPDATE_MESSAGES,
   cleanedPath,
   establishRecoverySession,
@@ -17,7 +18,7 @@ import {
   type RecoveryOutcome,
 } from '@/lib/auth/password-reset'
 import { destinationAfterAuth, readPendingCheckout } from '@/lib/checkout/pending-plan'
-import { supabase } from '@/lib/supabase'
+import { supabase, sessionEstablishedByAuthLink, hadAuthLinkCodeVerifier, takeInitialAuthLinkLocation } from '@/lib/supabase'
 
 type Phase = 'checking' | 'form' | 'saving' | 'done' | Exclude<RecoveryOutcome, 'ready'>
 
@@ -42,9 +43,9 @@ export default function ResetPasswordPage() {
     if (started.current) return
     started.current = true
     // Read the link once, then take the one-time values off the address bar.
-    const link = parseRecoveryLink({ search: window.location.search, hash: window.location.hash })
+    const link = parseRecoveryLink(takeInitialAuthLinkLocation(RESET_PATH) ?? { search: window.location.search, hash: window.location.hash })
     if (link.kind !== 'none') window.history.replaceState(null, '', cleanedPath())
-    void establishRecoverySession(supabase, link).then((outcome) => setPhase(outcome === 'ready' ? 'form' : outcome))
+    void establishRecoverySession(supabase, link, { establishedToken: sessionEstablishedByAuthLink, hadCodeVerifier: hadAuthLinkCodeVerifier }).then((outcome) => setPhase(outcome === 'ready' ? 'form' : outcome))
   }, [])
 
   async function submit() {

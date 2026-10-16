@@ -9,7 +9,7 @@ import { confirmRedirectUrl, pendingFromUserMetadata, signupOptions } from '@/li
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import { AlpaLogo } from '@/components/brand/AlpaLogo'
 import { supabase } from '@/lib/supabase'
-import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
+import { finishGuestHandOver, GuestImportError } from '@/lib/guest/claim-client'
 import {
   destinationAfterAuth,
   parseCheckoutPlan,
@@ -19,19 +19,12 @@ import {
   savePendingCheckout,
   type PendingCheckout,
 } from '@/lib/checkout/pending-plan'
-import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 import { trackEvent } from '@/lib/track'
-
-type GuestClaimResult = StoredGuestClaimResult
 
 function getErrorMessageValue(error: unknown) {
   return typeof error === 'object' && error && 'message' in error && typeof error.message === 'string'
     ? error.message
     : ''
-}
-
-function getClaimRouteError(data: unknown) {
-  return typeof data === 'object' && data && 'error' in data && typeof data.error === 'string' ? data.error : ''
 }
 
 function shouldTrackFirstLogin(email: string) {
@@ -90,6 +83,7 @@ export default function LoginPage() {
   }, [isSignup])
 
   function getAuthErrorMessage(error: unknown, mode: 'login' | 'signup') {
+    if (error instanceof GuestImportError) return error.message
     const normalizedMessage = getErrorMessageValue(error).toLowerCase()
 
     if (normalizedMessage.includes('invalid login credentials')) {
@@ -123,43 +117,6 @@ export default function LoginPage() {
     return message.includes('email not confirmed')
   }
 
-  async function claimGuestTrialIfNeeded(): Promise<GuestClaimResult | null> {
-    // The server holds the trial (and its website facts) behind the visitor's signed cookie, so the claim does not depend on
-    // anything this browser kept: storage can be blocked or cleared and the businesses still come across. With no trial it is a no-op.
-    try {
-      const res = await fetch('/api/guest/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-
-      const data = (await res.json().catch(() => null)) as GuestClaimResult | null
-
-      if (!res.ok) {
-        console.warn('Guest claim failed:', data)
-        return null
-      }
-
-      const result: GuestClaimResult = {
-        success: true,
-        imported: data?.imported ?? 0,
-        skipped_invalid: data?.skipped_invalid ?? 0,
-        skipped_duplicate: data?.skipped_duplicate ?? 0,
-        skipped_allowance: data?.skipped_allowance ?? 0,
-      }
-
-      console.info('Guest claim result:', {
-        imported: result.imported,
-        skipped_invalid: result.skipped_invalid,
-        skipped_duplicate: result.skipped_duplicate,
-      })
-
-      writeStoredGuestClaimResult(result)
-      // Keep the guest results available after optional account creation.
-
-      return result
-    } catch (err) {
-      console.warn('Non-blocking claim error:', err)
-      return null
-    }
-  }
-
   async function handleAuth() {
     if (isLoading) return
 
@@ -188,10 +145,7 @@ export default function LoginPage() {
           if (shouldTrackFirstLogin(data.user?.email || email)) {
             void trackEvent('first_login', { email: data.user?.email || email })
           }
-          await claimGuestTrialIfNeeded().catch((err) => {
-            console.warn('Guest claim skipped:', err)
-          })
-          clearGuestTrialMode()
+          await finishGuestHandOver()
           router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(data.user?.user_metadata), fallback: '/dashboard/scraper' }))
           return
         }
@@ -216,10 +170,7 @@ export default function LoginPage() {
         if (shouldTrackFirstLogin(email)) {
           void trackEvent('first_login', { email })
         }
-        await claimGuestTrialIfNeeded().catch((err) => {
-          console.warn('Guest claim skipped:', err)
-        })
-        clearGuestTrialMode()
+        await finishGuestHandOver()
         router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(data.user?.user_metadata), fallback: '/dashboard/scraper' }))
         return
       }
@@ -230,10 +181,7 @@ export default function LoginPage() {
       if (shouldTrackFirstLogin(signInData.user?.email || email)) {
         void trackEvent('first_login', { email: signInData.user?.email || email })
       }
-      await claimGuestTrialIfNeeded().catch((err) => {
-        console.warn('Guest claim skipped:', err)
-      })
-      clearGuestTrialMode()
+      await finishGuestHandOver()
 
       const userId = signInData?.user?.id
       if (userId) {
@@ -242,7 +190,7 @@ export default function LoginPage() {
           ? await subscriptionResponse.json().catch(() => null)
           : null
         const resolvedPlan = String(subscriptionPayload?.subscription?.plan ?? '')
-        const hasPaidPlan = ['prospector', 'starter', 'pro', 'admin'].includes(resolvedPlan)
+        const hasPaidPlan = ['starter_100', 'prospector', 'starter', 'pro', 'admin'].includes(resolvedPlan)
         // A plan saved with the account (chosen before sign-up, possibly on another device) continues to checkout.
         router.push(destinationAfterAuth({ next: nextPath, pending: pending ?? pendingFromUserMetadata(signInData.user?.user_metadata), fallback: hasPaidPlan ? '/dashboard' : '/dashboard/scraper' }))
       } else {
@@ -380,6 +328,7 @@ export default function LoginPage() {
 
               {errorMessage ? (
                 <div
+                  role="alert"
                   aria-live="polite"
                   className="rounded-2xl border border-rose-400/25 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100"
                 >

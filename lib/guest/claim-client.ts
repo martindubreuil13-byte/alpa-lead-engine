@@ -1,31 +1,39 @@
 import { clearGuestTrialMode } from '@/lib/session/guest-trial-mode'
 import { writeStoredGuestClaimResult, type StoredGuestClaimResult } from '@/lib/session/scrape-result'
 
-// The browser's call to the existing guest-claim route, for the screens a customer can arrive at already signed in (after confirming their
-// email, or opening /login while signed in). It is the same request the login form makes and it changes nothing about it: the server
-// reads the trial from this browser's own signed cookie, so in a browser that never held the trial (another device) there is nothing to
-// claim and nothing happens. It never claims, moves or deletes anything the server does not hold for this browser.
-export async function claimGuestTrialIfNeeded(): Promise<StoredGuestClaimResult | null> {
-  try {
-    const res = await fetch('/api/guest/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-    const data = (await res.json().catch(() => null)) as StoredGuestClaimResult | null
-    if (!res.ok) return null
-    const result: StoredGuestClaimResult = {
-      success: true,
-      imported: data?.imported ?? 0,
-      skipped_invalid: data?.skipped_invalid ?? 0,
-      skipped_duplicate: data?.skipped_duplicate ?? 0,
-      skipped_allowance: data?.skipped_allowance ?? 0,
-    }
-    writeStoredGuestClaimResult(result)
-    return result
-  } catch {
-    return null
-  }
+export const GUEST_IMPORT_RETRY_MESSAGE = 'Your account is ready, but we could not confirm that your guest businesses were saved. Your trial has not been cleared. Please retry the import before continuing.'
+
+export class GuestImportError extends Error {
+  constructor() { super(GUEST_IMPORT_RETRY_MESSAGE); this.name = 'GuestImportError' }
 }
 
-/** What the login form does after a successful sign-in, for a customer who is already signed in. */
+// Only the server's signed trial cookie selects what is imported. No browser business payload is sent.
+export async function claimGuestTrialIfNeeded(): Promise<StoredGuestClaimResult | null> {
+  let res: Response
+  try {
+    res = await fetch('/api/guest/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+  } catch { throw new GuestImportError() }
+  const data = await res.json().catch(() => null)
+  // A fresh device has no trial to import. An expired trial, auth failure or unavailable RPC is NOT success.
+  if (res.status === 401 && data?.error === 'No guest session') return null
+  const counters = ['imported', 'skipped_invalid', 'skipped_duplicate', 'skipped_allowance'] as const
+  if (!res.ok || data?.success !== true || counters.some(key => !Number.isSafeInteger(data[key]) || data[key] < 0)) {
+    throw new GuestImportError()
+  }
+  const result: StoredGuestClaimResult = {
+    success: true,
+    imported: data.imported,
+    skipped_invalid: data.skipped_invalid,
+    skipped_duplicate: data.skipped_duplicate,
+    skipped_allowance: data.skipped_allowance,
+  }
+  writeStoredGuestClaimResult(result)
+  return result
+}
+
+/** Clear guest mode only after a confirmed import or an explicit absence of a guest session. */
 export async function finishGuestHandOver() {
-  await claimGuestTrialIfNeeded()
+  const result = await claimGuestTrialIfNeeded()
   clearGuestTrialMode()
+  return result
 }

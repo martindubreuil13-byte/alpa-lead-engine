@@ -184,7 +184,7 @@ test('wiring: the login page opens the real form, the dead-end message is gone, 
   assert.doesNotMatch(login, /Password reset is not available/); assert.match(login, /ForgotPasswordForm/); assert.match(login, /setIsForgot\(true\)/)
   const page = read('app/auth/reset/page.tsx')
   assert.match(page, /replaceState\(null, '', cleanedPath\(\)\)/, 'the one-time values leave the address bar')
-  assert.match(page, /establishRecoverySession\(supabase, link\)/); assert.match(page, /setNewPassword\(supabase, password\)/)
+  assert.match(page, /establishRecoverySession\(supabase, link,/); assert.match(page, /setNewPassword\(supabase, password\)/)
   assert.doesNotMatch(page + read('components/auth/ForgotPasswordForm.tsx') + read('lib/auth/password-reset.ts'), /console\.(log|info|error|warn)|trackEvent|localStorage\.setItem|sessionStorage\.setItem/, 'no logging, analytics or storage of emails, links or passwords')
   const layout = read('app/auth/layout.tsx')
   assert.match(layout, /index: false/); assert.match(layout, /referrer: 'no-referrer'/)

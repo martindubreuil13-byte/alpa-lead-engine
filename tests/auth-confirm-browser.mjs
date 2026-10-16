@@ -20,7 +20,7 @@ const userJson = (meta) => ({id: USER_ID, aud: 'authenticated', role: 'authentic
 const sessionJson = (meta) => ({access_token: jwt(USER_ID), token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'refresh-1', user: userJson(meta)})
 
 const cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*', 'Access-Control-Expose-Headers': '*', 'Content-Type': 'application/json'}
-const fresh = () => ({token: 'ok', verify: 'ok', resend: 'ok', password: 'ok', meta: undefined, calls: {signup: [], token: 0, verify: [], resend: [], password: 0, update: [], claim: 0, checkout: []}})
+const fresh = () => ({token: 'ok', verify: 'ok', resend: 'ok', password: 'ok', claim: 'ok', meta: undefined, calls: {signup: [], token: 0, verify: [], resend: [], password: 0, update: [], claim: 0, checkout: []}})
 let cfg = fresh()
 const ERR = {
   used: [400, {code: 400, error_code: 'flow_state_not_found', msg: 'invalid flow state, no valid flow state found'}],
@@ -55,14 +55,18 @@ const stub = http.createServer((req, res) => {
 }).listen(3401)
 
 const log = fs.openSync('/tmp/auth-confirm-dev.log', 'w')
-const dev = spawn('npx', ['next', 'dev', '-p', '3306'], {
+const dev = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--webpack', '-p', '3306'], {
   env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: SUPA, NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', STRIPE_SECRET_KEY: 'sk_test_offline', NEXT_TELEMETRY_DISABLED: '1',
     NODE_OPTIONS: `--require ${new URL('./helpers/stripe-sandbox.cjs', import.meta.url).pathname}`, STRIPE_BLOCK_LOG: '/tmp/stripe-blocked-confirm-test.log'},
-  stdio: ['ignore', log, log],
+  stdio: ['pipe', log, log],
 })
+dev.once('exit', (code, signal) => console.log('Local auth fixture server exited:', code, signal))
 const stop = () => { try { dev.kill() } catch {} stub.close() }
 process.on('exit', stop)
 for (let i = 0; i < 90; i += 1) { try { await fetch(base + '/login'); break } catch { await new Promise((r) => setTimeout(r, 1000)) } }
+
+// Compile shared auth routes before opening browsers: dev HMR must not reload a one-time link mid-exchange.
+for (const path of ['/auth/confirm', '/auth/continue', '/checkout/start?plan=starter', '/api/track']) await fetch(base + path)
 
 const results = []
 const html = (title) => ({status: 200, contentType: 'text/html', body: `<!doctype html><title>${title}</title><h1>${title}</h1>`})
@@ -75,7 +79,7 @@ async function newBrowserContext(browser, device, {session} = {}) {
     if (url.origin === SUPA) return route.continue()
     if (url.origin !== base) return route.abort()
     const document = request.resourceType() === 'document'
-    if (url.pathname === '/api/guest/claim') { cfg.calls.claim += 1; return route.fulfill({json: {success: true, imported: 2, skipped_invalid: 0, skipped_duplicate: 0, skipped_allowance: 0, backfilled: 0}}) }
+    if (url.pathname === '/api/guest/claim') { cfg.calls.claim += 1; if (cfg.claim === 'failed') return route.fulfill({status:503,json:{error:'Import unavailable'}}); return route.fulfill({json: {success: true, imported: 2, skipped_invalid: 0, skipped_duplicate: 0, skipped_allowance: 0, backfilled: 0}}) }
     if (url.pathname === '/api/auth/subscription') return route.fulfill({json: {subscription: {plan: 'free', verified: true}}})
     if (url.pathname === '/api/checkout' && request.method() === 'POST') { cfg.calls.checkout.push(request.postDataJSON()); return route.fulfill({json: {url: `${base}/__stripe`}}) }
     if (document && url.pathname === '/__stripe') return route.fulfill(html('stripe-checkout-test-page'))
@@ -89,7 +93,7 @@ async function scenario(name, device, fn) {
   if (process.env.ONLY && !name.includes(process.env.ONLY)) return
   cfg = fresh()
   const browser = await chromium.launch({headless: true, channel: 'chrome'})
-  try { await fn({browser, device, open: (options) => newBrowserContext(browser, device, options)}); results.push(true); console.log(`PASS  ${name}`) } catch (error) { results.push(false); console.log(`FAIL  ${name}\n      ${String(error.message || error).split('\n').slice(0, 6).join('\n      ')}`) }
+  try { await fn({browser, device, open: (options) => newBrowserContext(browser, device, options)}); results.push(true); console.log(`PASS  ${name}`) } catch (error) { results.push(false); console.log('Browser state:', JSON.stringify(await Promise.all(browser.contexts().flatMap(c=>c.pages()).map(async p=>({path:new URL(p.url()).pathname,text:(await p.locator('body').innerText().catch(()=>'' )).slice(0,700)}))))); console.log(`FAIL  ${name}\n      ${String(error.message || error).split('\n').slice(0, 6).join('\n      ')}`) }
   await browser.close()
 }
 const hydrated = (page, selector) => page.waitForFunction((sel) => { const el = document.querySelector(sel); return Boolean(el) && Object.keys(el).some((key) => key.startsWith('__reactProps')) }, selector, {timeout: 120000})
@@ -102,9 +106,9 @@ async function signUp(page, {plan} = {}) {
   await hydrated(page, '#email')
   await page.locator('#email').fill('new@example.com')
   await page.locator('#password').fill('a decent passphrase')
-  await page.getByRole('button', {name: 'Create account', exact: true}).click()
-  // the stub refuses sign-in until the email is confirmed, as the real service does
+  // Refuse sign-in before clicking, so a fast local response cannot bypass confirmation.
   cfg.password = 'unconfirmed'
+  await page.getByRole('button', {name: 'Create account', exact: true}).click()
   await page.getByText('Check your email and open the confirmation link', {exact: false}).waitFor({timeout: 60000})
 }
 
@@ -112,15 +116,15 @@ for (const device of ['desktop', 'phone']) {
   await scenario(`${device}: signup with a plan -> confirm in the ORIGINAL browser -> straight to checkout, guest trial handed over, saved choice cleared`, device, async ({open}) => {
     const context = await open(); const page = await context.newPage()
     cfg.password = 'unconfirmed'
-    await signUp(page, {plan: 'prospector'})
+    await signUp(page, {plan: 'pro'})
     const signup = cfg.calls.signup[0]
-    assert.deepEqual(signup.data, {pending_plan: 'prospector', pending_source: 'plans_featured'}, 'the plan is saved with the account')
+    assert.deepEqual(signup.data, {pending_plan: 'pro', pending_source: 'plans_featured'}, 'the plan is saved with the account')
     assert.equal(signup.redirectTo, `${base}/auth/confirm`, 'the email link returns to the allow-listed confirmation page')
     assert.deepEqual(Object.keys(signup.data).sort(), ['pending_plan', 'pending_source'], 'no price or entitlement is ever sent')
     cfg.password = 'ok'
     await goto(page, '/auth/confirm?code=valid-code-1234567')
-    await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 90000})
-    assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'prospector'}], 'checkout was started with the plan name only, once')
+    await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 30000})
+    assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'pro'}], 'checkout was started with the plan name only, once')
     assert.equal(cfg.calls.claim, 1, 'this browser\'s own guest trial was handed over once, exactly as after a login')
     assert.equal(cfg.calls.update.length, 1); assert.deepEqual(cfg.calls.update[0], {pending_plan: null, pending_source: null}, 'the saved choice is cleared once checkout has started')
     assert.equal(await title(page), 'stripe-checkout-test-page')
@@ -131,7 +135,7 @@ await scenario('confirm on ANOTHER device (code link): "your email is confirmed,
   cfg.meta = {pending_plan: 'starter', pending_source: 'plans_featured'}
   const phone = await (await open()).newPage() // a context that has nothing of the sign-up
   await goto(phone, '/auth/confirm?code=other-device-code-12345')
-  await phone.getByRole('heading', {name: 'Your email is confirmed'}).waitFor({timeout: 90000})
+  await phone.getByRole('heading', {name: 'Your email is confirmed'}).waitFor({timeout: 30000})
   assert.equal(new URL(phone.url()).search, '', 'the code is taken off the address bar')
   assert.equal(cfg.calls.claim, 0, 'nothing is claimed during a cross-device confirmation')
   assert.equal(cfg.calls.checkout.length, 0, 'and no checkout starts without a login')
@@ -140,17 +144,17 @@ await scenario('confirm on ANOTHER device (code link): "your email is confirmed,
   await hydrated(phone, '#email')
   await phone.locator('#email').fill('new@example.com'); await phone.locator('#password').fill('a decent passphrase')
   await phone.getByRole('button', {name: 'Continue', exact: true}).click()
-  await phone.waitForURL((u) => u.pathname === '/__stripe', {timeout: 90000})
+  await phone.waitForURL((u) => u.pathname === '/__stripe', {timeout: 30000})
   assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'starter'}], 'the plan followed the account to the other device')
 })
 
 await scenario('confirm on another device (token link from the email template): signs in there and continues to the saved plan', 'desktop', async ({open}) => {
-  cfg.meta = {pending_plan: 'prospector', pending_source: 'plans_featured'}
+  cfg.meta = {pending_plan: 'pro', pending_source: 'plans_featured'}
   const page = await (await open()).newPage()
   await goto(page, '/auth/confirm?token_hash=abcdefgh12345678&type=signup')
-  await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 30000})
   assert.deepEqual(cfg.calls.verify.map((v) => ({type: v.type, token_hash: v.token_hash})), [{type: 'signup', token_hash: 'abcdefgh12345678'}])
-  assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'prospector'}])
+  assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'pro'}])
   assert.equal(cfg.calls.claim, 1, 'the claim request is made like after any sign-in; with no trial in this browser it finds nothing (the server reads only this browser\'s own cookie)')
 })
 
@@ -160,7 +164,7 @@ await scenario('free signup (no plan): confirmation goes to the free workspace, 
   assert.deepEqual(cfg.calls.signup[0].data ?? {}, {}, 'no plan data is saved when none was chosen')
   cfg.password = 'ok'
   await goto(page, '/auth/confirm?code=free-signup-code-123')
-  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 30000})
   assert.equal(cfg.calls.checkout.length, 0); assert.equal(cfg.calls.update.length, 0, 'nothing to clear')
   assert.equal(cfg.calls.claim, 1)
 })
@@ -169,7 +173,7 @@ await scenario('an unlisted plan in the account\'s metadata never reaches checko
   cfg.meta = {pending_plan: 'enterprise', price: 0, role: 'admin'}
   const page = await (await open()).newPage()
   await goto(page, '/auth/confirm?token_hash=abcdefgh12345678&type=signup')
-  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 30000})
   assert.equal(cfg.calls.checkout.length, 0)
 })
 
@@ -177,7 +181,7 @@ for (const device of ['desktop', 'phone']) {
   await scenario(`${device}: an expired link says so, offers a new one with the same neutral answer, and a rate limit is stated plainly`, device, async ({open}) => {
     const page = await (await open()).newPage()
     await goto(page, '/auth/confirm?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired')
-    await page.getByRole('heading', {name: 'This link has expired'}).waitFor({timeout: 90000})
+    await page.getByRole('heading', {name: 'This link has expired'}).waitFor({timeout: 30000})
     assert.equal(new URL(page.url()).search, '', 'the error is taken off the address bar')
     assert.ok(await page.getByRole('link', {name: 'Log in'}).isVisible(), 'someone who already confirmed can log in')
     await hydrated(page, '#resend-email')
@@ -213,12 +217,12 @@ await scenario('a link that was already used, a malformed link and a password-re
   // sign-up first so this browser holds the PKCE verifier, as the original browser does
   await signUp(page)
   await goto(page, '/auth/confirm?code=used-code-12345678')
-  await page.getByRole('heading', {name: /expired|not valid/}).waitFor({timeout: 90000})
+  await page.getByRole('heading', {name: /expired|not valid/}).waitFor({timeout: 30000})
   assert.ok(await page.getByRole('link', {name: 'Log in'}).isVisible())
   assert.equal(cfg.calls.checkout.length + cfg.calls.claim, 0, 'a used link starts nothing')
   for (const path of ['/auth/confirm?code=%3Cscript%3Ealert(1)%3C/script%3E', '/auth/confirm?token_hash=abcdefgh12345678&type=recovery', '/auth/confirm#access_token=a.b.c&type=recovery']) {
     page = await context.newPage(); await goto(page, path)
-    await page.getByRole('heading', {name: 'This link is not valid'}).waitFor({timeout: 90000})
+    await page.getByRole('heading', {name: 'This link is not valid'}).waitFor({timeout: 30000})
     await page.close()
   }
   assert.equal(cfg.calls.checkout.length + cfg.calls.claim, 0)
@@ -226,28 +230,28 @@ await scenario('a link that was already used, a malformed link and a password-re
 
 await scenario('already signed in: /login and the confirmation page take the customer on instead of leaving them there', 'desktop', async ({open}) => {
   // with a plan saved with the account -> checkout; without -> the free workspace; nobody signed in -> the login page
-  const withPlan = {...sessionJson({pending_plan: 'prospector', pending_source: 'plans_featured'}), access_token: jwt('existing')}
-  cfg.meta = {pending_plan: 'prospector', pending_source: 'plans_featured'}
+  const withPlan = {...sessionJson({pending_plan: 'pro', pending_source: 'plans_featured'}), access_token: jwt('existing')}
+  cfg.meta = {pending_plan: 'pro', pending_source: 'plans_featured'}
   let page = await (await open({session: withPlan})).newPage()
   await goto(page, '/login')
-  await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 90000})
-  assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'prospector'}])
+  await page.waitForURL((u) => u.pathname === '/__stripe', {timeout: 30000})
+  assert.deepEqual(cfg.calls.checkout, [{source: 'plans_featured', plan: 'pro'}])
   assert.equal(cfg.calls.claim, 1)
 
   cfg = fresh()
   const free = {...sessionJson({}), access_token: jwt('existing')}
   page = await (await open({session: free})).newPage()
   await goto(page, '/login?mode=signup')
-  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 30000})
   await goto(page, '/auth/confirm')
-  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 30000})
   assert.equal(cfg.calls.checkout.length, 0)
 
   const anonymous = await (await open()).newPage()
   await goto(anonymous, '/auth/continue')
-  await anonymous.waitForURL((u) => u.pathname === '/login', {timeout: 90000})
+  await anonymous.waitForURL((u) => u.pathname === '/login', {timeout: 30000})
   await goto(anonymous, '/auth/confirm')
-  await anonymous.waitForURL((u) => u.pathname === '/login', {timeout: 90000})
+  await anonymous.waitForURL((u) => u.pathname === '/login', {timeout: 30000})
   await hydrated(anonymous, '#email')
   assert.ok(await anonymous.locator('#email').isVisible(), 'a visitor who is not signed in still gets the login form')
 })
@@ -258,7 +262,7 @@ await scenario('existing sign-in is unchanged: a customer with no saved plan log
   await goto(page, '/login'); await hydrated(page, '#email')
   await page.locator('#email').fill('new@example.com'); await page.locator('#password').fill('a decent passphrase')
   await page.getByRole('button', {name: 'Continue', exact: true}).click()
-  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 90000})
+  await page.waitForURL((u) => u.pathname === '/dashboard/scraper', {timeout: 30000})
   assert.equal(cfg.calls.claim, 1); assert.equal(cfg.calls.checkout.length, 0)
   const other = await (await open()).newPage()
   await goto(other, '/login'); await hydrated(other, '#email')
@@ -266,6 +270,36 @@ await scenario('existing sign-in is unchanged: a customer with no saved plan log
   await other.locator('#reset-email').waitFor({timeout: 60000})
 })
 
+for (const device of ['desktop', 'phone']) {
+  await scenario(`${device}: failed confirmation handover is visible, blocks checkout and can be retried`, device, async ({open}) => {
+    cfg.meta = {pending_plan: 'pro', pending_source: 'plans_featured'}
+    cfg.claim = 'failed'
+    const page = await (await open()).newPage()
+    await goto(page, '/auth/confirm?token_hash=valid-token-1234567&type=signup')
+    await page.getByRole('alert').filter({hasText:'could not confirm'}).waitFor({timeout:60000})
+    assert.match(await page.getByRole('alert').filter({hasText:'could not confirm'}).innerText(), /could not confirm/)
+    assert.equal(cfg.calls.checkout.length,0)
+    cfg.claim = 'ok'
+    await page.getByRole('link',{name:'Retry import',exact:true}).click()
+    await page.waitForURL(u=>u.pathname==='/__stripe',{timeout:90000})
+    assert.equal(cfg.calls.claim,2)
+    assert.deepEqual(cfg.calls.checkout,[{source:'plans_featured',plan:'pro'}])
+  })
+}
+await scenario('failed login handover stays visible instead of navigating as if imported', 'desktop', async ({open}) => {
+  cfg.claim = 'failed'
+  const page=await (await open()).newPage()
+  await goto(page,'/login');await hydrated(page,'#email')
+  await page.locator('#email').fill('new@example.com');await page.locator('#password').fill('a decent passphrase')
+  await page.getByRole('button',{name:'Continue',exact:true}).click()
+  await page.getByRole('alert').filter({hasText:'could not confirm'}).waitFor({timeout:60000})
+  assert.match(await page.getByRole('alert').filter({hasText:'could not confirm'}).innerText(),/could not confirm/)
+  assert.equal(cfg.calls.checkout.length,0)
+  assert.equal(new URL(page.url()).pathname,'/login')
+})
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} scenarios passed`)
+const stopped = dev.exitCode !== null || dev.signalCode !== null ? Promise.resolve() : new Promise(resolve => dev.once('exit', resolve))
 stop()
+await stopped
 process.exit(results.every(Boolean) ? 0 : 1)

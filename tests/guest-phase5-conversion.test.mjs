@@ -138,7 +138,7 @@ test('the notice is shown where a new member lands, can be dismissed, and surviv
   const store = read('lib/session/scrape-result.ts')
   assert.match(store, /safeGetItem\('session', GUEST_CLAIM_RESULT_STORAGE_KEY\)/)
   assert.match(store, /skipped_allowance/)
-  assert.match(read('app/login/page.tsx'), /skipped_allowance: data\?\.skipped_allowance \?\? 0/)
+  assert.match(read('lib/guest/claim-client.ts'), /skipped_allowance: data\.skipped_allowance/)
 })
 
 test('the offer is documented with what activation needs, and the documented steps cover Stripe, server enforcement and BIL2', () => {

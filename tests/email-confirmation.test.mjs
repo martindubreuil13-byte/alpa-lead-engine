@@ -24,8 +24,8 @@ test('redirect: the confirmation link returns only to our own confirmation page 
 
 test('sign-up: a chosen plan is saved with the account, validated against the allow-list; nothing else is ever saved', () => {
   assert.deepEqual(signupOptions({ plan: 'starter', source: 'plans_featured', emailRedirectTo: REDIRECT }), { emailRedirectTo: REDIRECT, data: { pending_plan: 'starter', pending_source: 'plans_featured' } })
-  assert.deepEqual(signupOptions({ plan: 'prospector', source: 'x y<script>', emailRedirectTo: REDIRECT }).data, { pending_plan: 'prospector', pending_source: 'upgrade' }, 'the source label is sanitised')
-  for (const plan of [undefined, null, '', 'free', 'pro', 'admin', 'enterprise', '<script>', 'STARTER', 1, {}, ['starter']]) {
+  assert.deepEqual(signupOptions({ plan: 'pro', source: 'x y<script>', emailRedirectTo: REDIRECT }).data, { pending_plan: 'pro', pending_source: 'upgrade' }, 'the source label is sanitised')
+  for (const plan of [undefined, null, '', 'free', 'prospector', 'admin', 'enterprise', '<script>', 'STARTER', 1, {}, ['starter']]) {
     assert.deepEqual(signupOptions({ plan, source: 'plans', emailRedirectTo: REDIRECT }), { emailRedirectTo: REDIRECT }, `${JSON.stringify(plan)} is not stored`)
   }
   const keys = Object.keys(signupOptions({ plan: 'starter', source: 'a', emailRedirectTo: REDIRECT }).data).sort()
@@ -34,7 +34,7 @@ test('sign-up: a chosen plan is saved with the account, validated against the al
 
 test('metadata: only a named plan is read back; the rest of the (customer-editable) metadata is ignored', () => {
   assert.deepEqual(pendingFromUserMetadata({ pending_plan: 'starter', pending_source: 'plans' }), { plan: 'starter', source: 'plans' })
-  assert.deepEqual(pendingFromUserMetadata({ pending_plan: 'prospector' }), { plan: 'prospector', source: 'upgrade' })
+  assert.deepEqual(pendingFromUserMetadata({ pending_plan: 'pro' }), { plan: 'pro', source: 'upgrade' })
   for (const meta of [null, undefined, 'x', 42, [], {}, { pending_plan: 'admin' }, { pending_plan: 'free' }, { pending_plan: 'starter ' }, { plan: 'starter' }, { price: 0, pending_plan: 99 }, { pending_plan: { plan: 'starter' } }]) {
     assert.equal(pendingFromUserMetadata(meta), null, JSON.stringify(meta))
   }
@@ -44,9 +44,9 @@ test('metadata: only a named plan is read back; the rest of the (customer-editab
 test('destination: finishing a payment, then a plan chosen in this browser, then the plan saved with the account, then the free workspace', () => {
   const dest = (over) => destinationAfterConfirmation({ next: null, browserPending: null, userMetadata: null, ...over })
   assert.equal(dest({}), FREE_DESTINATION); assert.equal(FREE_DESTINATION, '/dashboard/scraper')
-  assert.equal(dest({ userMetadata: { pending_plan: 'prospector', pending_source: 'plans_featured' } }), '/checkout/start?plan=prospector&source=plans_featured', 'confirmed on another device: the account\'s plan continues')
-  assert.equal(dest({ browserPending: { plan: 'starter', source: 'plans' }, userMetadata: { pending_plan: 'prospector' } }), '/checkout/start?plan=starter&source=plans', 'a choice made in this browser is the more recent')
-  assert.equal(dest({ next: '/post-checkout?session_id=cs_test_123', userMetadata: { pending_plan: 'prospector' } }), '/post-checkout?session_id=cs_test_123', 'finishing a payment comes first')
+  assert.equal(dest({ userMetadata: { pending_plan: 'pro', pending_source: 'plans_featured' } }), '/checkout/start?plan=pro&source=plans_featured', 'confirmed on another device: the account\'s plan continues')
+  assert.equal(dest({ browserPending: { plan: 'starter', source: 'plans' }, userMetadata: { pending_plan: 'pro' } }), '/checkout/start?plan=starter&source=plans', 'a choice made in this browser is the more recent')
+  assert.equal(dest({ next: '/post-checkout?session_id=cs_test_123', userMetadata: { pending_plan: 'pro' } }), '/post-checkout?session_id=cs_test_123', 'finishing a payment comes first')
   for (const next of ['https://evil.example', '//evil.example', '/dashboard', 'javascript:alert(1)', '/post-checkout?session_id=<x>']) assert.equal(dest({ next }), FREE_DESTINATION, `${next} is not an allowed place to go`)
   assert.equal(dest({ userMetadata: { pending_plan: 'enterprise' } }), FREE_DESTINATION, 'an unknown plan never reaches checkout')
   for (const d of [dest({}), dest({ userMetadata: { pending_plan: 'starter' } })]) assert.match(d, /^\/(dashboard|checkout)\//, 'only addresses built here are returned')
@@ -145,7 +145,7 @@ test('wiring: sign-up saves the plan and the confirmation address; sign-in and c
 
 test('wiring: the confirmation page reads the link once, cleans the address, hands over this browser\'s own guest trial only, and never invents a destination', () => {
   const page = read('app/auth/confirm/page.tsx')
-  assert.match(page, /replaceState\(null, '', CONFIRM_PATH\)/); assert.match(page, /establishSessionFromLink\(supabase, link\)/)
+  assert.match(page, /replaceState\(null, '', CONFIRM_PATH\)/); assert.match(page, /establishSessionFromLink\(supabase, link,/)
   assert.doesNotMatch(page, /console\.|trackEvent|localStorage\.setItem|sessionStorage\.setItem/)
   const client = read('lib/auth/continue-client.ts')
   assert.match(client, /finishGuestHandOver\(\)/); assert.match(client, /destinationAfterConfirmation\(/)

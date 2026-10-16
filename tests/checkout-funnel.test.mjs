@@ -53,10 +53,10 @@ test('wiring: the plan button, the sign-up page, the hand-over page and the retu
   assert.equal((login.match(/destinationAfterAuth\(/g) ?? []).length, 4, 'every way of finishing sign-up or sign-in continues the journey')
   assert.doesNotMatch(login, /router\.push\('\/dashboard/, 'no sign-in path ignores the chosen plan')
   // the guest businesses are claimed BEFORE the visitor moves on to checkout
-  const firstClaim = login.indexOf('await claimGuestTrialIfNeeded()'); assert.ok(firstClaim > 0)
+  const firstClaim = login.indexOf('await finishGuestHandOver()'); assert.ok(firstClaim > 0)
   for (const match of login.matchAll(/destinationAfterAuth\(/g)) {
     const before = login.slice(0, match.index)
-    assert.ok(before.lastIndexOf('await claimGuestTrialIfNeeded()') > before.lastIndexOf('const handleAuth') - 1 || before.includes('await claimGuestTrialIfNeeded()'), 'claim runs first')
+    assert.ok(before.lastIndexOf('await finishGuestHandOver()') > before.lastIndexOf('const handleAuth') - 1 || before.includes('await finishGuestHandOver()'), 'claim runs first')
   }
   assert.match(login, /continue to checkout/)
   const start = read('app/checkout/start/page.tsx')
