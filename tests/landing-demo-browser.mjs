@@ -35,7 +35,8 @@ async function scenario(name, device, fn, {reduced = false, clock = false} = {})
     requested.push(url.pathname)
     if (url.origin === new URL(base).origin) return route.continue()
     // The site's existing voice-assistant widget (not part of the demonstration) loads from a third party on every page; it is blocked here.
-    if (!/unpkg\.com\/@elevenlabs/.test(url.href)) blocked.push(url.href)
+    // (On the live site the same applies to its analytics and voice-assistant services, which load on every page and are not the demonstration's.)
+    if (!/unpkg\.com\/@elevenlabs|googletagmanager\.com|google-analytics\.com|elevenlabs\.io|storage\.googleapis\.com/.test(url.href)) blocked.push(url.href)
     return route.abort()
   })
   const page = await context.newPage()
@@ -43,7 +44,12 @@ async function scenario(name, device, fn, {reduced = false, clock = false} = {})
   try { await fn({page, context, blocked, requested}); results.push(true); console.log(`PASS  ${name}`) } catch (error) { results.push(false); console.log(`FAIL  ${name}\n      ${String(error.message || error).split('\n').slice(0, 6).join('\n      ')}`) }
   await browser.close()
 }
-const open = async (page) => { await page.goto(base + '/', {waitUntil: 'domcontentloaded', timeout: 120000}); await page.getByRole('group', {name: /ALPA workflow demonstration/}).waitFor({timeout: 120000}) }
+// React must have taken over before anything is clicked, or the click is lost (it matters on a slow network).
+const open = async (page) => {
+  await page.goto(base + '/', {waitUntil: 'domcontentloaded', timeout: 120000})
+  await page.getByRole('group', {name: /ALPA workflow demonstration/}).waitFor({timeout: 120000})
+  await page.waitForFunction(() => { const el = document.querySelector('[aria-label="Choose a step"] button'); return Boolean(el) && Object.keys(el).some((key) => key.startsWith('__reactProps')) }, null, {timeout: 120000})
+}
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 const activeStage = (page) => page.locator('[role=group][aria-label="Choose a step"] button[aria-pressed="true"] span:nth-of-type(2)').innerText().then((text) => text.trim().toLowerCase().replace(/(^|\s)\w/g, (c) => c.toUpperCase()).replace('Ai Intelligence', 'AI Intelligence'))
 const demo = (page) => page.getByRole('group', {name: /ALPA workflow demonstration/})
