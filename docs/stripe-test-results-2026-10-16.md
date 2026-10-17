@@ -21,8 +21,14 @@ app built and run locally on :3000, `stripe listen` forwarding to it. Production
 | Outage matrix (free, unverifiable paid, webhook-synced paid, Stripe unreachable) | pass: all fail closed |
 | Webhook signature: unsigned, wrong secret, stale timestamp | 400 each; 151 listener deliveries, 150 returned 200, none failed |
 
-## Not covered, and why
-`e2e/run.mjs` (the October 15 suite) still drives the retired Prospector plan ("Start Prospecting", `plan=prospector`), so its scenarios 2+3, 4+5, 8, 10, 11, P4 and 12 fail on
-navigation before reaching any billing code (only 1, 9 and 12x run on the new site, all passing). It needs porting to Starter/Pro or retiring; phase2 and legacy-starter cover its intent
-(checkout, activation, duplicate-checkout 409, cancellation) except the signed-out and cross-account session ownership checks (6, 7) and the paid-search refusal during an outage (12), which should be re-run after porting.
-Email delivery was not exercised: the test project's built-in sender rate-limits signups, so accounts are created through the admin API with a generated confirmation link.
+## Update 2026-10-17: the three remaining gaps are closed
+`e2e/run.mjs` (the October 15 suite, Prospector flows) is retired; its intent is covered by `phase2.mjs`, `legacy-starter.mjs` and the new `billing-security.mjs`.
+The tooling now takes the app's port from `NEXT_PUBLIC_APP_URL` (the env file's `:3321` works as is), restarts the app by port instead of `pkill -f 'next start'`,
+and keeps its logs outside the repository (`E2E_DIR`, default the system temp folder).
+
+`node scripts/test-env/e2e/billing-security.mjs` (from the repository root, production build running, `stripe listen` forwarding): 4 of 4 pass.
+1. Account B cannot look up or activate Account A's checkout session, open or paid: 404, byte-identical to the answer for an unknown id; B stays free with no subscription; A unchanged.
+2. Signed out, and with a forged session: 8 billing operations answer 401 (subscription, session lookup, checkout x2, activation, cancel, resume, change-plan); `/checkout/start` lands on the login form; Stripe's checkout sessions and subscriptions are unchanged.
+3. Stripe unreachable: the search of a webhook-synced paying customer and of a free customer both answer 503 "could not verify your subscription"; usage, research runs, queue and businesses unchanged; the paying customer's search is accepted once Stripe is back.
+4. Webhook unsigned, wrong secret, tampered and stale: 400; signed replay twice: 200 and no change; B cannot read A's business (404, empty under row-level security), change their own plan or call an operator function.
+Email delivery is still not exercised (the test project's sender rate-limits signups; accounts are created through the admin API).

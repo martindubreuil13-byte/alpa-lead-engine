@@ -5,6 +5,7 @@ import fs from 'node:fs'
 
 const env = process.env
 export const BASE = env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+export const PORT = Number(new URL(BASE).port || 3000)
 export const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL
 export const REF = new URL(SUPABASE_URL).hostname.split('.')[0]
 export const PROD_REF = 'hnhptrqdirqofkwimapo'
@@ -89,7 +90,28 @@ export async function scenario(name, fn) {
   void started
 }
 export function check(cond, message) { if (!cond) throw new Error(message) }
-export const listenLog = '/private/tmp/claude-501/e2e/listen.log'
+// Where the runner keeps its app log and the file that records refused Stripe attempts (never inside the repository).
+import os from 'node:os'
+import path from 'node:path'
+import { execSync, spawn } from 'node:child_process'
+export const E2E_DIR = process.env.E2E_DIR || path.join(os.tmpdir(), 'alpa-e2e')
+fs.mkdirSync(E2E_DIR, { recursive: true })
+export const listenLog = path.join(E2E_DIR, 'listen.log')
+export const blockedLog = path.join(E2E_DIR, 'blocked.log')
+/** Stops whatever listens on the app's port and starts `next start` there from the current directory, optionally with every Stripe request refused. */
+export async function restartApp({ blockStripe = false } = {}) {
+  try { execSync(`kill $(lsof -ti tcp:${PORT} -sTCP:LISTEN) 2>/dev/null || true`, { shell: '/bin/sh' }) } catch { /* nothing was listening */ }
+  await sleep(2500)
+  fs.writeFileSync(blockedLog, '')
+  const log = fs.openSync(path.join(E2E_DIR, 'app.log'), 'a')
+  const child = spawn('npx', ['next', 'start', '-p', String(PORT)], {
+    cwd: process.cwd(), detached: true, stdio: ['ignore', log, log],
+    env: { ...process.env, ...(blockStripe ? { NODE_OPTIONS: `--require ${process.cwd()}/tests/helpers/stripe-sandbox.cjs`, STRIPE_BLOCK_LOG: blockedLog } : {}) },
+  })
+  child.unref()
+  await waitFor(async () => (await fetch(`${BASE}/login`)).status === 200, { timeout: 60000, what: 'app restart' })
+}
+export const refusedStripeAttempts = () => fs.readFileSync(blockedLog, 'utf8').trim().split('\n').filter(Boolean).length
 export function webhookDeliveries() {
   if (!fs.existsSync(listenLog)) return []
   const text = fs.readFileSync(listenLog, 'utf8')

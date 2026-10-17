@@ -12,7 +12,7 @@ to `localhost:3000/api/stripe/webhook`.
 - Supabase: URL ref is `xkvraadbvfjlcohdpspg`, not production; 34 tables visible; email provider on, auto-confirm off.
 - No OpenAI, Serper or Google key present; no live Stripe key loaded; the worktree has no `.env.local`.
 
-## Scenarios (`node scripts/test-env/e2e/run.mjs`, one run, dedicated `alpa-billing-*@example.com` accounts)
+## Scenarios (`node scripts/test-env/e2e/run.mjs`, retired on 2026-10-17: see stripe-test-results-2026-10-16.md; one run, dedicated `alpa-billing-*@example.com` accounts)
 | # | Result | Evidence |
 |---|---|---|
 | 1 Guest experience | PASS | 8 seeded businesses, contacts, website facts and one saved AI profile shown (with the website-information disclosure) |
