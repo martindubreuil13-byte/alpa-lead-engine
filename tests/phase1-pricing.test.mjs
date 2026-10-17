@@ -22,7 +22,10 @@ const calls = []
 let price = { active: true, currency: 'usd', unit_amount: 999, type: 'recurring', recurring: { interval: 'month', interval_count: 1, usage_type: 'licensed' } }
 class Stripe {
   prices = { retrieve: async (id) => { calls.push(['price', id]); return price } }
-  customers = {}
+  customers = {
+    create: async (payload) => { calls.push(['customer.create', payload]); return { id: 'cus_new', ...payload } },
+    retrieve: async (id) => { calls.push(['customer.retrieve', id]); return { id, metadata: { user_id: 'owner' } } },
+  }
   checkout = { sessions: { create: async (payload) => { calls.push(['checkout', payload]); return { url: 'https://checkout.example' } } } }
 }
 const stripe = load('lib/stripe.ts', { stripe: { default: Stripe } })
@@ -69,6 +72,32 @@ test('checkout validates monthly USD amount and never applies the preview discou
   delete process.env.STRIPE_ALPA_STARTER_PRICE_ID
   await assert.rejects(stripe.getConfiguredPrice('starter'),/not configured/)
   process.env.STRIPE_ALPA_STARTER_PRICE_ID='new100'
+})
+test('both paid plans require and persist billing addresses, with optional business tax IDs for new and returning customers', async () => {
+  process.env.ALPA_TEST_INTRO_OFFER_ENABLED = 'false'
+  for (const returning of [false, true]) {
+    for (const [plan, amount, priceId] of [['starter', 999, 'new100'], ['pro', 2499, 'new500']]) {
+      calls.length = 0
+      price = { ...price, unit_amount: amount }
+      const customer = await stripe.createStripeCustomer({ customerId: returning ? 'cus_existing' : null, userId: 'owner' })
+      assert.equal(calls[0][0], returning ? 'customer.retrieve' : 'customer.create')
+      await (plan === 'starter' ? stripe.createStarterCheckoutSession : stripe.createProCheckoutSession)({
+        origin: 'https://alpa.example', customerId: customer.id, userId: 'owner',
+      })
+      const payload = calls.find(([name]) => name === 'checkout')[1]
+      assert.equal(payload.customer, returning ? 'cus_existing' : 'cus_new')
+      assert.equal(payload.mode, 'subscription')
+      assert.deepEqual(payload.line_items, [{ price: priceId, quantity: 1 }])
+      assert.equal(payload.billing_address_collection, 'required')
+      assert.deepEqual(payload.customer_update, { address: 'auto', name: 'auto' })
+      assert.deepEqual(payload.tax_id_collection, { enabled: true }, 'no required option: individuals can omit a business tax ID')
+      assert.equal(payload.automatic_tax, undefined, 'collecting tax IDs must not enable automatic tax')
+      assert.equal(payload.subscription_data, undefined, 'no subscription tax rates or subscription modifications')
+      assert.equal(payload.discounts, undefined)
+      assert.equal(payload.allow_promotion_codes, undefined)
+    }
+  }
+  price = { ...price, unit_amount: 999 }
 })
 test('upgrade and downgrade decisions preserve old contracts until reviewed', () => {
   assert.deepEqual(decidePlanChange('starter_100','pro'),{next:'pro',downgrade:false})

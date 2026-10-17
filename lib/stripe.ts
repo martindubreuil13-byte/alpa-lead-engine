@@ -91,6 +91,10 @@ async function createSubscriptionCheckoutSession({
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
+    billing_address_collection: 'required',
+    // Persist billing details for renewals; Stripe requires name updates for existing customers collecting business tax IDs.
+    customer_update: { address: 'auto', name: 'auto' },
+    tax_id_collection: { enabled: true },
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${baseUrl}/post-checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/plans`,
