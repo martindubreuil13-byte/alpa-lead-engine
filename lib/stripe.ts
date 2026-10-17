@@ -94,7 +94,9 @@ async function createSubscriptionCheckoutSession({
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${baseUrl}/post-checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/plans`,
-    ...(introduction ? { discounts: [{ promotion_code: introduction }] } : { allow_promotion_codes: true }),
+    // No promotion-code entry at checkout: any code would be accepted from the account's unrestricted legacy promotions. The only discount
+    // that can apply is the restricted first-month promotion, and that exists in test mode only.
+    ...(introduction ? { discounts: [{ promotion_code: introduction }] } : {}),
     ...(normalizedSource ? { client_reference_id: normalizedSource } : {}),
     metadata: {
       user_id: normalizedUserId ?? '',

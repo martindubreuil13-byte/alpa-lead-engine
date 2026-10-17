@@ -52,9 +52,14 @@ test('checkout validates monthly USD amount and never applies the preview discou
   const payload = calls.find(([name]) => name === 'checkout')[1]
   assert.equal(payload.line_items[0].price,'new100')
   assert.equal(payload.discounts,undefined)
+  assert.equal(payload.allow_promotion_codes,undefined,'promotion-code entry is off at checkout')
+  assert.equal(payload.mode,'subscription')
   assert.equal(await stripe.getConfiguredPrice('starter'),'new100')
   price = {...price,unit_amount:2499}
   assert.equal(await stripe.getConfiguredPrice('pro'),'new500')
+  await stripe.createProCheckoutSession({ origin:'http://localhost', customerId:'cus', userId:'user' })
+  const proPayload = calls.filter(([name]) => name === 'checkout').at(-1)[1]
+  assert.equal(proPayload.line_items[0].price,'new500'); assert.equal(proPayload.allow_promotion_codes,undefined); assert.equal(proPayload.discounts,undefined)
   price = {...price,unit_amount:999}
   for (const over of [{unit_amount:2999},{currency:'cad'},{active:false},{recurring:{interval:'year',interval_count:1,usage_type:'licensed'}},{recurring:{interval:'month',interval_count:2,usage_type:'licensed'}}]) {
     const saved=price;price={...saved,...over};await assert.rejects(stripe.getConfiguredPrice('starter'),/does not match/);price=saved

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 import PublicHeader from '@/components/site/PublicHeader'
-import { LEGAL_DRAFT, LEGAL_PAGES } from '@/lib/legal'
+import { LEGAL_DRAFT, LEGAL_ENTITY, LEGAL_PAGES, LEGAL_UPDATED } from '@/lib/legal'
 
 export function legalMetadata(title: string, description: string, path: string): Metadata {
   return {
@@ -19,18 +19,6 @@ export function LegalSection({ id, title, children }: { id: string; title: strin
       <h2 className="text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl">{title}</h2>
       <div className="mt-4 space-y-4 text-base leading-7 text-slate-300">{children}</div>
     </section>
-  )
-}
-
-/** A decision that belongs to the owner. Shown on the draft so it cannot be published unnoticed; remove it once decided. */
-export function OwnerDecision({ id, children }: { id: string; children: React.ReactNode }) {
-  return (
-    <aside
-      data-owner-decision={id}
-      className="rounded-2xl border border-amber-300/40 bg-amber-300/[0.07] px-4 py-3 text-sm leading-6 text-amber-100"
-    >
-      <strong className="font-semibold">Owner decision {id}.</strong> {children}
-    </aside>
   )
 }
 
@@ -59,6 +47,7 @@ export default function LegalDocument({
           <header>
             <h1 className="text-[2.2rem] font-semibold leading-[1.05] tracking-[-0.05em] sm:text-5xl">{title}</h1>
             <p className="mt-5 text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">{intro}</p>
+            <p className="mt-3 text-sm text-slate-400">Last updated {LEGAL_UPDATED}</p>
           </header>
 
           {LEGAL_DRAFT ? (
@@ -67,8 +56,7 @@ export default function LegalDocument({
               data-legal-draft
               className="rounded-2xl border border-amber-300/50 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100"
             >
-              <strong className="font-semibold">Draft for owner review. Not yet in force.</strong> This text describes how ALPA works today and
-              marks every point that needs a legal or business decision. It is not legal advice and must be reviewed before it is published.
+              <strong className="font-semibold">Draft. Not in force.</strong> This page is being reworked and must not be relied on.
             </div>
           ) : null}
 
@@ -86,6 +74,11 @@ export default function LegalDocument({
           {children}
 
           <footer className="border-t border-white/8 pt-6 text-sm text-slate-400">
+            <p className="mb-4 leading-6" data-legal-entity>
+              ALPA is provided by {LEGAL_ENTITY.name}, registry code {LEGAL_ENTITY.registryCode}, registration number {LEGAL_ENTITY.registrationNumber},
+              registered office {LEGAL_ENTITY.address}. Contact:{' '}
+              <a href={`mailto:${LEGAL_ENTITY.contactEmail}`} className="text-slate-200 underline underline-offset-2">{LEGAL_ENTITY.contactEmail}</a>.
+            </p>
             <p className="flex flex-wrap gap-x-5 gap-y-2">
               {LEGAL_PAGES.map((page) => (
                 <Link key={page.href} href={page.href} className={page.href === activePath ? 'text-white' : 'transition hover:text-white'}>

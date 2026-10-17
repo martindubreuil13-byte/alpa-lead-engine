@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
-import LegalDocument, { LegalSection, OwnerDecision, legalMetadata } from '@/components/legal/LegalDocument'
+import LegalDocument, { LegalSection, legalMetadata } from '@/components/legal/LegalDocument'
+import { LEGAL_ENTITY } from '@/lib/legal'
 
 export const metadata = legalMetadata(
   'Privacy Policy',
@@ -10,18 +11,18 @@ export const metadata = legalMetadata(
 
 const contents = [
   { id: 'controller', title: 'Who is responsible' },
-  { id: 'collect', title: 'What we collect' },
+  { id: 'collect', title: 'What we collect about you' },
   { id: 'business-data', title: 'Business information in search results' },
-  { id: 'use', title: 'How we use it' },
+  { id: 'use', title: 'How we use it and why' },
   { id: 'providers', title: 'Service providers' },
+  { id: 'transfers', title: 'Where data is processed' },
   { id: 'cookies', title: 'Cookies, storage and analytics' },
   { id: 'retention', title: 'How long we keep it' },
-  { id: 'rights', title: 'Your choices and rights' },
+  { id: 'rights', title: 'Your rights and how to use them' },
   { id: 'security', title: 'Security' },
-  { id: 'transfers', title: 'Where data is processed' },
   { id: 'children', title: 'Children' },
   { id: 'changes', title: 'Changes' },
-  { id: 'contact', title: 'Contact' },
+  { id: 'contact', title: 'Contact and complaints' },
 ]
 
 const providers: { name: string; role: string }[] = [
@@ -31,8 +32,13 @@ const providers: { name: string; role: string }[] = [
   { name: 'Resend', role: 'sending account emails such as confirmation and password reset' },
   { name: 'Google Places and Serper', role: 'finding businesses; they receive your search words and location, not your identity' },
   { name: 'OpenAI', role: 'AI summaries of public business information' },
-  { name: 'Google Analytics', role: 'website statistics, only where it is switched on' },
+  { name: 'Google Analytics', role: 'website statistics' },
 ]
+
+const link = 'text-cyan-200 underline underline-offset-4'
+const mail = (
+  <a href={`mailto:${LEGAL_ENTITY.contactEmail}`} className={link}>{LEGAL_ENTITY.contactEmail}</a>
+)
 
 export default function PrivacyPage() {
   return (
@@ -43,52 +49,42 @@ export default function PrivacyPage() {
       contents={contents}
     >
       <LegalSection id="controller" title="Who is responsible">
-        <p>ALPA is a product of MINDRA and is responsible for the information described as “yours” below.</p>
-        <OwnerDecision id="P1">
-          Name the legal entity, its address and the person responsible for privacy (required by Quebec’s Law 25 and by privacy laws elsewhere).
-          None is invented here.
-        </OwnerDecision>
+        <p>
+          The controller of your personal information is {LEGAL_ENTITY.name} (registry code {LEGAL_ENTITY.registryCode}, registration number{' '}
+          {LEGAL_ENTITY.registrationNumber}), {LEGAL_ENTITY.address}. Contact for all privacy matters: {mail}.
+        </p>
       </LegalSection>
 
-      <LegalSection id="collect" title="What we collect">
+      <LegalSection id="collect" title="What we collect about you">
         <p><strong className="text-white">Account.</strong> Your email address, your password (kept by our sign-in provider in protected form, never in readable form), when you signed up and your plan.</p>
         <p><strong className="text-white">What you do in ALPA.</strong> The searches you run (business type and location), the businesses you save, your lists and notes, your usage against your quota, and the actions that let us give you the product, such as exporting a CSV.</p>
-        <p><strong className="text-white">Trial.</strong> Without an account, your trial results and a trial identifier are kept in your browser and on our servers so the results survive a reload and can be moved into an account if you sign up.</p>
+        <p><strong className="text-white">Trial.</strong> Without an account, your trial results and a trial identifier are kept in your browser and on our servers so that the results survive a reload and can be moved into an account if you sign up.</p>
         <p><strong className="text-white">Billing.</strong> Stripe handles your card. We keep identifiers that link your account to your Stripe customer and subscription, the plan, its status and renewal dates.</p>
-        <p><strong className="text-white">Website activity.</strong> Pages and buttons used, the page you came from and campaign tags in the link (UTM), approximate device type and browser, used to understand which pages and plans work.</p>
+        <p><strong className="text-white">Website activity.</strong> Pages and buttons used, the page you came from, campaign tags in the link (UTM), and approximate device type and browser, so that we can understand which pages and plans work and keep the service running.</p>
         <p><strong className="text-white">Support.</strong> What you send us when you write to us.</p>
-        <OwnerDecision id="P2">
-          Confirm this list against what you want to collect, and decide whether IP addresses or server logs are kept and for how long.
-        </OwnerDecision>
       </LegalSection>
 
       <LegalSection id="business-data" title="Business information in search results">
         <p>
-          ALPA assembles information about businesses from third-party sources and from their public websites: names, addresses, phone
-          numbers, websites, ratings, categories and email addresses. Some of it can identify a person, such as an email address for a sole
-          proprietor. ALPA processes it to provide the service to you, and you are responsible for how you use it afterwards.
+          ALPA assembles information about businesses from third-party sources and from their public websites: names, addresses, phone numbers, websites,
+          ratings, categories and email addresses. Some of it can identify a person, for example an email address of a sole trader. We process it to provide
+          the service to you; you are responsible for how you use it afterwards (see the <Link href="/terms" className={link}>Terms of Service</Link>).
         </p>
-        <p>If you are named in a result and want it removed, contact us as described below and we will review the request.</p>
-        <OwnerDecision id="P3">
-          This is the highest-risk privacy question in the product. A lawyer should confirm the lawful basis for collecting business contact
-          data, whether a notice to the businesses is needed, a removal (opt-out) process and its response time, and the position for
-          individuals in the EU, UK and Quebec.
-        </OwnerDecision>
+        <p>
+          If you are named in a result and want it corrected or removed, write to {mail}. We will review the request and act on it as the law requires.
+          Removing a business from ALPA’s results does not remove it from the third-party sources it came from.
+        </p>
       </LegalSection>
 
-      <LegalSection id="use" title="How we use it">
+      <LegalSection id="use" title="How we use it and why">
         <ul className="list-disc space-y-1 pl-6">
-          <li>to run the service: sign you in, find and save businesses, apply your plan and quota, and export your lists;</li>
-          <li>to take payment and manage your subscription;</li>
-          <li>to send account emails (confirmation, password reset and billing messages) that you need;</li>
-          <li>to keep ALPA secure, prevent abuse and fix problems;</li>
-          <li>to understand usage and improve the product and its costs.</li>
+          <li>to run the service you asked for (sign you in, find and save businesses, apply your plan and quota, export your lists) and to take payment and manage your subscription. Basis: performing our contract with you;</li>
+          <li>to keep ALPA secure, prevent abuse, fix problems and understand how it is used. Basis: our legitimate interests in a safe and working service;</li>
+          <li>to provide business information to our customers for B2B prospecting. Basis: our and our customers’ legitimate interests, balanced against the rights of the people concerned, who can object as described above;</li>
+          <li>to keep payment and accounting records. Basis: our legal obligations;</li>
+          <li>to set analytics cookies, where that requires your consent. Basis: your consent.</li>
         </ul>
-        <p>We do not sell your personal information.</p>
-        <OwnerDecision id="P4">
-          Decide whether you will send product or marketing emails. None are sent today without separate approval, and any such email needs a
-          consent and unsubscribe process. Confirm “we do not sell” is a promise you want to make.
-        </OwnerDecision>
+        <p>We send you account emails (confirmation, password reset and billing messages) that you need to use the service. We do not send marketing emails, and we do not sell your personal information.</p>
       </LegalSection>
 
       <LegalSection id="providers" title="Service providers">
@@ -101,74 +97,66 @@ export default function PrivacyPage() {
           ))}
         </ul>
         <p>We may also disclose information where the law requires it or to protect our rights, and to a successor if the business is sold.</p>
-        <OwnerDecision id="P5">
-          Confirm this list is complete and current when you publish, and whether data-processing agreements are in place with each provider.
-          Review whether the AI provider may keep or train on inputs under your account terms.
-        </OwnerDecision>
+      </LegalSection>
+
+      <LegalSection id="transfers" title="Where data is processed">
+        <p>
+          Our database is hosted by Supabase in the United States. Our other providers may also process information outside the European Economic Area.
+          Where we transfer personal information outside the EEA, we rely on a safeguard the GDPR allows for that transfer, such as an adequacy decision or
+          standard contractual clauses. You can ask us for information about these safeguards.
+        </p>
       </LegalSection>
 
       <LegalSection id="cookies" title="Cookies, storage and analytics">
         <p>
-          ALPA uses cookies and browser storage that are needed to keep you signed in, hold your trial and remember your plan choice while you
-          sign up. It also keeps campaign tags from the link you arrived on for the visit. Where website analytics is switched on, Google
-          Analytics sets its own cookies and receives page and event data.
+          ALPA uses cookies and browser storage that are needed to keep you signed in, hold your trial and remember your plan choice while you sign up.
+          It also keeps campaign tags from the link you arrived on for the length of the visit. Where Google Analytics is switched on, it sets its own cookies and
+          receives page and event data about your visit.
         </p>
-        <OwnerDecision id="P6">
-          Decide whether a cookie consent notice is required for the visitors you target, and whether analytics should wait for consent.
-          Currently analytics loads whenever an analytics ID is configured.
-        </OwnerDecision>
       </LegalSection>
 
       <LegalSection id="retention" title="How long we keep it">
-        <OwnerDecision id="P7">
-          Set the retention periods: account data after cancellation or deletion, an unclaimed trial, saved businesses, billing records (tax
-          law usually requires some to be kept for years), and server logs. No periods are stated because none have been decided.
-        </OwnerDecision>
+        <p>
+          We keep your account and your saved business data while your account is open. If you ask us to delete your account we delete your personal
+          information and the saved data linked to it, except records we are legally required to keep. Payment and accounting records are kept for as long
+          as the law requires. Trial results that are not moved into an account are kept only as long as needed to run the trial.
+        </p>
       </LegalSection>
 
-      <LegalSection id="rights" title="Your choices and rights">
+      <LegalSection id="rights" title="Your rights and how to use them">
         <p>
-          You can ask to see, correct, export or delete the information we hold about you, or to object to or limit how it is used, subject
-          to what the law requires us to keep. You can also cancel your subscription at any time (see the{' '}
-          <Link href="/refund-policy" className="text-cyan-200 underline underline-offset-4">Refund and Cancellation Policy</Link>).
+          Under the GDPR you can ask us for access to your personal information, to correct it, to delete it, to restrict or object to how we use it, and to
+          receive it in a portable form. Where we rely on your consent you can withdraw it at any time. You can also cancel your subscription at any time (see the{' '}
+          <Link href="/refund-policy" className={link}>Refund and Cancellation Policy</Link>).
         </p>
-        <OwnerDecision id="P8">
-          State how requests are made, how identity is checked, the response time, and whether there is a self-service account deletion in
-          the product (there is none today). Add the complaint route for your regulator.
-        </OwnerDecision>
+        <p>
+          To use any of these rights, including account deletion, email {mail}. At present these requests are handled by our team on request; there is no
+          self-service deletion button in the product. We may need to confirm that the request comes from the account holder. We respond within the time the law
+          requires.
+        </p>
       </LegalSection>
 
       <LegalSection id="security" title="Security">
         <p>
-          Sign-in is handled by a dedicated provider, data is held in an access-controlled database, payments run through Stripe, and
-          connections use encryption in transit. No system is perfectly secure, and we cannot promise that information will never be accessed without permission.
+          Sign-in is handled by a dedicated provider, data is held in an access-controlled database where each customer can read only their own records, payments
+          run through Stripe, and connections use encryption in transit. No system is perfectly secure, and we cannot promise that information will never be
+          accessed without permission. Where the law requires it, we will notify the authority and the people affected of a breach.
         </p>
-        <OwnerDecision id="P9">
-          Decide the breach-notification commitment, and avoid stating security practices that are not in place.
-        </OwnerDecision>
-      </LegalSection>
-
-      <LegalSection id="transfers" title="Where data is processed">
-        <p>Our providers may process information in Canada, the United States and other countries.</p>
-        <OwnerDecision id="P10">
-          Confirm the actual hosting and database regions, and add the cross-border transfer wording your laws require.
-        </OwnerDecision>
       </LegalSection>
 
       <LegalSection id="children" title="Children">
         <p>ALPA is a business tool and is not directed at children. We do not knowingly collect their information.</p>
-        <OwnerDecision id="P11">Confirm the age threshold (see Terms decision T2).</OwnerDecision>
       </LegalSection>
 
       <LegalSection id="changes" title="Changes">
-        <p>If we change this policy in a material way we will update the page and tell account holders. The date it last changed is shown below once it is published.</p>
-        <OwnerDecision id="P12">Add the effective date at approval.</OwnerDecision>
+        <p>If we change this policy in a material way we will update this page and give notice to account holders. The date of the latest update is shown at the top.</p>
       </LegalSection>
 
-      <LegalSection id="contact" title="Contact">
-        <OwnerDecision id="P13">
-          Provide the privacy contact email and postal address. None is invented here.
-        </OwnerDecision>
+      <LegalSection id="contact" title="Contact and complaints">
+        <p>
+          Privacy questions and requests: {mail}. {LEGAL_ENTITY.name}, {LEGAL_ENTITY.address}. If you are not satisfied with our answer you can complain to the
+          Estonian Data Protection Inspectorate (Andmekaitse Inspektsioon, aki.ee) or to the data-protection authority of the country where you live or work.
+        </p>
       </LegalSection>
     </LegalDocument>
   )

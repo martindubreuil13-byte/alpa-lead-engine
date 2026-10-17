@@ -37,6 +37,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.8,
     },
+    ...['terms', 'privacy', 'refund-policy'].map((slug) => ({
+      url: `${baseUrl}/${slug}`,
+      lastModified: '2026-10-17',
+      changeFrequency: 'yearly' as const,
+      priority: 0.3,
+    })),
     ...resourceUrls,
   ]
 }

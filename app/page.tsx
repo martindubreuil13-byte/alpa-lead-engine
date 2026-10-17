@@ -90,14 +90,21 @@ export default function HomePage() {
                 name: 'Free Trial',
                 price: '0',
                 priceCurrency: 'USD',
-                description: '25 free leads',
+                description: '25 businesses, lifetime',
+              },
+              {
+                '@type': 'Offer',
+                name: 'ALPA Starter',
+                price: '9.99',
+                priceCurrency: 'USD',
+                description: '100 businesses per month',
               },
               {
                 '@type': 'Offer',
                 name: 'ALPA Pro',
                 price: '24.99',
                 priceCurrency: 'USD',
-                description: '500 leads per month',
+                description: '500 businesses per month',
               },
             ],
             creator: {
@@ -105,6 +112,14 @@ export default function HomePage() {
               name: 'MINDRA Solutions',
               legalName: 'MINDRA (AI) Solutions OÜ Ltd',
               url: 'https://mindrasolutions.com',
+              email: 'info@mindrasolutions.com',
+              address: {
+                '@type': 'PostalAddress',
+                streetAddress: 'Narva mnt 5',
+                postalCode: '10117',
+                addressLocality: 'Tallinn',
+                addressCountry: 'EE',
+              },
             },
           }),
         }}

@@ -10,7 +10,9 @@ try {
   const page=await context.newPage()
   await page.goto(base+'/plans')
   for(const text of ['ALPA Free','ALPA Starter','ALPA Pro','$9.99','$24.99','100 businesses / month','500 businesses / month']) await page.getByText(text,{exact:true}).first().waitFor()
-  await page.getByText(/Not active yet.*regular prices apply/).waitFor()
+  assert.equal(await page.getByText(/Upcoming offer|Not active yet|coupon/i).count(),0,'no unfinished offer text')
+  await page.getByText(/Free includes 25 businesses, lifetime/).waitFor()
+  for(const link of ['Terms','Privacy Policy','Refund & Cancellation Policy']) assert.ok(await page.getByRole('link',{name:link}).count()>0,`${link} link`)
   assert.equal(await page.getByText('Prospector',{exact:true}).count(),0)
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
   if(process.env.PRICING_SCREENSHOT_DIR) await page.screenshot({path:process.env.PRICING_SCREENSHOT_DIR+`/pricing-${name}.png`,fullPage:true})
@@ -19,7 +21,7 @@ try {
   await page.goto(base+'/plans')
   await page.getByRole('button',{name:'Choose Pro',exact:true}).click()
   await page.waitForURL('**/login?mode=signup&plan=pro&source=plans_pro')
-  console.log(`PASS ${name}: prices, allowances, inactive offer, fit and both account-first plan selections`)
+  console.log(`PASS ${name}: prices, allowances, no offer text, legal links, fit and both account-first plan selections`)
   await context.close()
  }
 } finally {await browser.close()}

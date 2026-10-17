@@ -1,7 +1,8 @@
-import LegalLinks from '@/components/legal/LegalLinks'
 import type { Metadata } from 'next'
+import Link from 'next/link'
 
 import StartCheckoutButton from '@/components/checkout/StartCheckoutButton'
+import LegalLinks from '@/components/legal/LegalLinks'
 import FreeTrialPlanLink from '@/components/plans/FreeTrialPlanLink'
 import BackToLeadsButton from '@/components/plans/BackToLeadsButton'
 import PlanCard, { type PlanCardProps } from '@/components/plans/PlanCard'
@@ -10,7 +11,7 @@ import PlansPageTracker from '@/components/tracking/PlansPageTracker'
 
 const pageTitle = 'Pricing & Plans for Lead Generation | ALPA'
 const pageDescription =
-  'ALPA plans start free — get 25 verified leads instantly. ALPA Starter: 100 businesses/month for $9.99. ALPA Pro: 500 businesses/month for $24.99. Free: 25 businesses, one time. Find real business contacts with website, email, and phone.'
+  'ALPA plans start free — get 25 verified leads instantly. ALPA Starter: 100 businesses/month for $9.99. ALPA Pro: 500 businesses/month for $24.99. Free: 25 businesses, lifetime. Find real business contacts with website, email, and phone.'
 
 export const metadata: Metadata = {
   title: {
@@ -33,8 +34,8 @@ export const metadata: Metadata = {
 }
 
 const plans: PlanCardProps[] = [
-  { name: 'ALPA Free', price: 'Free', description: 'Try ALPA with 25 businesses, one time.',
-    features: ['25 businesses · one-time allowance', 'CSV export', 'Website & business details', 'At least 1 contact point'],
+  { name: 'ALPA Free', price: 'Free', description: 'Try ALPA with 25 businesses, lifetime.',
+    features: ['25 businesses · lifetime allowance', 'CSV export', 'Website & business details', 'At least 1 contact point'],
     ctaLabel: 'Start Free', href: '/dashboard/scraper' },
   { name: 'ALPA Starter', price: '$9.99', priceSuffix: '/ month', description: 'For regular prospecting.',
     features: ['100 businesses / month', 'CSV export', 'Save & export business lists'],
@@ -80,11 +81,14 @@ export default function PlansPage() {
               <PlanCard key={plan.name} {...plan} />
             ))}
           </div>
-
-          <p className="mt-6 text-center text-sm text-slate-300">Upcoming offer: 50% off your first month. Not active yet — regular prices apply until the Stripe coupon is configured and verified.</p>
           {/* Trust line */}
-          <p className="mt-8 text-center text-xs text-slate-600">
-            Paid plans are billed monthly. Cancel anytime. Free includes 25 businesses, one time. Monthly allowances reset on the usage date shown in your account; unused businesses do not roll over.
+          <p className="mt-8 text-center text-xs leading-5 text-slate-500">
+            Paid plans are billed monthly in advance and renew until cancelled. Cancel anytime; paid access continues to the end of the period you have paid for.
+            Free includes 25 businesses, lifetime. Monthly allowances reset on the usage date shown in your account; unused businesses do not roll over.
+            Prices are in US dollars. See the{' '}
+            <Link href="/terms" className="underline underline-offset-2 hover:text-white">Terms</Link>,{' '}
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-white">Privacy Policy</Link> and{' '}
+            <Link href="/refund-policy" className="underline underline-offset-2 hover:text-white">Refund &amp; Cancellation Policy</Link>.
           </p>
         </div>
       </section>
