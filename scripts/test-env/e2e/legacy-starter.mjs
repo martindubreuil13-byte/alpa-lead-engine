@@ -3,7 +3,7 @@
 // It is created through the Stripe API (the legacy price is no longer sold, so there is no checkout for it) and delivered to the app by
 // the real webhook listener. Checks: the plan and 500 allowance are recognised, the subscription is untouched by new-plan checkout
 // attempts (409, no new Stripe session), the allowance and guest-import paths treat it as paid, and a lapsed unlinked profile does not.
-//   Needs the app on NEXT_PUBLIC_APP_URL and `stripe listen --forward-to localhost:3000/api/stripe/webhook` running.
+//   Needs the app on NEXT_PUBLIC_APP_URL and `stripe listen --forward-to <NEXT_PUBLIC_APP_URL>/api/stripe/webhook` running.
 import { BASE, PASSWORD, assertIsolated, authAdmin, check, createUser, profileOf, rest, rows, scenario, sessionCookies, signIn, sleep, stripe, waitFor, results } from './lib.mjs'
 
 assertIsolated()

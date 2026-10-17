@@ -28,6 +28,8 @@ const {world, resetWorld, addUser, signIn, pay} = await import('./fixtures/billi
 const {POST: startCheckout} = await import('../app/api/checkout/route.ts')
 const {GET: lookup} = await import('../app/api/checkout/session/route.ts')
 const {POST: activate} = await import('../app/api/post-checkout/activate/route.ts')
+const {POST: cancelSub} = await import('../app/api/billing/cancel/route.ts')
+const {POST: resumeSub} = await import('../app/api/billing/resume/route.ts')
 const {GET: subscriptionRoute} = await import('../app/api/auth/subscription/route.ts')
 const {getUserProfile} = await import('../lib/auth/get-user-profile.ts')
 const {isPaid} = await import('../lib/auth/access.ts')
@@ -71,16 +73,25 @@ test('3. another account cannot use or even look up that session', async () => {
   const sessionId = sessionIdOf((await startFor()).body.url); pay(sessionId)
   signIn(C); await startFor() // C has a customer of its own
   const cBefore = JSON.stringify(world.profiles.get(C))
+  const aBefore = JSON.stringify(world.profiles.get(A)) // Gap 1: capture A's state before any hijacking attempt
   const looked = await lookup(new Request(`https://alpa.example/api/checkout/session?session_id=${sessionId}`))
   assert.equal(looked.status, 404)
   const unknown = await lookup(new Request('https://alpa.example/api/checkout/session?session_id=cs_missing'))
   assert.equal(unknown.status, 404); assert.deepEqual(await looked.json(), await unknown.json(), 'a foreign session looks exactly like an unknown one')
   const stolen = await post(activate, '/api/post-checkout/activate', {sessionId})
   assert.equal(stolen.status, 404)
-  assert.equal(JSON.stringify(world.profiles.get(C)), cBefore, 'the other account gained nothing'); assert.equal(world.syncCalls.length, 0)
+  // Gap 1: neither account's entitlement is wrongly changed
+  assert.equal(JSON.stringify(world.profiles.get(C)), cBefore, "C gained nothing from the hijacking attempt")
+  assert.equal(JSON.stringify(world.profiles.get(A)), aBefore, "A's entitlement is also unchanged after the hijacking attempt")
+  assert.equal(world.syncCalls.length, 0, 'no subscription sync was triggered')
   signIn(null)
   assert.equal((await post(activate, '/api/post-checkout/activate', {sessionId})).status, 401, 'signed-out callers are refused')
   assert.equal((await lookup(new Request(`https://alpa.example/api/checkout/session?session_id=${sessionId}`))).status, 401)
+  // Gap 1: A can still legitimately activate their own session after the failed hijacking attempts
+  signIn(A)
+  assert.equal((await post(activate, '/api/post-checkout/activate', {sessionId})).status, 200, 'A can still activate their own session')
+  assert.equal(world.profiles.get(A).plan, 'starter_100', "A's plan is correctly activated")
+  assert.equal(world.profiles.get(C).plan, 'free', "C remains free throughout")
 })
 
 test('4. a stale checkout session cannot replace the subscription the account has now', async () => {
@@ -148,4 +159,18 @@ test('9. Stripe unreachable during checkout fails cleanly and starts nothing', a
   const result = await startFor()
   assert.equal(result.status, 500); assert.equal(world.stripeSessionsCreated, 0)
   assert.doesNotMatch(JSON.stringify(result.body), /Stripe|connection/i, 'no internal detail is shown')
+})
+
+test('10. (Gap 2) signed-out callers are refused on every protected billing operation', async () => {
+  // A signed-out caller must receive 401 from every billing endpoint before any Stripe or database
+  // write occurs. This regression closes the gap left by the static source checks in billing-security.test.mjs.
+  resetWorld(); addUser(A); signIn(null)
+  const sessionId = 'cs_hypothetical'
+  assert.equal((await startFor()).status, 401, 'checkout start requires sign-in')
+  assert.equal((await post(activate, '/api/post-checkout/activate', {sessionId})).status, 401, 'activation requires sign-in')
+  assert.equal((await lookup(new Request(`https://alpa.example/api/checkout/session?session_id=${sessionId}`))).status, 401, 'session lookup requires sign-in')
+  assert.equal((await cancelSub(new Request('https://alpa.example/api/billing/cancel', {method: 'POST'}))).status, 401, 'cancel requires sign-in')
+  assert.equal((await resumeSub(new Request('https://alpa.example/api/billing/resume', {method: 'POST'}))).status, 401, 'resume requires sign-in')
+  assert.equal(world.syncCalls.length, 0, 'no subscription was touched')
+  assert.equal(world.stripeSessionsCreated, 0, 'Stripe was never asked')
 })

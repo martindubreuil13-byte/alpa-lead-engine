@@ -87,3 +87,9 @@ export async function resolveUserSubscription(userId) { if (world.stripeDown) th
 export async function readStoredSubscription(userId) { return storedOf(userId) }
 
 export const NextResponse = { json: (data, init) => new Response(JSON.stringify(data), { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } }) }
+
+// Stubs for billing management routes (cancel, resume). These are only called when signed in; the
+// signed-out path returns 401 before any of these are reached, which is what the Gap 2 tests verify.
+export const getCurrentPeriodEnd = (_s) => null
+export const cancelSubscription = async () => { throw new Error('cancelSubscription should not be reached in signed-out test') }
+export const resumeSubscription = async () => { throw new Error('resumeSubscription should not be reached in signed-out test') }
